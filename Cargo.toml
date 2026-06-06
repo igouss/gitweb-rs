@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/domain",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.93"
+license = "GPL-2.0-only"
+repository = "https://github.com/elendal/gitweb_in_rust"
+
+[workspace.dependencies]
+# Async BDD test harness (Gherkin .feature files).
+cucumber = "0.23"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

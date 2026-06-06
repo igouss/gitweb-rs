@@ -1,0 +1,23 @@
+[package]
+name = "gitweb-domain"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Framework-free git-domain entities, ports, and use cases for gitweb-rs."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+
+[dev-dependencies]
+cucumber = { workspace = true }
+tokio = { workspace = true }
+
+# Gherkin-driven BDD runner for domain rules. cucumber supplies its own main(),
+# so the default libtest harness is disabled.
+[[test]]
+name = "domain"
+harness = false
