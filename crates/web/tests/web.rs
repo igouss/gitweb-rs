@@ -23,7 +23,7 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
-use gitweb_web::handlers::ProjectListHandler;
+use gitweb_web::handlers::{HeadsHandler, ProjectListHandler};
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
 use gitweb_web::{Dispatcher, Handler, router};
@@ -138,6 +138,17 @@ fn given_root_with_repo(world: &mut WebWorld, name: String) {
 #[given(regex = r#"^the root also contains repository "([^"]*)"$"#)]
 fn given_also_repo(world: &mut WebWorld, name: String) {
     root(world).add_repo(&name);
+}
+
+#[given(regex = r#"^a repository "([^"]*)" with an unborn HEAD$"#)]
+fn given_unborn_repo(world: &mut WebWorld, name: String) {
+    ensure_root(world);
+    root(world).add_empty_repo(&name);
+}
+
+#[given(regex = r#"^the repository "([^"]*)" has branch "([^"]*)" committed at (\d+)$"#)]
+fn given_repo_branch(world: &mut WebWorld, name: String, branch: String, epoch: i64) {
+    root(world).add_branch_at(&name, &branch, epoch);
 }
 
 // --- Whens -------------------------------------------------------------------
@@ -290,6 +301,16 @@ fn given_project_list_served(world: &mut WebWorld) {
     let settings: Arc<Settings> = Arc::new(Settings::builtin());
     let handler: Arc<dyn Handler> = Arc::new(ProjectListHandler::new(store, settings));
     world.dispatcher.register(Action::ProjectList, handler);
+}
+
+#[given("the heads action is served")]
+fn given_heads_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(Settings::builtin());
+    let handler: Arc<dyn Handler> = Arc::new(HeadsHandler::new(store, settings));
+    world.dispatcher.register(Action::Heads, handler);
 }
 
 // --- When: drive the assembled router with one in-process request ------------

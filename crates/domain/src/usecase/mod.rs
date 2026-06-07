@@ -8,4 +8,5 @@
 //! HTTP, gix, or HTML — so the web and render adapters consume its output
 //! without the domain knowing they exist.
 
+pub mod heads;
 pub mod project_list;

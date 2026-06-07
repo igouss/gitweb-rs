@@ -12,6 +12,8 @@
 //! [`View`]: crate::response::View
 //! [`Dispatcher`]: crate::dispatch::Dispatcher
 
+pub mod heads;
 pub mod project_list;
 
+pub use heads::HeadsHandler;
 pub use project_list::ProjectListHandler;

@@ -16,5 +16,6 @@ pub mod assets;
 pub mod chrome;
 pub mod error;
 pub mod escape;
+pub mod heads;
 pub mod markup;
 pub mod project_list;

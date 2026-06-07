@@ -9,7 +9,6 @@
 //! ages are computed against a real `now` while the domain stays clock-free.
 
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::request::Request;
@@ -25,6 +24,7 @@ use gitweb_render::project_list::{
 };
 
 use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
+use crate::clock::now_epoch;
 use crate::dispatch::Handler;
 use crate::response::View;
 use crate::url::href;
@@ -55,15 +55,6 @@ impl Handler for ProjectListHandler {
         )?;
         Ok(View::html(render_page(&self.settings, &view)))
     }
-}
-
-/// The request-time epoch the relative ages are measured against. A clock before
-/// the Unix epoch is clamped to 0 rather than panicking.
-fn now_epoch() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX))
-        .unwrap_or(0)
 }
 
 /// Maps the use-case view to the render view-model and wraps the assembled body

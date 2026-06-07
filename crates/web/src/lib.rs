@@ -14,6 +14,7 @@
 //! gitweb's precedence before validating the whole into a `Request`.
 
 pub mod assets;
+pub mod clock;
 pub mod dispatch;
 pub mod handlers;
 pub mod request;
@@ -22,6 +23,6 @@ pub mod server;
 pub mod url;
 
 pub use dispatch::{Dispatcher, Handler};
-pub use handlers::ProjectListHandler;
+pub use handlers::{HeadsHandler, ProjectListHandler};
 pub use response::View;
 pub use server::router;

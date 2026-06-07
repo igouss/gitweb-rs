@@ -16,6 +16,7 @@ use gitweb_render::error::{ErrorResponse, HttpStatus, error_page, error_response
 use gitweb_render::escape::{
     esc_attr, esc_html, esc_html_nbsp, esc_param, esc_path, esc_path_info, esc_url,
 };
+use gitweb_render::heads::{HeadEntryView, HeadsTable, heads_table};
 use gitweb_render::markup::{Markup, html, raw};
 use gitweb_render::project_list::{
     ProjectLinks, ProjectList, ProjectRow, SortHeader, project_list,
@@ -29,6 +30,7 @@ struct RenderWorld {
     nav_items: Vec<NavItem>,
     footer_links: Vec<FooterLink>,
     project_rows: Vec<ProjectRow>,
+    head_entries: Vec<HeadEntryView>,
     domain_error: Option<DomainError>,
     status: Option<HttpStatus>,
     output: Option<String>,
@@ -413,6 +415,57 @@ fn when_render_project_list(world: &mut RenderWorld, order: String) {
         rows: std::mem::take(&mut world.project_rows),
     };
     world.output = Some(project_list(&list).into_string());
+}
+
+// ---- Heads table ------------------------------------------------------------
+
+/// Builds a head row from a base href: the name links to `base` (its shortlog),
+/// and the per-branch log / tree links hang off it, so one base yields three
+/// distinct, labelled links.
+fn head_entry(name: &str, base: &str, age: Option<Age>, current: bool) -> HeadEntryView {
+    HeadEntryView {
+        name: name.to_owned(),
+        shortlog: base.to_owned(),
+        log: format!("{base}/log"),
+        tree: format!("{base}/tree"),
+        age,
+        current,
+    }
+}
+
+#[given(regex = r#"^a head "([^"]*)" at "([^"]*)" aged (\d+)$"#)]
+fn given_head(world: &mut RenderWorld, name: String, base: String, age_seconds: i64) {
+    world.head_entries.push(head_entry(
+        &name,
+        &base,
+        Some(Age::from_seconds(age_seconds)),
+        false,
+    ));
+}
+
+#[given(regex = r#"^a current head "([^"]*)" at "([^"]*)" aged (\d+)$"#)]
+fn given_current_head(world: &mut RenderWorld, name: String, base: String, age_seconds: i64) {
+    world.head_entries.push(head_entry(
+        &name,
+        &base,
+        Some(Age::from_seconds(age_seconds)),
+        true,
+    ));
+}
+
+#[given(regex = r#"^a head "([^"]*)" at "([^"]*)" with an unknown age$"#)]
+fn given_head_unknown_age(world: &mut RenderWorld, name: String, base: String) {
+    world
+        .head_entries
+        .push(head_entry(&name, &base, None, false));
+}
+
+#[when("I render the heads table")]
+fn when_render_heads_table(world: &mut RenderWorld) {
+    let table: HeadsTable = HeadsTable {
+        rows: std::mem::take(&mut world.head_entries),
+    };
+    world.output = Some(heads_table(&table).into_string());
 }
 
 // ---- Error responses (die_error) --------------------------------------------
