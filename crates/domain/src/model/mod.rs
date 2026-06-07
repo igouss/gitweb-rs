@@ -18,6 +18,7 @@ pub mod grep;
 pub mod object_id;
 pub mod object_kind;
 pub mod patch;
+pub mod path_info;
 pub mod project;
 pub mod project_info;
 pub mod projects_list;

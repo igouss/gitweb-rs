@@ -22,6 +22,7 @@ use gitweb_domain::model::grep::{GrepMatch, file_matches};
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::patch::{FileContent, FilePatch, Hunk, HunkLine, Patch};
+use gitweb_domain::model::path_info::PathInfo;
 use gitweb_domain::model::project_info::{CategoryGroup, ProjectInfo, group_by_category};
 use gitweb_domain::model::projects_list::{ProjectListEntry, parse_project_line};
 use gitweb_domain::model::ref_name::RefName;
@@ -64,6 +65,8 @@ struct DomainWorld {
     parsed_action: Option<Action>,
     request_params: Vec<(String, String)>,
     request_result: Option<Result<Request, DomainError>>,
+    path_info_input: String,
+    path_info: Option<PathInfo>,
     path_input: String,
     path_valid: Option<bool>,
     ref_input: String,
@@ -662,6 +665,99 @@ fn the_request_is_rejected_as_not_found(world: &mut DomainWorld) {
 #[then("the request is rejected as forbidden")]
 fn the_request_is_rejected_as_forbidden(world: &mut DomainWorld) {
     assert!(matches!(rejection(world), DomainError::Forbidden(_)));
+}
+
+#[given(regex = r#"^the request path "(.*)"$"#)]
+fn given_the_request_path(world: &mut DomainWorld, path: String) {
+    world.path_info_input = path;
+}
+
+#[when("I decompose the request path")]
+fn decompose_the_request_path(world: &mut DomainWorld) {
+    world.path_info = Some(PathInfo::parse(&world.path_info_input));
+}
+
+fn decomposed(world: &DomainWorld) -> &PathInfo {
+    world
+        .path_info
+        .as_ref()
+        .expect("the request path must be decomposed")
+}
+
+#[then("the decomposed request is empty")]
+fn the_decomposed_request_is_empty(world: &mut DomainWorld) {
+    assert_eq!(decomposed(world), &PathInfo::default());
+}
+
+#[then("the decomposed request has no action")]
+fn the_decomposed_request_has_no_action(world: &mut DomainWorld) {
+    assert_eq!(decomposed(world).action, None);
+}
+
+#[then("the decomposed request has no hash")]
+fn the_decomposed_request_has_no_hash(world: &mut DomainWorld) {
+    assert_eq!(decomposed(world).hash, None);
+}
+
+#[then(regex = r#"^the decomposed action is "(.*)"$"#)]
+fn the_decomposed_action_is(world: &mut DomainWorld, expected: String) {
+    let action: Action = decomposed(world)
+        .action
+        .expect("the path must yield an action");
+    assert_eq!(action.as_str(), expected);
+}
+
+#[then(regex = r#"^the decomposed hash is "(.*)"$"#)]
+fn the_decomposed_hash_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(decomposed(world).hash.as_deref(), Some(expected.as_str()));
+}
+
+#[then(regex = r#"^the decomposed hash base is "(.*)"$"#)]
+fn the_decomposed_hash_base_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(
+        decomposed(world).hash_base.as_deref(),
+        Some(expected.as_str())
+    );
+}
+
+#[then(regex = r#"^the decomposed hash parent is "(.*)"$"#)]
+fn the_decomposed_hash_parent_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(
+        decomposed(world).hash_parent.as_deref(),
+        Some(expected.as_str())
+    );
+}
+
+#[then(regex = r#"^the decomposed hash parent base is "(.*)"$"#)]
+fn the_decomposed_hash_parent_base_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(
+        decomposed(world).hash_parent_base.as_deref(),
+        Some(expected.as_str())
+    );
+}
+
+#[then(regex = r#"^the decomposed file name is "(.*)"$"#)]
+fn the_decomposed_file_name_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(
+        decomposed(world).file_name.as_deref(),
+        Some(expected.as_str())
+    );
+}
+
+#[then(regex = r#"^the decomposed file parent is "(.*)"$"#)]
+fn the_decomposed_file_parent_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(
+        decomposed(world).file_parent.as_deref(),
+        Some(expected.as_str())
+    );
+}
+
+#[then(regex = r#"^the decomposed snapshot format is "(.*)"$"#)]
+fn the_decomposed_snapshot_format_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(
+        decomposed(world).snapshot_format.as_deref(),
+        Some(expected.as_str())
+    );
 }
 
 #[given(regex = r#"^the candidate path "(.*)"$"#)]
