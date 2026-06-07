@@ -23,7 +23,7 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
-use gitweb_web::handlers::{HeadsHandler, ProjectListHandler};
+use gitweb_web::handlers::{HeadsHandler, ProjectListHandler, TagsHandler};
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
 use gitweb_web::{Dispatcher, Handler, router};
@@ -149,6 +149,26 @@ fn given_unborn_repo(world: &mut WebWorld, name: String) {
 #[given(regex = r#"^the repository "([^"]*)" has branch "([^"]*)" committed at (\d+)$"#)]
 fn given_repo_branch(world: &mut WebWorld, name: String, branch: String, epoch: i64) {
     root(world).add_branch_at(&name, &branch, epoch);
+}
+
+#[given(
+    regex = r#"^the repository "([^"]*)" has an annotated tag "([^"]*)" of a commit at (\d+) with subject "(.*)"$"#
+)]
+fn given_repo_annotated_tag(
+    world: &mut WebWorld,
+    name: String,
+    tag: String,
+    epoch: i64,
+    subject: String,
+) {
+    root(world).add_annotated_tag_at(&name, &tag, epoch, &subject);
+}
+
+#[given(
+    regex = r#"^the repository "([^"]*)" has a lightweight tag "([^"]*)" of a commit at (\d+)$"#
+)]
+fn given_repo_lightweight_tag(world: &mut WebWorld, name: String, tag: String, epoch: i64) {
+    root(world).add_tag_at(&name, &tag, epoch);
 }
 
 // --- Whens -------------------------------------------------------------------
@@ -311,6 +331,16 @@ fn given_heads_served(world: &mut WebWorld) {
     let settings: Arc<Settings> = Arc::new(Settings::builtin());
     let handler: Arc<dyn Handler> = Arc::new(HeadsHandler::new(store, settings));
     world.dispatcher.register(Action::Heads, handler);
+}
+
+#[given("the tags action is served")]
+fn given_tags_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(Settings::builtin());
+    let handler: Arc<dyn Handler> = Arc::new(TagsHandler::new(store, settings));
+    world.dispatcher.register(Action::Tags, handler);
 }
 
 // --- When: drive the assembled router with one in-process request ------------

@@ -36,6 +36,7 @@ use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
 use gitweb_domain::usecase::project_list::{
     ProjectListRow, ProjectListView, assemble_project_list,
 };
+use gitweb_domain::usecase::tags::{TagRow, TagsView, assemble_tags};
 
 /// An in-memory [`ProjectStore`] over a fixed set of projects. It serves
 /// `list` and `info` from its metadata; `open` is never reached by the
@@ -75,6 +76,8 @@ struct UsecaseWorld {
     head: Option<String>,
     branches: Vec<FakeBranch>,
     heads_result: Option<Result<HeadsView, DomainError>>,
+    tags: Vec<FakeTag>,
+    tags_result: Option<Result<TagsView, DomainError>>,
 }
 
 /// One branch in the fake repository: its short name, the id of its tip commit,
@@ -84,6 +87,23 @@ struct FakeBranch {
     name: String,
     tip: ObjectId,
     epoch: i64,
+}
+
+/// One tag in the fake repository. `ref_target` is what `refs/tags/<name>`
+/// points at directly — a tag object for an annotated tag, the tagged object
+/// itself for a lightweight one. `object_kind` is the kind of the object the tag
+/// ultimately names, and `epoch` is its creation time (the tagger time for an
+/// annotated tag, the committer time for a lightweight tag of a commit, ignored
+/// for a lightweight tag of a blob or tree).
+#[derive(Debug, Clone)]
+struct FakeTag {
+    full_name: String,
+    ref_target: ObjectId,
+    object: ObjectId,
+    object_kind: ObjectKind,
+    annotated: bool,
+    epoch: i64,
+    subject: Option<String>,
 }
 
 /// A deterministic 40-hex object id derived from `seed`, so distinct branch
@@ -98,12 +118,14 @@ fn fake_oid(seed: &str) -> ObjectId {
     ObjectId::parse(&hex).expect("a 40-character hex object id")
 }
 
-/// An in-memory [`Repository`] over a fixed set of branches. It serves `head`,
-/// `references` and `find_commit` — all the heads use case reads — and leaves
-/// every other port method unimplemented, since the use case never reaches them.
+/// An in-memory [`Repository`] over a fixed set of branches and tags. It serves
+/// the reads the heads and tags use cases make — `head`, `references`,
+/// `object_kind`, `find_commit`, `find_tag` — and leaves every other port method
+/// unimplemented, since those use cases never reach them.
 struct FakeRepository {
     head: Option<String>,
     branches: Vec<FakeBranch>,
+    tags: Vec<FakeTag>,
 }
 
 impl FakeRepository {
@@ -112,6 +134,25 @@ impl FakeRepository {
             RefName::new(format!("refs/heads/{}", branch.name)),
             branch.tip.clone(),
         )
+    }
+
+    fn tag_ref(tag: &FakeTag) -> Reference {
+        Reference::new(RefName::new(tag.full_name.clone()), tag.ref_target.clone())
+    }
+
+    /// The committer epoch of whatever commit `oid` names — a branch tip or a
+    /// lightweight tag's commit.
+    fn commit_epoch(&self, oid: &ObjectId) -> Option<i64> {
+        self.branches
+            .iter()
+            .find(|branch: &&FakeBranch| &branch.tip == oid)
+            .map(|branch: &FakeBranch| branch.epoch)
+            .or_else(|| {
+                self.tags
+                    .iter()
+                    .find(|tag: &&FakeTag| !tag.annotated && &tag.ref_target == oid)
+                    .map(|tag: &FakeTag| tag.epoch)
+            })
     }
 }
 
@@ -130,23 +171,21 @@ impl Repository for FakeRepository {
     }
 
     fn references(&self, prefix: &str) -> Result<Vec<Reference>, DomainError> {
-        Ok(self
-            .branches
-            .iter()
-            .map(Self::branch_ref)
+        let branches: Vec<Reference> = self.branches.iter().map(Self::branch_ref).collect();
+        let tags: Vec<Reference> = self.tags.iter().map(Self::tag_ref).collect();
+        Ok(branches
+            .into_iter()
+            .chain(tags)
             .filter(|reference: &Reference| reference.name().full().starts_with(prefix))
             .collect())
     }
 
     fn find_commit(&self, oid: &ObjectId) -> Result<Commit, DomainError> {
-        let branch: &FakeBranch = self
-            .branches
-            .iter()
-            .find(|branch: &&FakeBranch| &branch.tip == oid)
+        let epoch: i64 = self
+            .commit_epoch(oid)
             .ok_or_else(|| DomainError::NotFound(oid.as_str().to_owned()))?;
-        let who: Signature =
-            Signature::parse(&format!("Tester <t@example.com> {} +0000", branch.epoch))
-                .expect("a valid fixture signature");
+        let who: Signature = Signature::parse(&format!("Tester <t@example.com> {epoch} +0000"))
+            .expect("a valid fixture signature");
         Ok(Commit::new(
             oid.clone(),
             fake_oid("tree"),
@@ -161,8 +200,17 @@ impl Repository for FakeRepository {
         unimplemented!("the heads use case never resolves a revision")
     }
 
-    fn object_kind(&self, _oid: &ObjectId) -> Result<ObjectKind, DomainError> {
-        unimplemented!("the heads use case never reads an object kind")
+    fn object_kind(&self, oid: &ObjectId) -> Result<ObjectKind, DomainError> {
+        let tag: &FakeTag = self
+            .tags
+            .iter()
+            .find(|tag: &&FakeTag| &tag.ref_target == oid)
+            .ok_or_else(|| DomainError::NotFound(oid.as_str().to_owned()))?;
+        Ok(if tag.annotated {
+            ObjectKind::Tag
+        } else {
+            tag.object_kind
+        })
     }
 
     fn find_tree(&self, _oid: &ObjectId) -> Result<Tree, DomainError> {
@@ -173,8 +221,25 @@ impl Repository for FakeRepository {
         unimplemented!("the heads use case never reads a blob")
     }
 
-    fn find_tag(&self, _oid: &ObjectId) -> Result<Tag, DomainError> {
-        unimplemented!("the heads use case never reads a tag")
+    fn find_tag(&self, oid: &ObjectId) -> Result<Tag, DomainError> {
+        let tag: &FakeTag = self
+            .tags
+            .iter()
+            .find(|tag: &&FakeTag| tag.annotated && &tag.ref_target == oid)
+            .ok_or_else(|| DomainError::NotFound(oid.as_str().to_owned()))?;
+        let tagger: Signature =
+            Signature::parse(&format!("Tagger <tagger@example.com> {} +0000", tag.epoch))
+                .expect("a valid fixture tagger signature");
+        let name: String = RefName::new(tag.full_name.clone()).short().into_owned();
+        let message: String = format!("{}\n", tag.subject.as_deref().unwrap_or(""));
+        Ok(Tag::new(
+            tag.ref_target.clone(),
+            tag.object.clone(),
+            tag.object_kind,
+            name,
+            Some(tagger),
+            message,
+        ))
     }
 
     fn history(
@@ -428,6 +493,7 @@ fn assemble_the_heads(world: &mut UsecaseWorld) {
     let repo: FakeRepository = FakeRepository {
         head: world.head.clone(),
         branches: world.branches.clone(),
+        tags: world.tags.clone(),
     };
     world.heads_result = Some(assemble_heads(&repo, world.now));
 }
@@ -471,6 +537,158 @@ fn head_shows_age(world: &mut UsecaseWorld, name: String, expected: String) {
 #[then(regex = r#"^the head "([^"]*)" has no age$"#)]
 fn head_has_no_age(world: &mut UsecaseWorld, name: String) {
     assert_eq!(head_row(world, &name).age(), None);
+}
+
+// --- tags: accessors ---------------------------------------------------------
+
+/// The assembled tags view, or a panic if the scenario produced an error.
+fn tags_view(world: &UsecaseWorld) -> &TagsView {
+    world
+        .tags_result
+        .as_ref()
+        .expect("assemble the tags first")
+        .as_ref()
+        .expect("assembly succeeded")
+}
+
+/// The assembled tag row for `name`, or a panic if it is absent.
+fn tag_row<'a>(world: &'a UsecaseWorld, name: &str) -> &'a TagRow {
+    tags_view(world)
+        .rows()
+        .iter()
+        .find(|row: &&TagRow| row.name() == name)
+        .unwrap_or_else(|| panic!("no tag row for {name}"))
+}
+
+/// Derives the two ids an annotated tag needs — the tag object the ref points at
+/// and the object that tag peels to — from its name, so each stays distinct.
+fn annotated_ids(name: &str) -> (ObjectId, ObjectId) {
+    (
+        fake_oid(&format!("tagobj-{name}")),
+        fake_oid(&format!("target-{name}")),
+    )
+}
+
+// --- tags: Givens ------------------------------------------------------------
+
+#[given(
+    regex = r#"^an annotated tag "([^"]*)" of a (commit|blob|tree) tagged at (\d+) with subject "(.*)"$"#
+)]
+fn repo_has_annotated_tag(
+    world: &mut UsecaseWorld,
+    name: String,
+    kind: String,
+    epoch: i64,
+    subject: String,
+) {
+    let (ref_target, object): (ObjectId, ObjectId) = annotated_ids(&name);
+    let object_kind: ObjectKind = ObjectKind::parse(&kind).expect("a valid object kind");
+    world.tags.push(FakeTag {
+        full_name: format!("refs/tags/{name}"),
+        ref_target,
+        object,
+        object_kind,
+        annotated: true,
+        epoch,
+        subject: Some(subject),
+    });
+}
+
+#[given(regex = r#"^a lightweight tag "([^"]*)" on a commit at (\d+)$"#)]
+fn repo_has_lightweight_commit_tag(world: &mut UsecaseWorld, name: String, epoch: i64) {
+    let target: ObjectId = fake_oid(&format!("lw-{name}"));
+    world.tags.push(FakeTag {
+        full_name: format!("refs/tags/{name}"),
+        ref_target: target.clone(),
+        object: target,
+        object_kind: ObjectKind::Commit,
+        annotated: false,
+        epoch,
+        subject: None,
+    });
+}
+
+#[given(regex = r#"^a lightweight tag "([^"]*)" on a (blob|tree)$"#)]
+fn repo_has_lightweight_object_tag(world: &mut UsecaseWorld, name: String, kind: String) {
+    let target: ObjectId = fake_oid(&format!("lw-{name}"));
+    let object_kind: ObjectKind = ObjectKind::parse(&kind).expect("a valid object kind");
+    world.tags.push(FakeTag {
+        full_name: format!("refs/tags/{name}"),
+        ref_target: target.clone(),
+        object: target,
+        object_kind,
+        annotated: false,
+        epoch: 0,
+        subject: None,
+    });
+}
+
+// --- tags: When --------------------------------------------------------------
+
+#[when("I assemble the tags")]
+fn assemble_the_tags(world: &mut UsecaseWorld) {
+    let repo: FakeRepository = FakeRepository {
+        head: world.head.clone(),
+        branches: world.branches.clone(),
+        tags: world.tags.clone(),
+    };
+    world.tags_result = Some(assemble_tags(&repo, world.now));
+}
+
+// --- tags: Thens -------------------------------------------------------------
+
+#[then("no tags are listed")]
+fn no_tags_listed(world: &mut UsecaseWorld) {
+    assert!(tags_view(world).rows().is_empty());
+}
+
+#[then(regex = r#"^the listed tags are "(.*)"$"#)]
+fn listed_tags_are(world: &mut UsecaseWorld, expected: String) {
+    let names: Vec<&str> = tags_view(world)
+        .rows()
+        .iter()
+        .map(|row: &TagRow| row.name())
+        .collect();
+    assert_eq!(names.join(", "), expected);
+}
+
+#[then(regex = r#"^the tag "([^"]*)" is annotated$"#)]
+fn tag_is_annotated(world: &mut UsecaseWorld, name: String) {
+    assert!(tag_row(world, &name).annotated());
+}
+
+#[then(regex = r#"^the tag "([^"]*)" is not annotated$"#)]
+fn tag_is_not_annotated(world: &mut UsecaseWorld, name: String) {
+    assert!(!tag_row(world, &name).annotated());
+}
+
+#[then(regex = r#"^the tag "([^"]*)" has subject "(.*)"$"#)]
+fn tag_has_subject(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(tag_row(world, &name).subject(), Some(expected.as_str()));
+}
+
+#[then(regex = r#"^the tag "([^"]*)" has no subject$"#)]
+fn tag_has_no_subject(world: &mut UsecaseWorld, name: String) {
+    assert_eq!(tag_row(world, &name).subject(), None);
+}
+
+#[then(regex = r#"^the tag "([^"]*)" has reftype "([^"]*)"$"#)]
+fn tag_has_reftype(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(tag_row(world, &name).reftype().as_str(), expected);
+}
+
+#[then(regex = r#"^the tag "([^"]*)" shows the age "([^"]*)"$"#)]
+fn tag_shows_age(world: &mut UsecaseWorld, name: String, expected: String) {
+    let humanized: String = tag_row(world, &name)
+        .age()
+        .expect("the tag has an age")
+        .humanized();
+    assert_eq!(humanized, expected);
+}
+
+#[then(regex = r#"^the tag "([^"]*)" has no age$"#)]
+fn tag_has_no_age(world: &mut UsecaseWorld, name: String) {
+    assert_eq!(tag_row(world, &name).age(), None);
 }
 
 #[tokio::main]

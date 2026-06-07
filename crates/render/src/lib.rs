@@ -19,3 +19,4 @@ pub mod escape;
 pub mod heads;
 pub mod markup;
 pub mod project_list;
+pub mod tags;

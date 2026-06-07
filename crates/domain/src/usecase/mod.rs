@@ -10,3 +10,4 @@
 
 pub mod heads;
 pub mod project_list;
+pub mod tags;

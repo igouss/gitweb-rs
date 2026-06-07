@@ -21,6 +21,7 @@ use gitweb_render::markup::{Markup, html, raw};
 use gitweb_render::project_list::{
     ProjectLinks, ProjectList, ProjectRow, SortHeader, project_list,
 };
+use gitweb_render::tags::{TagEntryView, TagReftype, TagsPage, TagsTable, tags_body, tags_table};
 
 #[derive(Debug, Default, World)]
 struct RenderWorld {
@@ -31,6 +32,7 @@ struct RenderWorld {
     footer_links: Vec<FooterLink>,
     project_rows: Vec<ProjectRow>,
     head_entries: Vec<HeadEntryView>,
+    tag_entries: Vec<TagEntryView>,
     domain_error: Option<DomainError>,
     status: Option<HttpStatus>,
     output: Option<String>,
@@ -466,6 +468,144 @@ fn when_render_heads_table(world: &mut RenderWorld) {
         rows: std::mem::take(&mut world.head_entries),
     };
     world.output = Some(heads_table(&table).into_string());
+}
+
+// ---- Tags table -------------------------------------------------------------
+
+/// Builds a tag row from a base href: the name links to `base` (the tagged
+/// object), the single `tag` view hangs off it, and the reftype-dependent links
+/// hang off it too, so one base yields distinct, labelled links.
+fn tag_entry(
+    name: &str,
+    base: &str,
+    subject: Option<String>,
+    age: Option<Age>,
+    reftype: TagReftype,
+) -> TagEntryView {
+    let annotated: bool = subject.is_some();
+    TagEntryView {
+        age,
+        name: name.to_owned(),
+        object_href: base.to_owned(),
+        subject,
+        tag_view_href: format!("{base}/tag"),
+        annotated,
+        reftype,
+    }
+}
+
+/// The `shortlog` / `log` links a commit tag hangs off `base`.
+fn commit_reftype(base: &str) -> TagReftype {
+    TagReftype::Commit {
+        shortlog: format!("{base}/shortlog"),
+        log: format!("{base}/log"),
+    }
+}
+
+#[given(regex = r#"^an annotated commit tag "([^"]*)" at "([^"]*)" subject "(.*)" aged (\d+)$"#)]
+fn given_annotated_commit_tag(
+    world: &mut RenderWorld,
+    name: String,
+    base: String,
+    subject: String,
+    age_seconds: i64,
+) {
+    world.tag_entries.push(tag_entry(
+        &name,
+        &base,
+        Some(subject),
+        Some(Age::from_seconds(age_seconds)),
+        commit_reftype(&base),
+    ));
+}
+
+#[given(
+    regex = r#"^an annotated commit tag "([^"]*)" at "([^"]*)" subject "(.*)" with an unknown age$"#
+)]
+fn given_annotated_commit_tag_unknown_age(
+    world: &mut RenderWorld,
+    name: String,
+    base: String,
+    subject: String,
+) {
+    world.tag_entries.push(tag_entry(
+        &name,
+        &base,
+        Some(subject),
+        None,
+        commit_reftype(&base),
+    ));
+}
+
+#[given(regex = r#"^a lightweight commit tag "([^"]*)" at "([^"]*)" aged (\d+)$"#)]
+fn given_lightweight_commit_tag(
+    world: &mut RenderWorld,
+    name: String,
+    base: String,
+    age_seconds: i64,
+) {
+    world.tag_entries.push(tag_entry(
+        &name,
+        &base,
+        None,
+        Some(Age::from_seconds(age_seconds)),
+        commit_reftype(&base),
+    ));
+}
+
+#[given(regex = r#"^an annotated blob tag "([^"]*)" at "([^"]*)" subject "(.*)" aged (\d+)$"#)]
+fn given_annotated_blob_tag(
+    world: &mut RenderWorld,
+    name: String,
+    base: String,
+    subject: String,
+    age_seconds: i64,
+) {
+    let reftype: TagReftype = TagReftype::Blob {
+        raw: format!("{base}/raw"),
+    };
+    world.tag_entries.push(tag_entry(
+        &name,
+        &base,
+        Some(subject),
+        Some(Age::from_seconds(age_seconds)),
+        reftype,
+    ));
+}
+
+#[given(regex = r#"^an annotated tree tag "([^"]*)" at "([^"]*)" subject "(.*)" aged (\d+)$"#)]
+fn given_annotated_tree_tag(
+    world: &mut RenderWorld,
+    name: String,
+    base: String,
+    subject: String,
+    age_seconds: i64,
+) {
+    world.tag_entries.push(tag_entry(
+        &name,
+        &base,
+        Some(subject),
+        Some(Age::from_seconds(age_seconds)),
+        TagReftype::Tree,
+    ));
+}
+
+#[when("I render the tags table")]
+fn when_render_tags_table(world: &mut RenderWorld) {
+    let table: TagsTable = TagsTable {
+        rows: std::mem::take(&mut world.tag_entries),
+    };
+    world.output = Some(tags_table(&table).into_string());
+}
+
+#[when("I render the tags page with no tags")]
+fn when_render_tags_page_empty(world: &mut RenderWorld) {
+    let page: TagsPage = TagsPage {
+        crumbs: Vec::new(),
+        ref_views: Vec::new(),
+        table: TagsTable { rows: Vec::new() },
+    };
+    world.output = Some(tags_body(&page).into_string());
 }
 
 // ---- Error responses (die_error) --------------------------------------------

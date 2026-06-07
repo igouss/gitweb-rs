@@ -23,6 +23,6 @@ pub mod server;
 pub mod url;
 
 pub use dispatch::{Dispatcher, Handler};
-pub use handlers::{HeadsHandler, ProjectListHandler};
+pub use handlers::{HeadsHandler, ProjectListHandler, TagsHandler};
 pub use response::View;
 pub use server::router;

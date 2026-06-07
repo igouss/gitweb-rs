@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::builder::RepoBuilder;
-use crate::spec::{CommitSpec, Identity, Mode, TreeEntry};
+use crate::spec::{CommitSpec, Identity, Mode, TagSpec, TargetKind, TreeEntry};
 
 /// A throwaway directory holding several fixture repositories.
 ///
@@ -133,6 +133,27 @@ impl ProjectRoot {
         let builder: RepoBuilder = RepoBuilder::open_at(&self.dir.path().join(name));
         let commit: gix::ObjectId = commit_at(&builder, tag, epoch);
         builder.lightweight_tag(tag, commit);
+    }
+
+    /// Writes an annotated `refs/tags/<tag>` pointing at a fresh commit committed
+    /// at `epoch` in the repository at `name`, with the tagger time set to the
+    /// same `epoch` and the given annotation message. This is the annotated
+    /// counterpart of [`Self::add_tag_at`]: the tag listing must peel it, show
+    /// its subject, and offer a `tag` selflink.
+    pub fn add_annotated_tag_at(&self, name: &str, tag: &str, epoch: i64, message: &str) {
+        let builder: RepoBuilder = RepoBuilder::open_at(&self.dir.path().join(name));
+        let commit: gix::ObjectId = commit_at(&builder, tag, epoch);
+        let tagger: Identity = Identity {
+            epoch_seconds: epoch,
+            ..ada()
+        };
+        let _oid: gix::ObjectId = builder.annotated_tag(&TagSpec {
+            name: tag.to_owned(),
+            target: commit,
+            target_kind: TargetKind::Commit,
+            tagger,
+            message: format!("{message}\n"),
+        });
     }
 
     /// Writes the repository's `description` file (gitweb reads its first line),
