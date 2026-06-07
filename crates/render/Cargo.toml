@@ -1,0 +1,23 @@
+[package]
+name = "gitweb-render"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Framework-free, modernized HTML rendering of gitweb-rs domain view-models."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+
+[dev-dependencies]
+cucumber = { workspace = true }
+tokio = { workspace = true }
+
+# Gherkin-driven BDD for render behaviours (escaping, styling, chrome).
+# cucumber supplies its own main(), so the default libtest harness is disabled.
+[[test]]
+name = "render"
+harness = false
