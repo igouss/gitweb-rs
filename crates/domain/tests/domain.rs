@@ -6,11 +6,14 @@
 use cucumber::{World, given, then, when};
 use gitweb_domain::model::age::{Age, AgeClass};
 use gitweb_domain::model::binary::is_binary;
+use gitweb_domain::model::change::ChangeStatus;
 use gitweb_domain::model::chop::{ChopMode, chop_str};
+use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::email_privacy::redact;
 use gitweb_domain::model::encoding::{FallbackEncoding, to_utf8};
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::object_id::ObjectId;
+use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::ref_name::RefName;
 use gitweb_domain::model::signature::Signature;
 
@@ -34,6 +37,34 @@ struct DomainWorld {
     bytes: Vec<u8>,
     decoded: Option<String>,
     binary: Option<bool>,
+    commit: Option<Commit>,
+    is_merge: Option<bool>,
+    commit_title: Option<String>,
+    commit_title_short: Option<String>,
+    status_token: String,
+    change: Option<ChangeStatus>,
+    type_name: String,
+    object_kind: Option<ObjectKind>,
+}
+
+fn dummy_oid() -> ObjectId {
+    ObjectId::parse(&"0".repeat(40)).expect("forty zeros is a valid object id")
+}
+
+fn dummy_sig() -> Signature {
+    Signature::parse("Tester <t@example.com> 1700000000 +0000").expect("a valid ident line")
+}
+
+fn make_commit(parents: usize, message: &str) -> Commit {
+    let parent_oids: Vec<ObjectId> = vec![dummy_oid(); parents];
+    Commit::new(
+        dummy_oid(),
+        dummy_oid(),
+        parent_oids,
+        dummy_sig(),
+        dummy_sig(),
+        message.to_owned(),
+    )
 }
 
 fn parse_hex_bytes(text: &str) -> Vec<u8> {
@@ -268,6 +299,134 @@ fn it_is_binary(world: &mut DomainWorld) {
 #[then("it is text")]
 fn it_is_text(world: &mut DomainWorld) {
     assert_eq!(world.binary, Some(false));
+}
+
+#[given(regex = r"^a commit with (\d+) parents$")]
+fn given_commit_with_parents(world: &mut DomainWorld, parents: usize) {
+    world.commit = Some(make_commit(parents, ""));
+}
+
+#[given(regex = r#"^a commit with the message "(.*)"$"#)]
+fn given_commit_with_message(world: &mut DomainWorld, message: String) {
+    world.commit = Some(make_commit(0, &message));
+}
+
+#[given(regex = r#"^a commit whose message starts with a blank line then "(.*)"$"#)]
+fn given_commit_blank_then(world: &mut DomainWorld, subject: String) {
+    world.commit = Some(make_commit(0, &format!("\n{subject}")));
+}
+
+#[given("a commit with an empty message")]
+fn given_commit_empty_message(world: &mut DomainWorld) {
+    world.commit = Some(make_commit(0, ""));
+}
+
+#[given("a commit whose message is two blank lines")]
+fn given_commit_two_blank_lines(world: &mut DomainWorld) {
+    world.commit = Some(make_commit(0, "\n\n"));
+}
+
+#[given(regex = r#"^a commit whose first message line is "(.)" repeated (\d+) times$"#)]
+fn given_commit_repeated_line(world: &mut DomainWorld, letter: String, count: usize) {
+    world.commit = Some(make_commit(0, &letter.repeat(count)));
+}
+
+#[when("I check whether it is a merge")]
+fn check_merge(world: &mut DomainWorld) {
+    let commit: &Commit = world.commit.as_ref().expect("a commit must be set");
+    world.is_merge = Some(commit.is_merge());
+}
+
+#[when("I read its title")]
+fn read_title(world: &mut DomainWorld) {
+    let commit: &Commit = world.commit.as_ref().expect("a commit must be set");
+    world.commit_title = Some(commit.title());
+}
+
+#[when("I read its short title")]
+fn read_short_title(world: &mut DomainWorld) {
+    let commit: &Commit = world.commit.as_ref().expect("a commit must be set");
+    world.commit_title_short = Some(commit.title_short());
+}
+
+#[then("it is a merge")]
+fn it_is_a_merge(world: &mut DomainWorld) {
+    assert_eq!(world.is_merge, Some(true));
+}
+
+#[then("it is not a merge")]
+fn it_is_not_a_merge(world: &mut DomainWorld) {
+    assert_eq!(world.is_merge, Some(false));
+}
+
+#[then(regex = r#"^the title is "(.*)"$"#)]
+fn title_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(world.commit_title.as_deref(), Some(expected.as_str()));
+}
+
+#[then(regex = r#"^the short title is "(.*)"$"#)]
+fn short_title_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(world.commit_title_short.as_deref(), Some(expected.as_str()));
+}
+
+#[then(regex = r#"^the title is the letter "(.)" repeated (\d+) times then "(.*)"$"#)]
+fn title_is_repeated(world: &mut DomainWorld, letter: String, count: usize, suffix: String) {
+    let expected: String = letter.repeat(count) + &suffix;
+    assert_eq!(world.commit_title.as_deref(), Some(expected.as_str()));
+}
+
+#[then(regex = r#"^the short title is the letter "(.)" repeated (\d+) times then "(.*)"$"#)]
+fn short_title_is_repeated(world: &mut DomainWorld, letter: String, count: usize, suffix: String) {
+    let expected: String = letter.repeat(count) + &suffix;
+    assert_eq!(world.commit_title_short.as_deref(), Some(expected.as_str()));
+}
+
+#[given(regex = r#"^a diff status token "(.*)"$"#)]
+fn given_status_token(world: &mut DomainWorld, token: String) {
+    world.status_token = token;
+}
+
+#[when("I read the change status")]
+fn read_change_status(world: &mut DomainWorld) {
+    world.change = ChangeStatus::parse(&world.status_token);
+}
+
+#[then(regex = r#"^the change is "(\w+)"$"#)]
+fn change_is(world: &mut DomainWorld, expected: String) {
+    let change: ChangeStatus = world.change.expect("a change status must be parsed");
+    assert_eq!(format!("{:?}", change.kind()), expected);
+}
+
+#[then(regex = r"^the similarity is (\d+)$")]
+fn similarity_is(world: &mut DomainWorld, expected: u8) {
+    let change: ChangeStatus = world.change.expect("a change status must be parsed");
+    assert_eq!(change.similarity(), expected);
+}
+
+#[then("there is no change")]
+fn there_is_no_change(world: &mut DomainWorld) {
+    assert_eq!(world.change, None);
+}
+
+#[given(regex = r#"^an object type "(.*)"$"#)]
+fn given_object_type(world: &mut DomainWorld, name: String) {
+    world.type_name = name;
+}
+
+#[when("I read the object kind")]
+fn read_object_kind(world: &mut DomainWorld) {
+    world.object_kind = ObjectKind::parse(&world.type_name);
+}
+
+#[then(regex = r#"^the object kind is "(\w+)"$"#)]
+fn object_kind_is(world: &mut DomainWorld, expected: String) {
+    let kind: ObjectKind = world.object_kind.expect("an object kind must be parsed");
+    assert_eq!(format!("{kind:?}"), expected);
+}
+
+#[then("there is no object kind")]
+fn there_is_no_object_kind(world: &mut DomainWorld) {
+    assert_eq!(world.object_kind, None);
 }
 
 #[tokio::main]
