@@ -1,0 +1,32 @@
+[package]
+name = "gitweb-config"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Inbound adapter: reads gitweb-rs's declarative TOML config files into the domain's resolved Settings."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+# The inward dependency: this adapter produces the domain's Settings from its
+# SettingsLayer overlays. It knows the on-disk FORMAT (TOML) so the domain need
+# not — the format never leaks inward.
+gitweb-domain = { path = "../domain" }
+serde = { workspace = true }
+toml = { workspace = true }
+
+[dev-dependencies]
+cucumber = { workspace = true }
+tokio = { workspace = true }
+# Lays the fixture config files on disk so the loader is verified reading real
+# files, exactly as the composition root will.
+tempfile = { workspace = true }
+
+# Gherkin conformance for the loader. cucumber supplies its own main(), so the
+# default libtest harness is disabled.
+[[test]]
+name = "config"
+harness = false

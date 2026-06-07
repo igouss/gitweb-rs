@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/config",
     "crates/domain",
     "crates/fixtures",
     "crates/git",
@@ -39,3 +40,8 @@ percent-encoding = "2"
 # (ServiceExt::oneshot), so the web boundary's end-to-end behaviour is specced
 # without binding a socket.
 tower = { version = "0.5", features = ["util"] }
+# The declarative on-disk format for gitweb-rs global config (replacing gitweb's
+# executable Perl) and the derive that maps it onto the domain's config layers.
+# serde stays a pure data dependency; only the config adapter knows the format.
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
