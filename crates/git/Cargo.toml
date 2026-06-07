@@ -24,3 +24,8 @@ tokio = { workspace = true }
 [[test]]
 name = "conformance"
 harness = false
+
+# Conformance for the `history` operation (rev-list: order, pagination, path).
+[[test]]
+name = "history"
+harness = false

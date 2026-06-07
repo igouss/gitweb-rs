@@ -8,6 +8,9 @@
 
 use std::path::Path;
 
+use gix::revision::walk::Sorting;
+use gix::traverse::commit::simple::CommitTimeOrder;
+
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::blame::Blame;
 use gitweb_domain::model::blob::Blob;
@@ -23,7 +26,7 @@ use gitweb_domain::model::tree::{Tree, TreeEntry};
 use gitweb_domain::port::repository::{ArchiveFormat, Page, Repository, SearchQuery};
 
 use crate::conv::{
-    backend, to_domain_oid, to_gix_oid, to_object_kind, to_signature, to_tree_entry,
+    backend, read_commit, to_domain_oid, to_gix_oid, to_object_kind, to_signature, to_tree_entry,
 };
 
 /// Read access to one on-disk git repository, backed by gix.
@@ -48,6 +51,48 @@ impl GixRepository {
             Ok(Some(object)) => Ok(object),
             Ok(None) => Err(DomainError::NotFound(oid.as_str().to_owned())),
             Err(error) => Err(backend(error)),
+        }
+    }
+
+    /// Loads the commit named by `id` straight from the object database, for the
+    /// history walk where the id is already known to name a commit.
+    fn commit_at(&self, id: gix::ObjectId) -> Result<gix::Commit<'_>, DomainError> {
+        self.repo
+            .find_object(id)
+            .map_err(backend)?
+            .try_into_commit()
+            .map_err(|_error: gix::object::try_into::Error| {
+                backend(format!("rev-list yielded a non-commit: {id}"))
+            })
+    }
+
+    /// The object id recorded at `path` in `commit`'s tree, or `None` if the
+    /// path is absent there.
+    fn entry_oid_at(
+        &self,
+        commit: &gix::Commit<'_>,
+        path: &str,
+    ) -> Result<Option<gix::ObjectId>, DomainError> {
+        let tree: gix::Tree<'_> = commit.tree().map_err(backend)?;
+        let entry: Option<gix::object::tree::Entry<'_>> =
+            tree.lookup_entry_by_path(path).map_err(backend)?;
+        Ok(entry.map(|found: gix::object::tree::Entry<'_>| found.id().detach()))
+    }
+
+    /// Whether `commit` changed `path` relative to its first parent — gitweb's
+    /// path-limited `rev-list <start> -- <path>` over the linear (non-merge)
+    /// history its file logs walk. A root commit counts as touching `path` when
+    /// the path is present in it; any difference (add, modify, or delete)
+    /// against the first parent counts otherwise.
+    fn commit_touches(&self, commit: &gix::Commit<'_>, path: &str) -> Result<bool, DomainError> {
+        let here: Option<gix::ObjectId> = self.entry_oid_at(commit, path)?;
+        match commit.parent_ids().next() {
+            None => Ok(here.is_some()),
+            Some(first_parent) => {
+                let parent: gix::Commit<'_> = self.commit_at(first_parent.detach())?;
+                let there: Option<gix::ObjectId> = self.entry_oid_at(&parent, path)?;
+                Ok(here != there)
+            }
         }
     }
 }
@@ -109,16 +154,7 @@ impl Repository for GixRepository {
                 .map_err(|_error: gix::object::try_into::Error| {
                     DomainError::Invalid(format!("not a commit: {}", oid.as_str()))
                 })?;
-        let id: ObjectId = to_domain_oid(commit.id);
-        let tree: ObjectId = to_domain_oid(commit.tree_id().map_err(backend)?.detach());
-        let parents: Vec<ObjectId> = commit
-            .parent_ids()
-            .map(|parent: gix::Id<'_>| to_domain_oid(parent.detach()))
-            .collect();
-        let author: Signature = to_signature(commit.author().map_err(backend)?)?;
-        let committer: Signature = to_signature(commit.committer().map_err(backend)?)?;
-        let message: String = commit.message_raw_sloppy().to_string();
-        Ok(Commit::new(id, tree, parents, author, committer, message))
+        read_commit(&commit)
     }
 
     fn find_tree(&self, oid: &ObjectId) -> Result<Tree, DomainError> {
@@ -178,13 +214,41 @@ impl Repository for GixRepository {
 
     fn history(
         &self,
-        _start: &ObjectId,
-        _path: Option<&str>,
-        _page: Page,
+        start: &ObjectId,
+        path: Option<&str>,
+        page: Page,
     ) -> Result<Vec<Commit>, DomainError> {
-        Err(DomainError::Backend(
-            "history: not yet implemented".to_owned(),
-        ))
+        // gitweb's `git rev-list --header --max-count --skip <start> -- [path]`:
+        // newest first by commit time, optionally path-limited, then windowed.
+        let start_oid: gix::ObjectId = to_gix_oid(start)?;
+        let order: Sorting = Sorting::ByCommitTime(CommitTimeOrder::NewestFirst);
+        let walk: gix::revision::Walk<'_> = self
+            .repo
+            .rev_walk([start_oid])
+            .sorting(order)
+            .all()
+            .map_err(backend)?;
+
+        let mut out: Vec<Commit> = Vec::new();
+        let mut skipped: usize = 0;
+        for step in walk {
+            if out.len() >= page.limit {
+                break;
+            }
+            let info: gix::revision::walk::Info<'_> = step.map_err(backend)?;
+            let commit: gix::Commit<'_> = self.commit_at(info.id)?;
+            if let Some(wanted) = path
+                && !self.commit_touches(&commit, wanted)?
+            {
+                continue;
+            }
+            if skipped < page.skip {
+                skipped += 1;
+                continue;
+            }
+            out.push(read_commit(&commit)?);
+        }
+        Ok(out)
     }
 
     fn diff(&self, _from: Option<&ObjectId>, _to: &ObjectId) -> Result<Diff, DomainError> {

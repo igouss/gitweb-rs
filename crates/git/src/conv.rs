@@ -5,6 +5,7 @@
 //! a mess of `.to_string()` and byte juggling. Everything here is pure.
 
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
@@ -54,6 +55,24 @@ pub(crate) fn to_signature(sig: gix::actor::SignatureRef<'_>) -> Result<Signatur
     let line: String = format!("{} <{}> {}", sig.name, sig.email, sig.time);
     Signature::parse(&line)
         .ok_or_else(|| DomainError::Backend(format!("unparseable identity: {line}")))
+}
+
+/// Translates a gix commit into the domain's, deriving the same fields gitweb
+/// parses out of `git rev-list --header` output.
+///
+/// Shared by the single-commit read and the history walk, so the gix→domain
+/// commit mapping lives in exactly one place.
+pub(crate) fn read_commit(commit: &gix::Commit<'_>) -> Result<Commit, DomainError> {
+    let id: ObjectId = to_domain_oid(commit.id);
+    let tree: ObjectId = to_domain_oid(commit.tree_id().map_err(backend)?.detach());
+    let parents: Vec<ObjectId> = commit
+        .parent_ids()
+        .map(|parent: gix::Id<'_>| to_domain_oid(parent.detach()))
+        .collect();
+    let author: Signature = to_signature(commit.author().map_err(backend)?)?;
+    let committer: Signature = to_signature(commit.committer().map_err(backend)?)?;
+    let message: String = commit.message_raw_sloppy().to_string();
+    Ok(Commit::new(id, tree, parents, author, committer, message))
 }
 
 /// Translates one gix tree entry into the domain's, carrying its mode through
