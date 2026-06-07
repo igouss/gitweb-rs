@@ -27,3 +27,15 @@ tempfile = "3"
 # is the raw-HTML safe-sink by construction; the generated code contains no
 # unsafe, so it satisfies the workspace's unsafe_code = forbid rule.
 maud = "0.27"
+# The HTTP server framework for the web boundary: routing, extractors, and the
+# Response type the outbound adapter builds. Standalone, replacing gitweb's CGI.
+axum = "0.8"
+# Correct decoders for the inbound boundary: form_urlencoded splits and decodes
+# the query string (application/x-www-form-urlencoded), percent-encoding decodes
+# the request path (PATH_INFO). Both from the rust-url team; tiny, dependency-light.
+form_urlencoded = "1"
+percent-encoding = "2"
+# Test-only: drives the assembled axum Router with a single in-process request
+# (ServiceExt::oneshot), so the web boundary's end-to-end behaviour is specced
+# without binding a socket.
+tower = { version = "0.5", features = ["util"] }

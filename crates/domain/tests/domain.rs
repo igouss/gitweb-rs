@@ -28,6 +28,7 @@ use gitweb_domain::model::project_info::{CategoryGroup, ProjectInfo, group_by_ca
 use gitweb_domain::model::projects_list::{ProjectListEntry, parse_project_line};
 use gitweb_domain::model::ref_name::RefName;
 use gitweb_domain::model::request::Request;
+use gitweb_domain::model::routing::{Dispatch, route};
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::url::unescape;
@@ -104,6 +105,7 @@ struct DomainWorld {
     cfg_system_default: Option<String>,
     cfg_existing: Vec<String>,
     cfg_load_order: Option<Vec<String>>,
+    routed: Option<Result<Dispatch, DomainError>>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -1687,6 +1689,45 @@ fn load_order_is(world: &mut DomainWorld, expected: String) {
         .expect("select the config files first");
     let actual: String = order.join(", ");
     assert_eq!(actual, expected);
+}
+
+// --- dispatch routing ---------------------------------------------------------
+
+#[when("I route the request")]
+fn when_route_request(world: &mut DomainWorld) {
+    let request: Request = Request::from_query(&world.request_params)
+        .expect("the routing fixtures are valid requests");
+    world.routed = Some(route(&request));
+}
+
+#[then(regex = r#"^the dispatched action is "([^"]*)"$"#)]
+fn then_dispatched_action_is(world: &mut DomainWorld, expected: String) {
+    let dispatch: Dispatch = world
+        .routed
+        .clone()
+        .expect("route the request first")
+        .expect("routing succeeded");
+    let action: Action = Action::parse(&expected).expect("the expected name is a valid action");
+    assert_eq!(dispatch, Dispatch::Action(action));
+}
+
+#[then("the object kind must be resolved")]
+fn then_resolve_object_kind(world: &mut DomainWorld) {
+    let dispatch: Dispatch = world
+        .routed
+        .clone()
+        .expect("route the request first")
+        .expect("routing succeeded");
+    assert_eq!(dispatch, Dispatch::ResolveObjectKind);
+}
+
+#[then("routing fails as project needed")]
+fn then_routing_fails_project_needed(world: &mut DomainWorld) {
+    let error: DomainError = match world.routed.clone().expect("route the request first") {
+        Ok(_) => panic!("expected routing to fail"),
+        Err(error) => error,
+    };
+    assert_eq!(error, DomainError::Invalid("Project needed".to_owned()));
 }
 
 #[tokio::main]

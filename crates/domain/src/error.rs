@@ -24,6 +24,22 @@ pub enum DomainError {
     Backend(String),
 }
 
+impl DomainError {
+    /// The bare human message, without the kind prefix [`Display`](Self::fmt)
+    /// adds. gitweb's `die_error` shows exactly this under the status line
+    /// (`404 - Hash not found`), so the web boundary renders error pages from
+    /// it rather than from the prefixed `Display` form.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        match self {
+            Self::NotFound(what)
+            | Self::Invalid(what)
+            | Self::Forbidden(what)
+            | Self::Backend(what) => what,
+        }
+    }
+}
+
 impl fmt::Display for DomainError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

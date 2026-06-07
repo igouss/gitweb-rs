@@ -13,4 +13,12 @@
 //! port), decomposing the remainder, and merging it with the query string under
 //! gitweb's precedence before validating the whole into a `Request`.
 
+pub mod assets;
+pub mod dispatch;
 pub mod request;
+pub mod response;
+pub mod server;
+
+pub use dispatch::{Dispatcher, Handler};
+pub use response::View;
+pub use server::router;

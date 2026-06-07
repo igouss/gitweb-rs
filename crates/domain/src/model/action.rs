@@ -7,7 +7,7 @@
 //! entries gitweb comments as "those below don't need $project" and the rest.
 
 /// One entry in gitweb's `%actions` dispatch table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
     /// `blame` — line-by-line authorship of a file.
     Blame,

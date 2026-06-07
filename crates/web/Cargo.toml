@@ -11,9 +11,15 @@ description = "The axum web boundary for gitweb-rs: inbound request resolution, 
 unsafe_code = "forbid"
 
 [dependencies]
-# The inward dependency: the boundary speaks to the domain through its ports and
-# the done request rules. No git library here — only the ProjectStore port.
+# The inward dependencies: the boundary speaks to the domain through its ports
+# and the done request rules, and renders views/errors through the render layer.
+# No git library here — only the ProjectStore port.
 gitweb-domain = { path = "../domain" }
+gitweb-render = { path = "../render" }
+# The HTTP framework (routing, extractors, Response) and the inbound decoders.
+axum = { workspace = true }
+form_urlencoded = { workspace = true }
+percent-encoding = { workspace = true }
 
 [dev-dependencies]
 # features/web runs over a real, gix-built project root: the fixture lays it down
@@ -23,6 +29,8 @@ gitweb-fixtures = { path = "../fixtures" }
 gitweb-git = { path = "../git" }
 cucumber = { workspace = true }
 tokio = { workspace = true }
+# Drives the assembled Router with one in-process request, no socket bind.
+tower = { workspace = true }
 
 # Gherkin-driven BDD for the web boundary. cucumber supplies its own main(), so
 # the default libtest harness is disabled.
