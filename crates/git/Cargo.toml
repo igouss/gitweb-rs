@@ -64,3 +64,8 @@ harness = false
 [[test]]
 name = "blame"
 harness = false
+
+# Conformance for the `search` operation: message/author/committer + pickaxe.
+[[test]]
+name = "search"
+harness = false

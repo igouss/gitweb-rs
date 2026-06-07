@@ -27,7 +27,7 @@ use gitweb_domain::model::reference::Reference;
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::tag::Tag;
 use gitweb_domain::model::tree::{Tree, TreeEntry};
-use gitweb_domain::port::repository::{ArchiveFormat, Page, Repository, SearchQuery};
+use gitweb_domain::port::repository::{ArchiveFormat, Page, Repository, SearchKind, SearchQuery};
 
 use gitweb_domain::model::diff::DiffEntry;
 
@@ -159,6 +159,74 @@ impl GixRepository {
             leaves.insert(record.filepath.to_string(), (mode, oid));
         }
         Ok(leaves)
+    }
+
+    /// The revision gitweb roots a search at: the object `HEAD` resolves to.
+    fn search_base(&self) -> Result<ObjectId, DomainError> {
+        Ok(self.head()?.target().clone())
+    }
+
+    /// History reachable from `start`, newest first, keeping the commits for
+    /// which `keep` holds, then windowed by `page`. The walk mirrors
+    /// [`Repository::history`] so search ordering and pagination match the rest
+    /// of the adapter; the predicate decides membership over the already-parsed
+    /// domain [`Commit`].
+    fn walk_matching<F>(
+        &self,
+        start: &ObjectId,
+        page: Page,
+        mut keep: F,
+    ) -> Result<Vec<Commit>, DomainError>
+    where
+        F: FnMut(&Commit) -> Result<bool, DomainError>,
+    {
+        let start_oid: gix::ObjectId = to_gix_oid(start)?;
+        let order: Sorting = Sorting::ByCommitTime(CommitTimeOrder::NewestFirst);
+        let walk: gix::revision::Walk<'_> = self
+            .repo
+            .rev_walk([start_oid])
+            .sorting(order)
+            .all()
+            .map_err(backend)?;
+
+        let mut out: Vec<Commit> = Vec::new();
+        let mut skipped: usize = 0;
+        for step in walk {
+            if out.len() >= page.limit {
+                break;
+            }
+            let info: gix::revision::walk::Info<'_> = step.map_err(backend)?;
+            let commit: gix::Commit<'_> = self.commit_at(info.id)?;
+            let domain: Commit = read_commit(&commit)?;
+            if !keep(&domain)? {
+                continue;
+            }
+            if skipped < page.skip {
+                skipped += 1;
+                continue;
+            }
+            out.push(domain);
+        }
+        Ok(out)
+    }
+
+    /// Whether `commit` changes the number of occurrences of `pattern` in some
+    /// file against its first parent — git's pickaxe (`-S`) over the rename-aware
+    /// diff (`-M`). A root commit is diffed against the empty tree, so a pattern
+    /// in its tree counts as added. The match is byte-exact and case-sensitive,
+    /// unlike the message/author/committer searches.
+    fn pickaxe_matches(&self, commit: &Commit, pattern: &str) -> Result<bool, DomainError> {
+        let needle: &[u8] = pattern.as_bytes();
+        let from: Option<&ObjectId> = commit.parents().first();
+        let diff: Diff = self.diff(from, commit.id())?;
+        for entry in diff.entries() {
+            let before: Vec<u8> = self.side_content(entry.from_oid(), entry.from_mode())?;
+            let after: Vec<u8> = self.side_content(entry.to_oid(), entry.to_mode())?;
+            if count_occurrences(&before, needle) != count_occurrences(&after, needle) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 }
 
@@ -430,10 +498,27 @@ impl Repository for GixRepository {
         ))
     }
 
-    fn search(&self, _query: &SearchQuery, _page: Page) -> Result<Vec<Commit>, DomainError> {
-        Err(DomainError::Backend(
-            "search: not yet implemented".to_owned(),
-        ))
+    fn search(&self, query: &SearchQuery, page: Page) -> Result<Vec<Commit>, DomainError> {
+        // gitweb roots search at the current view's revision; with none selected
+        // that is HEAD. Message/author/committer are a case-insensitive substring
+        // (gitweb's `--regexp-ignore-case --fixed-strings`); pickaxe is git's
+        // `-S`, a case-sensitive change in a pattern's occurrence count.
+        let start: ObjectId = self.search_base()?;
+        let pattern: &str = &query.pattern;
+        match query.kind {
+            SearchKind::Commit => self.walk_matching(&start, page, |commit: &Commit| {
+                Ok(contains_ci(commit.message(), pattern))
+            }),
+            SearchKind::Author => self.walk_matching(&start, page, |commit: &Commit| {
+                Ok(contains_ci(&ident_string(commit.author()), pattern))
+            }),
+            SearchKind::Committer => self.walk_matching(&start, page, |commit: &Commit| {
+                Ok(contains_ci(&ident_string(commit.committer()), pattern))
+            }),
+            SearchKind::Pickaxe => self.walk_matching(&start, page, |commit: &Commit| {
+                self.pickaxe_matches(commit, pattern)
+            }),
+        }
     }
 }
 
@@ -530,4 +615,41 @@ fn combined_status(parent_side: Option<&Side>, merge_side: Option<&Side>) -> Cha
         // not differ from this parent, so it is never combined.
         (None, None) => ChangeStatus::from_modification(absent_mode(), absent_mode()),
     }
+}
+
+/// Case-insensitive substring test, matching git's `--regexp-ignore-case
+/// --fixed-strings`: ASCII case folding over a literal (non-regex) pattern.
+fn contains_ci(haystack: &str, needle: &str) -> bool {
+    haystack
+        .to_ascii_lowercase()
+        .contains(&needle.to_ascii_lowercase())
+}
+
+/// The `Name <email>` identity string git matches `--author=` / `--committer=`
+/// against; an identity with no email is just the name.
+fn ident_string(signature: &Signature) -> String {
+    match signature.email() {
+        Some(email) => format!("{} <{}>", signature.name(), email),
+        None => signature.name().to_owned(),
+    }
+}
+
+/// The number of non-overlapping occurrences of `needle` in `haystack` — the
+/// count git's pickaxe compares between a change's two sides. An empty needle
+/// never occurs, so it never reports a change.
+fn count_occurrences(haystack: &[u8], needle: &[u8]) -> usize {
+    if needle.is_empty() {
+        return 0;
+    }
+    let mut count: usize = 0;
+    let mut index: usize = 0;
+    while index + needle.len() <= haystack.len() {
+        if &haystack[index..index + needle.len()] == needle {
+            count += 1;
+            index += needle.len();
+        } else {
+            index += 1;
+        }
+    }
+    count
 }

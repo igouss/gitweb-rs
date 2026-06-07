@@ -66,6 +66,12 @@ pub enum ArchiveFormat {
 }
 
 /// How a commit search interprets its pattern, matching gitweb's `searchtype`.
+///
+/// These are the facets that *list commits*: gitweb's `commit` / `author` /
+/// `committer` (`git log --grep= / --author= / --committer=`) and `pickaxe`
+/// (`git log -S`). gitweb's fifth facet, `grep`, is `git grep` listing
+/// file/line hits at a single revision — it returns lines, not commits, so it is
+/// a separate capability with its own port shape, not a variant here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchKind {
     /// Match the commit message (`commit`).
@@ -74,9 +80,8 @@ pub enum SearchKind {
     Author,
     /// Match the committer identity (`committer`).
     Committer,
-    /// Match file content with `git grep` (`grep`).
-    Grep,
-    /// Match commits that add or remove the pattern (`pickaxe`).
+    /// Match commits that change the number of occurrences of the pattern in
+    /// some file (`pickaxe`).
     Pickaxe,
 }
 
@@ -150,7 +155,9 @@ pub trait Repository {
     /// A snapshot archive of `tree` in the given `format`.
     fn archive(&self, tree: &ObjectId, format: ArchiveFormat) -> Result<Vec<u8>, DomainError>;
 
-    /// Commits matching `query`, windowed by `page` (grep / pickaxe / ident /
-    /// message search).
+    /// Commits matching `query`, rooted at `HEAD` and windowed by `page`
+    /// (message / author / committer / pickaxe search). gitweb roots its search
+    /// at the current view's revision; with no revision selected that is `HEAD`,
+    /// which is the base this port searches from.
     fn search(&self, query: &SearchQuery, page: Page) -> Result<Vec<Commit>, DomainError>;
 }
