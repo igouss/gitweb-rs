@@ -50,6 +50,11 @@ harness = false
 name = "diff"
 harness = false
 
+# Conformance for the `combined_diff` operation: multi-parent merge diff (--cc).
+[[test]]
+name = "combined_diff"
+harness = false
+
 # Conformance for the `patch` operation: unified diff text + hunks.
 [[test]]
 name = "patch"

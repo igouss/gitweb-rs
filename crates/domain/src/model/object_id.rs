@@ -38,6 +38,22 @@ impl ObjectId {
         &self.hex
     }
 
+    /// Whether this is the all-zero null id git shows for the missing side of an
+    /// addition or deletion (gitweb's `'0' x 40` / `'0' x 64`).
+    #[must_use]
+    pub fn is_null(&self) -> bool {
+        self.hex.bytes().all(|byte: u8| byte == b'0')
+    }
+
+    /// The all-zero null id of this id's hash length — the id git shows for the
+    /// absent side of an addition or deletion.
+    #[must_use]
+    pub fn null_like(&self) -> Self {
+        Self {
+            hex: "0".repeat(self.hex.len()),
+        }
+    }
+
     /// The default seven-character abbreviation.
     #[must_use]
     pub fn abbreviated(&self) -> &str {

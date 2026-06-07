@@ -10,6 +10,7 @@ use gitweb_domain::model::binary::is_binary;
 use gitweb_domain::model::change::ChangeStatus;
 use gitweb_domain::model::chop::{ChopMode, chop_str};
 use gitweb_domain::model::commit::Commit;
+use gitweb_domain::model::diff::{CombinedDiffEntry, CombinedParent};
 use gitweb_domain::model::email_privacy::redact;
 use gitweb_domain::model::encoding::{FallbackEncoding, to_utf8};
 use gitweb_domain::model::export::{ExportPolicy, RepoFacts};
@@ -75,6 +76,11 @@ struct DomainWorld {
     category_groups: Option<Vec<CategoryGroup>>,
     projects_list_line: String,
     parsed_entry: Option<Option<ProjectListEntry>>,
+    combined_entry: Option<CombinedDiffEntry>,
+    combined_nparents: Option<usize>,
+    combined_is_deleted: Option<bool>,
+    combined_has_history: Option<bool>,
+    combined_not_deleted: Option<bool>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -1126,6 +1132,128 @@ fn parsed_owner_is(world: &mut DomainWorld, expected: String) {
 #[then("the parsed line has no owner")]
 fn parsed_line_has_no_owner(world: &mut DomainWorld) {
     assert_eq!(parsed(world).owner(), None);
+}
+
+// --- combined merge diff entry -----------------------------------------------
+
+/// A non-null object id, so a combined entry's result side reads as present.
+fn nonzero_oid() -> ObjectId {
+    ObjectId::parse(&"a".repeat(40)).expect("forty a's is a valid object id")
+}
+
+/// A regular-file mode, the only mode these pure-rule scenarios care about.
+fn regular_mode() -> FileMode {
+    FileMode::from_octal("100644").expect("100644 is a valid mode")
+}
+
+/// One parent's from-side carrying `status` over a regular file.
+fn parent_with(status: ChangeStatus) -> CombinedParent {
+    CombinedParent::new(status, regular_mode(), nonzero_oid())
+}
+
+/// A modification status over an unchanged regular-file mode.
+fn modified_status() -> ChangeStatus {
+    ChangeStatus::from_modification(regular_mode(), regular_mode())
+}
+
+#[given("a combined entry modified against two parents")]
+fn given_combined_modified_two(world: &mut DomainWorld) {
+    world.combined_entry = Some(CombinedDiffEntry::new(
+        vec![
+            parent_with(modified_status()),
+            parent_with(modified_status()),
+        ],
+        regular_mode(),
+        nonzero_oid(),
+        "merged.txt".to_owned(),
+    ));
+}
+
+#[given("a combined entry added against two parents")]
+fn given_combined_added_two(world: &mut DomainWorld) {
+    world.combined_entry = Some(CombinedDiffEntry::new(
+        vec![
+            parent_with(ChangeStatus::added()),
+            parent_with(ChangeStatus::added()),
+        ],
+        regular_mode(),
+        nonzero_oid(),
+        "merged.txt".to_owned(),
+    ));
+}
+
+#[given("a combined entry deleted against two parents")]
+fn given_combined_deleted_two(world: &mut DomainWorld) {
+    world.combined_entry = Some(CombinedDiffEntry::new(
+        vec![
+            parent_with(ChangeStatus::deleted()),
+            parent_with(ChangeStatus::deleted()),
+        ],
+        regular_mode(),
+        dummy_oid(),
+        "merged.txt".to_owned(),
+    ));
+}
+
+#[given("a combined entry modified against three parents")]
+fn given_combined_modified_three(world: &mut DomainWorld) {
+    world.combined_entry = Some(CombinedDiffEntry::new(
+        vec![
+            parent_with(modified_status()),
+            parent_with(modified_status()),
+            parent_with(modified_status()),
+        ],
+        regular_mode(),
+        nonzero_oid(),
+        "merged.txt".to_owned(),
+    ));
+}
+
+#[when("I read its combined-diff flags")]
+fn read_combined_flags(world: &mut DomainWorld) {
+    let entry: &CombinedDiffEntry = world
+        .combined_entry
+        .as_ref()
+        .expect("a combined entry must be built first");
+    world.combined_nparents = Some(entry.nparents());
+    world.combined_is_deleted = Some(entry.is_deleted());
+    world.combined_has_history = Some(entry.has_history());
+    world.combined_not_deleted = Some(entry.not_deleted());
+}
+
+#[then(regex = r"^the combined entry has (\d+) parents$")]
+fn combined_has_parents(world: &mut DomainWorld, count: usize) {
+    assert_eq!(world.combined_nparents, Some(count));
+}
+
+#[then("the combined entry is a deletion")]
+fn combined_is_deletion(world: &mut DomainWorld) {
+    assert_eq!(world.combined_is_deleted, Some(true));
+}
+
+#[then("the combined entry is not a deletion")]
+fn combined_is_not_deletion(world: &mut DomainWorld) {
+    assert_eq!(world.combined_is_deleted, Some(false));
+}
+
+#[then("the combined entry has history")]
+fn combined_has_history(world: &mut DomainWorld) {
+    assert_eq!(world.combined_has_history, Some(true));
+}
+
+#[then("the combined entry has no history")]
+fn combined_has_no_history(world: &mut DomainWorld) {
+    assert_eq!(world.combined_has_history, Some(false));
+}
+
+#[then("the combined entry survives against some parent")]
+fn combined_survives(world: &mut DomainWorld) {
+    assert_eq!(world.combined_not_deleted, Some(true));
+}
+
+#[then("the combined entry is gone from every parent")]
+fn combined_gone(world: &mut DomainWorld) {
+    assert_eq!(world.combined_not_deleted, Some(false));
 }
 
 #[tokio::main]

@@ -98,13 +98,13 @@ pub(crate) fn to_tree_entry(
 
 /// A gix tree-entry mode as the domain's [`FileMode`], via the domain's own
 /// octal parser so mode classification stays in one place.
-fn to_file_mode(mode: gix::objs::tree::EntryMode) -> Result<FileMode, DomainError> {
+pub(crate) fn to_file_mode(mode: gix::objs::tree::EntryMode) -> Result<FileMode, DomainError> {
     let octal: String = mode.kind().as_octal_str().to_string();
     FileMode::from_octal(&octal).ok_or_else(|| backend(format!("invalid file mode: {octal}")))
 }
 
 /// The absent-side mode (`000000`) gitweb shows for a created or deleted path.
-fn absent_mode() -> FileMode {
+pub(crate) fn absent_mode() -> FileMode {
     FileMode::from_octal("000000").expect("000000 is a valid octal mode")
 }
 

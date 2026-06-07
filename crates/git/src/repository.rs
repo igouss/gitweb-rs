@@ -6,6 +6,7 @@
 //! [`DomainError::NotFound`], an object of the wrong kind is
 //! [`DomainError::Invalid`], and anything else is [`DomainError::Backend`].
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use gix::revision::walk::Sorting;
@@ -14,8 +15,9 @@ use gix::traverse::commit::simple::CommitTimeOrder;
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::blame::Blame;
 use gitweb_domain::model::blob::Blob;
+use gitweb_domain::model::change::ChangeStatus;
 use gitweb_domain::model::commit::Commit;
-use gitweb_domain::model::diff::Diff;
+use gitweb_domain::model::diff::{CombinedDiff, CombinedDiffEntry, CombinedParent, Diff};
 use gitweb_domain::model::file_mode::{FileKind, FileMode};
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
@@ -30,8 +32,8 @@ use gitweb_domain::port::repository::{ArchiveFormat, Page, Repository, SearchQue
 use gitweb_domain::model::diff::DiffEntry;
 
 use crate::conv::{
-    backend, is_null_oid, read_commit, to_diff_entry, to_domain_oid, to_file_patch, to_gix_oid,
-    to_object_kind, to_signature, to_tree_entry,
+    absent_mode, backend, is_null_oid, read_commit, to_diff_entry, to_domain_oid, to_file_mode,
+    to_file_patch, to_gix_oid, to_object_kind, to_signature, to_tree_entry,
 };
 
 /// Read access to one on-disk git repository, backed by gix.
@@ -136,6 +138,27 @@ impl GixRepository {
                 Ok(here != there)
             }
         }
+    }
+
+    /// Every leaf file in `tree_ish`'s tree, keyed by full path — the recursive
+    /// `git ls-tree -r` view git compares per path. `tree_ish` may name a commit
+    /// or a tree (peeled via [`Self::require_tree`]); subtree entries are
+    /// dropped, leaving only the blob/symlink/gitlink leaves a combined diff
+    /// compares.
+    fn tree_leaves(&self, tree_ish: &ObjectId) -> Result<BTreeMap<String, Side>, DomainError> {
+        let tree: gix::Tree<'_> = self.require_tree(tree_ish)?;
+        let records: Vec<gix::traverse::tree::recorder::Entry> =
+            tree.traverse().breadthfirst.files().map_err(backend)?;
+        let mut leaves: BTreeMap<String, Side> = BTreeMap::new();
+        for record in &records {
+            if record.mode.is_tree() {
+                continue;
+            }
+            let mode: FileMode = to_file_mode(record.mode)?;
+            let oid: ObjectId = to_domain_oid(record.oid);
+            leaves.insert(record.filepath.to_string(), (mode, oid));
+        }
+        Ok(leaves)
     }
 }
 
@@ -342,6 +365,35 @@ impl Repository for GixRepository {
         Ok(Patch::new(files))
     }
 
+    fn combined_diff(&self, commit: &ObjectId) -> Result<CombinedDiff, DomainError> {
+        // gitweb's `git diff-tree -c <merge>`: compare the merge against every
+        // parent at once and show only paths that differ from EVERY parent — a
+        // path matching even one parent was taken verbatim from it, so the merge
+        // resolved nothing there. gix has no combined diff, so we compose one
+        // from per-parent, path-keyed tree comparisons.
+        let merge_object: gix::Object<'_> = self.require_object(commit)?;
+        let merge: gix::Commit<'_> =
+            merge_object
+                .try_into_commit()
+                .map_err(|_error: gix::object::try_into::Error| {
+                    DomainError::Invalid(format!("not a commit: {}", commit.as_str()))
+                })?;
+        let parent_ids: Vec<ObjectId> = merge
+            .parent_ids()
+            .map(|id: gix::Id<'_>| to_domain_oid(id.detach()))
+            .collect();
+
+        let merge_leaves: BTreeMap<String, Side> = self.tree_leaves(commit)?;
+        let mut parent_leaves: Vec<BTreeMap<String, Side>> = Vec::with_capacity(parent_ids.len());
+        for parent in &parent_ids {
+            parent_leaves.push(self.tree_leaves(parent)?);
+        }
+
+        let null_oid: ObjectId = commit.null_like();
+        let entries: Vec<CombinedDiffEntry> = combine(&merge_leaves, &parent_leaves, &null_oid);
+        Ok(CombinedDiff::new(entries))
+    }
+
     fn blame(&self, _at: &ObjectId, _path: &str) -> Result<Blame, DomainError> {
         Err(DomainError::Backend(
             "blame: not yet implemented".to_owned(),
@@ -358,5 +410,100 @@ impl Repository for GixRepository {
         Err(DomainError::Backend(
             "search: not yet implemented".to_owned(),
         ))
+    }
+}
+
+/// One side of a path in a tree: its file mode and object id.
+type Side = (FileMode, ObjectId);
+
+/// Composes a combined diff from the merge's leaves and each parent's leaves,
+/// applying git's `diff-tree -c` rule: a path is shown only if it differs from
+/// *every* parent. Paths come out sorted because the working set is a
+/// [`BTreeSet`]. With no parents there is nothing to combine, so the diff is
+/// empty rather than reporting every path as a phantom change.
+fn combine(
+    merge: &BTreeMap<String, Side>,
+    parents: &[BTreeMap<String, Side>],
+    null_oid: &ObjectId,
+) -> Vec<CombinedDiffEntry> {
+    if parents.is_empty() {
+        return Vec::new();
+    }
+    let mut paths: BTreeSet<&String> = BTreeSet::new();
+    paths.extend(merge.keys());
+    for parent in parents {
+        paths.extend(parent.keys());
+    }
+    let mut entries: Vec<CombinedDiffEntry> = Vec::new();
+    for path in paths {
+        if let Some(entry) = combine_path(path, merge.get(path), parents, null_oid) {
+            entries.push(entry);
+        }
+    }
+    entries
+}
+
+/// Builds the combined entry for one path, or `None` when the path matches some
+/// parent (and so is uninteresting in a combined diff). The to-side is the merge
+/// result; an absent merge side is a deletion (absent mode, null id).
+fn combine_path(
+    path: &str,
+    merge_side: Option<&Side>,
+    parents: &[BTreeMap<String, Side>],
+    null_oid: &ObjectId,
+) -> Option<CombinedDiffEntry> {
+    let differs_from_all: bool = parents
+        .iter()
+        .all(|parent: &BTreeMap<String, Side>| parent.get(path) != merge_side);
+    if !differs_from_all {
+        return None;
+    }
+    let combined_parents: Vec<CombinedParent> = parents
+        .iter()
+        .map(|parent: &BTreeMap<String, Side>| {
+            combined_parent(parent.get(path), merge_side, null_oid)
+        })
+        .collect();
+    let (to_mode, to_oid): (FileMode, ObjectId) = match merge_side {
+        Some(side) => (side.0, side.1.clone()),
+        None => (absent_mode(), null_oid.clone()),
+    };
+    Some(CombinedDiffEntry::new(
+        combined_parents,
+        to_mode,
+        to_oid,
+        path.to_owned(),
+    ))
+}
+
+/// One parent's from-side for an included path: its mode and id (absent/null
+/// when the path is new to that parent) and the status relative to the merge.
+fn combined_parent(
+    parent_side: Option<&Side>,
+    merge_side: Option<&Side>,
+    null_oid: &ObjectId,
+) -> CombinedParent {
+    let (from_mode, from_oid): (FileMode, ObjectId) = match parent_side {
+        Some(side) => (side.0, side.1.clone()),
+        None => (absent_mode(), null_oid.clone()),
+    };
+    CombinedParent::new(
+        combined_status(parent_side, merge_side),
+        from_mode,
+        from_oid,
+    )
+}
+
+/// The status of a path relative to one parent, mirroring git's per-parent
+/// status letter: absent-in-parent is an add, absent-in-merge is a delete, and
+/// a present-on-both pair is a modification or a type change (by mode).
+fn combined_status(parent_side: Option<&Side>, merge_side: Option<&Side>) -> ChangeStatus {
+    match (parent_side, merge_side) {
+        (None, Some(_)) => ChangeStatus::added(),
+        (Some(_), None) => ChangeStatus::deleted(),
+        (Some(from), Some(to)) => ChangeStatus::from_modification(from.0, to.0),
+        // Unreachable for an included path: a path absent from both sides does
+        // not differ from this parent, so it is never combined.
+        (None, None) => ChangeStatus::from_modification(absent_mode(), absent_mode()),
     }
 }

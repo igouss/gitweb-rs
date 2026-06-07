@@ -14,7 +14,7 @@ use crate::error::DomainError;
 use crate::model::blame::Blame;
 use crate::model::blob::Blob;
 use crate::model::commit::Commit;
-use crate::model::diff::Diff;
+use crate::model::diff::{CombinedDiff, Diff};
 use crate::model::object_id::ObjectId;
 use crate::model::object_kind::ObjectKind;
 use crate::model::patch::Patch;
@@ -136,6 +136,13 @@ pub trait Repository {
     /// endpoints stream. `from` is `None` to diff against the empty tree (a root
     /// commit).
     fn patch(&self, from: Option<&ObjectId>, to: &ObjectId) -> Result<Patch, DomainError>;
+
+    /// The combined diff of a merge `commit` against all its parents at once,
+    /// the way gitweb renders `git diff-tree -c`/`--cc`: only paths that differ
+    /// from *every* parent appear, each carrying one from-side per parent and a
+    /// single merge-result to-side. The adapter reads the merge's parents
+    /// itself, so the caller passes just the merge commit.
+    fn combined_diff(&self, commit: &ObjectId) -> Result<CombinedDiff, DomainError>;
 
     /// Line-by-line blame of `path` as of commit `at`.
     fn blame(&self, at: &ObjectId, path: &str) -> Result<Blame, DomainError>;
