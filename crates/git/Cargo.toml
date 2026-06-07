@@ -1,0 +1,26 @@
+[package]
+name = "gitweb-git"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The gix-backed adapter implementing gitweb-rs's Repository and ProjectStore ports."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+gitweb-domain = { path = "../domain" }
+gix = { workspace = true }
+
+[dev-dependencies]
+gitweb-fixtures = { path = "../fixtures" }
+cucumber = { workspace = true }
+tokio = { workspace = true }
+
+# Gherkin conformance for the gix adapter: real reads over gix-built fixtures.
+# cucumber supplies its own main(), so the default libtest harness is disabled.
+[[test]]
+name = "conformance"
+harness = false
