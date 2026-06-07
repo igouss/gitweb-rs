@@ -1,0 +1,41 @@
+[package]
+name = "gitweb-app"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Composition root: wires the gix adapters, dispatcher, render and config into the runnable gitweb-rs binary."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[[bin]]
+name = "gitweb-rs"
+path = "src/main.rs"
+
+[dependencies]
+# The composition root is the ONE crate allowed to know every adapter: it binds
+# the domain ports to their concrete implementations and serves the result.
+gitweb-domain = { path = "../domain" }
+gitweb-config = { path = "../config" }
+gitweb-git = { path = "../git" }
+gitweb-web = { path = "../web" }
+# The HTTP server: the Router this crate assembles, plus serve()/TcpListener for
+# the binary. `net` is added on top of the workspace runtime features so main can
+# bind a listener; `signal` lets the server shut down on Ctrl-C cleanly.
+axum = { workspace = true }
+tokio = { workspace = true, features = ["net", "signal"] }
+
+[dev-dependencies]
+# features/app boots the assembled Router over a real, gix-built project root and
+# drives it with one in-process request — the same harness shape as the web crate.
+gitweb-fixtures = { path = "../fixtures" }
+cucumber = { workspace = true }
+tower = { workspace = true }
+
+# Gherkin-driven BDD for the composition root. cucumber supplies its own main(),
+# so the default libtest harness is disabled.
+[[test]]
+name = "app"
+harness = false

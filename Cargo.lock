@@ -760,6 +760,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "gitweb-app"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "cucumber",
+ "gitweb-config",
+ "gitweb-domain",
+ "gitweb-fixtures",
+ "gitweb-git",
+ "gitweb-web",
+ "tokio",
+ "tower",
+]
+
+[[package]]
 name = "gitweb-config"
 version = "0.0.0"
 dependencies = [
@@ -2841,6 +2856,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys",
