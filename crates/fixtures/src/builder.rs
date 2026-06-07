@@ -17,13 +17,19 @@ use crate::spec::{CommitSpec, Identity, Mode, TagSpec, TargetKind, TreeEntry};
 
 /// A throwaway bare git repository that builds deterministic fixtures.
 ///
-/// The repository lives in a temp directory that is deleted when the builder is
-/// dropped. Methods panic on any internal git failure: a fixture that cannot be
-/// built is a broken test, and should fail loudly and immediately.
+/// A builder from [`RepoBuilder::init`] owns its own temp directory, deleted
+/// when the builder is dropped. A builder from [`RepoBuilder::init_at`] writes
+/// into a caller-owned directory (e.g. a [`ProjectRoot`]) and deletes nothing on
+/// drop — the owner handles cleanup. Methods panic on any internal git failure:
+/// a fixture that cannot be built is a broken test, and should fail loudly and
+/// immediately.
+///
+/// [`ProjectRoot`]: crate::ProjectRoot
 #[derive(Debug)]
 pub struct RepoBuilder {
     repo: gix::Repository,
-    _dir: tempfile::TempDir,
+    /// The temp dir to delete on drop, when this builder owns one.
+    _dir: Option<tempfile::TempDir>,
 }
 
 fn entry_kind(mode: Mode) -> EntryKind {
@@ -60,7 +66,22 @@ impl RepoBuilder {
     pub fn init() -> Self {
         let dir: tempfile::TempDir = tempfile::tempdir().expect("a temp dir for the fixture repo");
         let repo: gix::Repository = gix::init_bare(dir.path()).expect("init a bare fixture repo");
-        Self { repo, _dir: dir }
+        Self {
+            repo,
+            _dir: Some(dir),
+        }
+    }
+
+    /// A fresh, empty bare repository at a caller-owned `path` (its parents are
+    /// created as needed). Cleanup is the caller's: this builder deletes nothing
+    /// on drop. Used to lay several repositories under one [`ProjectRoot`].
+    ///
+    /// [`ProjectRoot`]: crate::ProjectRoot
+    #[must_use]
+    pub fn init_at(path: &Path) -> Self {
+        std::fs::create_dir_all(path).expect("create the fixture repo directory");
+        let repo: gix::Repository = gix::init_bare(path).expect("init a bare fixture repo");
+        Self { repo, _dir: None }
     }
 
     /// The on-disk path of the repository, for adapters that open it by path.

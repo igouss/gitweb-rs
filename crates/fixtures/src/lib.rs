@@ -10,9 +10,11 @@
 //! adapter.
 
 mod builder;
+mod project_root;
 mod spec;
 
 pub use builder::RepoBuilder;
+pub use project_root::ProjectRoot;
 pub use spec::{CommitSpec, Identity, Mode, TagSpec, TargetKind, TreeEntry};
 
 /// A git object id, re-exported so specs need not depend on gix directly.

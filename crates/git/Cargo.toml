@@ -29,3 +29,8 @@ harness = false
 [[test]]
 name = "history"
 harness = false
+
+# Conformance for ProjectStore discovery: list + open over a fixture root.
+[[test]]
+name = "discovery"
+harness = false

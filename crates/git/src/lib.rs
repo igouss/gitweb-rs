@@ -1,7 +1,7 @@
 //! The gix-backed adapter for gitweb-rs.
 //!
 //! This crate is a Boundary in the ECB sense: it implements the domain's
-//! [`Repository`] (and, in later slices, `ProjectStore`) port by driving gix.
+//! [`Repository`] and [`ProjectStore`] ports by driving gix and the filesystem.
 //! All dependencies point inward — it knows about [`gitweb_domain`] and gix, and
 //! nothing knows about it but the composition root.
 //!
@@ -10,8 +10,11 @@
 //! gix calls rather than a pile of conversion noise.
 //!
 //! [`Repository`]: gitweb_domain::port::repository::Repository
+//! [`ProjectStore`]: gitweb_domain::port::project_store::ProjectStore
 
 mod conv;
+mod project_store;
 mod repository;
 
+pub use project_store::GixProjectStore;
 pub use repository::GixRepository;
