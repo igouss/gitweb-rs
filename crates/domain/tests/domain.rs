@@ -12,6 +12,7 @@ use gitweb_domain::model::binary::is_binary;
 use gitweb_domain::model::change::ChangeStatus;
 use gitweb_domain::model::chop::{ChopMode, chop_str};
 use gitweb_domain::model::commit::Commit;
+use gitweb_domain::model::config_chain::{ConfigChain, ConfigSlot};
 use gitweb_domain::model::diff::{CombinedDiffEntry, CombinedParent};
 use gitweb_domain::model::email_privacy::redact;
 use gitweb_domain::model::encoding::{FallbackEncoding, to_utf8};
@@ -95,6 +96,14 @@ struct DomainWorld {
     grep_path: String,
     grep_content: Vec<u8>,
     grep_results: Option<Vec<GrepMatch>>,
+    cfg_common_env: Option<String>,
+    cfg_common_default: Option<String>,
+    cfg_primary_env: Option<String>,
+    cfg_primary_default: Option<String>,
+    cfg_system_env: Option<String>,
+    cfg_system_default: Option<String>,
+    cfg_existing: Vec<String>,
+    cfg_load_order: Option<Vec<String>>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -1598,6 +1607,86 @@ fn grep_binary_is(world: &mut DomainWorld, index: usize, path: String) {
     assert!(hit.is_binary());
     assert_eq!(hit.path(), path);
     assert_eq!(hit.text(), None);
+}
+
+// --- Global config source selection (ConfigChain) ----------------------------
+
+#[given("no global config is configured")]
+fn given_no_global_config(_world: &mut DomainWorld) {}
+
+#[given(regex = r#"^the common config default is "(.*)"$"#)]
+fn given_common_default(world: &mut DomainWorld, path: String) {
+    world.cfg_common_default = Some(path);
+}
+
+#[given(regex = r#"^the common config env is "(.*)"$"#)]
+fn given_common_env(world: &mut DomainWorld, path: String) {
+    world.cfg_common_env = Some(path);
+}
+
+#[given(regex = r#"^the per-instance config default is "(.*)"$"#)]
+fn given_primary_default(world: &mut DomainWorld, path: String) {
+    world.cfg_primary_default = Some(path);
+}
+
+#[given(regex = r#"^the per-instance config env is "(.*)"$"#)]
+fn given_primary_env(world: &mut DomainWorld, path: String) {
+    world.cfg_primary_env = Some(path);
+}
+
+#[given(regex = r#"^the system config default is "(.*)"$"#)]
+fn given_system_default(world: &mut DomainWorld, path: String) {
+    world.cfg_system_default = Some(path);
+}
+
+#[given(regex = r#"^the system config env is "(.*)"$"#)]
+fn given_system_env(world: &mut DomainWorld, path: String) {
+    world.cfg_system_env = Some(path);
+}
+
+#[given(regex = r#"^the file "(.*)" exists$"#)]
+fn given_file_exists(world: &mut DomainWorld, path: String) {
+    world.cfg_existing.push(path);
+}
+
+#[when("I select the global config files")]
+fn select_global_config_files(world: &mut DomainWorld) {
+    let chain: ConfigChain = ConfigChain::new(
+        ConfigSlot::new(
+            world.cfg_common_env.clone(),
+            world.cfg_common_default.clone(),
+        ),
+        ConfigSlot::new(
+            world.cfg_primary_env.clone(),
+            world.cfg_primary_default.clone(),
+        ),
+        ConfigSlot::new(
+            world.cfg_system_env.clone(),
+            world.cfg_system_default.clone(),
+        ),
+    );
+    let existing: Vec<String> = world.cfg_existing.clone();
+    world.cfg_load_order =
+        Some(chain.load_order(|path: &str| existing.iter().any(|p: &String| p == path)));
+}
+
+#[then("no config files are loaded")]
+fn no_config_files_loaded(world: &mut DomainWorld) {
+    let order: &[String] = world
+        .cfg_load_order
+        .as_ref()
+        .expect("select the config files first");
+    assert!(order.is_empty(), "expected no config files, got: {order:?}");
+}
+
+#[then(regex = r#"^the load order is "(.*)"$"#)]
+fn load_order_is(world: &mut DomainWorld, expected: String) {
+    let order: &[String] = world
+        .cfg_load_order
+        .as_ref()
+        .expect("select the config files first");
+    let actual: String = order.join(", ");
+    assert_eq!(actual, expected);
 }
 
 #[tokio::main]

@@ -8,6 +8,7 @@ pub mod blob;
 pub mod change;
 pub mod chop;
 pub mod commit;
+pub mod config_chain;
 pub mod diff;
 pub mod email_privacy;
 pub mod encoding;
