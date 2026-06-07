@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::project::Project;
 use gitweb_domain::model::project_info::ProjectInfo;
+use gitweb_domain::model::projects_list::{ProjectListEntry, parse_project_line};
 use gitweb_domain::model::safety::SafePath;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
@@ -25,16 +26,35 @@ use crate::repository::GixRepository;
 
 /// Discovery and opening of the repositories under one project root, backed by
 /// the filesystem and gix.
+///
+/// gitweb lists projects in one of two ways (`git_get_projects_list`): by
+/// scanning `$projectroot` for repositories, or by reading a `$projects_list`
+/// file that names each project (and optionally its owner). `list_file` selects
+/// between them; either way, projects are opened and read relative to `root`.
 #[derive(Debug)]
 pub struct GixProjectStore {
     root: PathBuf,
+    list_file: Option<PathBuf>,
 }
 
 impl GixProjectStore {
-    /// A store rooted at `root` — the `$projectroot` to scan and open against.
+    /// A store that discovers projects by scanning `root` (the `$projectroot`).
     #[must_use]
     pub fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self {
+            root,
+            list_file: None,
+        }
+    }
+
+    /// A store that lists projects from a `$projects_list` file, with their
+    /// paths resolved (and opened) relative to `root`.
+    #[must_use]
+    pub fn from_list_file(root: PathBuf, list_file: PathBuf) -> Self {
+        Self {
+            root,
+            list_file: Some(list_file),
+        }
     }
 
     /// Resolves a store-relative `name` to its on-disk git directory, validating
@@ -49,10 +69,49 @@ impl GixProjectStore {
         }
         Ok(path)
     }
+
+    /// Lists the projects named in the `$projects_list` file: each parsed line
+    /// whose path is a safe, existing repository (gitweb's file-mode
+    /// `git_get_projects_list`, whose `check_export_ok` requires `check_head_link`
+    /// — export markers and the auth hook are a later slice). File order is
+    /// preserved, as gitweb keeps it.
+    fn list_from_file(&self, file: &Path) -> Result<Vec<Project>, DomainError> {
+        let text: String = fs::read_to_string(file).map_err(backend)?;
+        let mut found: Vec<Project> = Vec::new();
+        for line in text.lines() {
+            let Some(entry) = parse_project_line(line) else {
+                continue;
+            };
+            // Validate the path before touching the filesystem, then keep it only
+            // if a repository really lives there.
+            let Some(safe) = SafePath::parse(entry.path()) else {
+                continue;
+            };
+            if head_linked(&self.root.join(safe.as_str())) {
+                found.push(Project::new(entry.path().to_owned()));
+            }
+        }
+        Ok(found)
+    }
+
+    /// The owner named for `name` in the `$projects_list` file, if the store is
+    /// in file mode and the file carries one (gitweb consults this before the
+    /// `gitweb.owner` config value).
+    fn list_owner(&self, name: &str) -> Option<String> {
+        let file: &PathBuf = self.list_file.as_ref()?;
+        let text: String = fs::read_to_string(file).ok()?;
+        text.lines()
+            .filter_map(parse_project_line)
+            .find(|entry: &ProjectListEntry| entry.path() == name)
+            .and_then(|entry: ProjectListEntry| entry.owner().map(str::to_owned))
+    }
 }
 
 impl ProjectStore for GixProjectStore {
     fn list(&self) -> Result<Vec<Project>, DomainError> {
+        if let Some(file) = &self.list_file {
+            return self.list_from_file(file);
+        }
         let mut found: Vec<Project> = Vec::new();
         scan(&self.root, &self.root, &mut found)?;
         // gitweb leaves order to File::Find; sort for a deterministic listing.
@@ -82,7 +141,13 @@ impl ProjectStore for GixProjectStore {
         {
             info = info.with_description(description);
         }
-        if let Some(owner) = config.string("gitweb.owner").map(cow_to_string) {
+        // Owner precedence (gitweb's git_get_project_owner): the projects-list
+        // file wins, then the gitweb.owner config value. The filesystem owner is
+        // a later slice.
+        if let Some(owner) = self
+            .list_owner(name)
+            .or_else(|| config.string("gitweb.owner").map(cow_to_string))
+        {
             info = info.with_owner(owner);
         }
         if let Some(category) = file_or_config(&git_dir, "category", &config, "gitweb.category") {

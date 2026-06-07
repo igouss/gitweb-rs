@@ -119,6 +119,14 @@ impl ProjectRoot {
         std::fs::write(&config, text).expect("write the fixture repo config");
     }
 
+    /// Writes a `$projects_list` file (one entry per line) alongside the root and
+    /// returns its path, for a store that lists from a file rather than scanning.
+    pub fn write_projects_list(&self, body: &str) -> PathBuf {
+        let path: PathBuf = self.dir.path().join("projects.list");
+        std::fs::write(&path, body).expect("write the fixture projects-list file");
+        path
+    }
+
     /// Writes one metadata file at the root of the named repository.
     fn write_metadata_file(&self, name: &str, file: &str, contents: &str) {
         let path: PathBuf = self.dir.path().join(name).join(file);

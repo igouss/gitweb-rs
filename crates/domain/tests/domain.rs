@@ -19,6 +19,7 @@ use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::patch::{FileContent, FilePatch, Hunk, HunkLine, Patch};
 use gitweb_domain::model::project_info::{CategoryGroup, ProjectInfo, group_by_category};
+use gitweb_domain::model::projects_list::{ProjectListEntry, parse_project_line};
 use gitweb_domain::model::ref_name::RefName;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::signature::Signature;
@@ -72,6 +73,8 @@ struct DomainWorld {
     resolved_category: Option<String>,
     projects_to_group: Vec<ProjectInfo>,
     category_groups: Option<Vec<CategoryGroup>>,
+    projects_list_line: String,
+    parsed_entry: Option<Option<ProjectListEntry>>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -1080,6 +1083,49 @@ fn category_holds_project(world: &mut DomainWorld, name: String, project: String
         .iter()
         .any(|info: &ProjectInfo| info.name() == project);
     assert!(found, "expected category {name} to hold {project}");
+}
+
+// --- Projects-list file lines ------------------------------------------------
+
+fn parsed(world: &DomainWorld) -> &ProjectListEntry {
+    world
+        .parsed_entry
+        .as_ref()
+        .expect("parse the line first")
+        .as_ref()
+        .expect("the line carried a project")
+}
+
+#[given(regex = r#"^the projects-list line "(.*)"$"#)]
+fn given_projects_list_line(world: &mut DomainWorld, line: String) {
+    world.projects_list_line = line;
+}
+
+#[when("I parse the projects-list line")]
+fn parse_projects_list_line(world: &mut DomainWorld) {
+    world.parsed_entry = Some(parse_project_line(&world.projects_list_line));
+}
+
+#[then("the line carries no project")]
+fn line_carries_no_project(world: &mut DomainWorld) {
+    let result: &Option<ProjectListEntry> =
+        world.parsed_entry.as_ref().expect("parse the line first");
+    assert_eq!(result, &None);
+}
+
+#[then(regex = r#"^the parsed path is "(.*)"$"#)]
+fn parsed_path_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(parsed(world).path(), expected);
+}
+
+#[then(regex = r#"^the parsed owner is "(.*)"$"#)]
+fn parsed_owner_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(parsed(world).owner(), Some(expected.as_str()));
+}
+
+#[then("the parsed line has no owner")]
+fn parsed_line_has_no_owner(world: &mut DomainWorld) {
+    assert_eq!(parsed(world).owner(), None);
 }
 
 #[tokio::main]
