@@ -14,12 +14,15 @@ use gitweb_domain::model::email_privacy::redact;
 use gitweb_domain::model::encoding::{FallbackEncoding, to_utf8};
 use gitweb_domain::model::export::{ExportPolicy, RepoFacts};
 use gitweb_domain::model::file_mode::FileMode;
+use gitweb_domain::model::forks::{ProjectGroup, partition_forks};
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::patch::{FileContent, FilePatch, Hunk, HunkLine, Patch};
+use gitweb_domain::model::project_info::{CategoryGroup, ProjectInfo, group_by_category};
 use gitweb_domain::model::ref_name::RefName;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::signature::Signature;
+use gitweb_domain::model::url::unescape;
 
 #[derive(Debug, Default, World)]
 struct DomainWorld {
@@ -60,6 +63,15 @@ struct DomainWorld {
     visible: Option<bool>,
     patch_under_test: Option<Patch>,
     rendered: Option<String>,
+    encoded_token: String,
+    decoded_token: Option<String>,
+    fork_input: Vec<String>,
+    fork_groups: Option<Vec<ProjectGroup>>,
+    subject_project: Option<ProjectInfo>,
+    short_description: Option<String>,
+    resolved_category: Option<String>,
+    projects_to_group: Vec<ProjectInfo>,
+    category_groups: Option<Vec<CategoryGroup>>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -886,6 +898,188 @@ fn then_patch_is(world: &mut DomainWorld, step: &Step) {
 #[then("the patch is empty")]
 fn then_patch_is_empty(world: &mut DomainWorld) {
     assert_eq!(rendered(world), "");
+}
+
+// --- URL decoding (unescape) -------------------------------------------------
+
+#[given(regex = r#"^the encoded token "(.*)"$"#)]
+fn given_encoded_token(world: &mut DomainWorld, token: String) {
+    world.encoded_token = token;
+}
+
+#[when("I unescape it")]
+fn unescape_token(world: &mut DomainWorld) {
+    world.decoded_token = Some(unescape(&world.encoded_token));
+}
+
+#[then(regex = r#"^the decoded token is "(.*)"$"#)]
+fn decoded_token_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(world.decoded_token.as_deref(), Some(expected.as_str()));
+}
+
+// --- Fork detection ----------------------------------------------------------
+
+fn fork_group<'a>(world: &'a DomainWorld, name: &str) -> &'a ProjectGroup {
+    world
+        .fork_groups
+        .as_ref()
+        .expect("partition the forks first")
+        .iter()
+        .find(|group: &&ProjectGroup| group.name() == name)
+        .unwrap_or_else(|| panic!("no top-level project named {name}"))
+}
+
+#[given(regex = r#"^a project path "([^"]*)"$"#)]
+fn given_project_path(world: &mut DomainWorld, path: String) {
+    world.fork_input.push(path);
+}
+
+#[when("I partition forks")]
+fn partition_the_forks(world: &mut DomainWorld) {
+    world.fork_groups = Some(partition_forks(&world.fork_input));
+}
+
+#[then(regex = r"^(\d+) top-level projects? (?:remain|remains)$")]
+fn top_level_count(world: &mut DomainWorld, count: usize) {
+    let groups: &[ProjectGroup] = world.fork_groups.as_ref().expect("partition first");
+    assert_eq!(groups.len(), count);
+}
+
+#[then(regex = r#"^"([^"]*)" is a top-level project$"#)]
+fn is_top_level(world: &mut DomainWorld, name: String) {
+    let found: bool = world
+        .fork_groups
+        .as_ref()
+        .expect("partition first")
+        .iter()
+        .any(|group: &ProjectGroup| group.name() == name);
+    assert!(found, "expected {name} at the top level");
+}
+
+#[then(regex = r#"^"([^"]*)" is not a top-level project$"#)]
+fn is_not_top_level(world: &mut DomainWorld, name: String) {
+    let found: bool = world
+        .fork_groups
+        .as_ref()
+        .expect("partition first")
+        .iter()
+        .any(|group: &ProjectGroup| group.name() == name);
+    assert!(!found, "expected {name} to be folded away as a fork");
+}
+
+#[then(regex = r#"^"([^"]*)" has (\d+) forks?$"#)]
+fn has_n_forks(world: &mut DomainWorld, name: String, count: usize) {
+    assert_eq!(fork_group(world, &name).forks().len(), count);
+}
+
+#[then(regex = r#"^"([^"]*)" has the fork "([^"]*)"$"#)]
+fn has_the_fork(world: &mut DomainWorld, name: String, fork: String) {
+    let found: bool = fork_group(world, &name)
+        .forks()
+        .iter()
+        .any(|candidate: &String| candidate == &fork);
+    assert!(found, "expected {name} to own the fork {fork}");
+}
+
+// --- Per-project metadata (ProjectInfo) --------------------------------------
+
+fn subject(world: &DomainWorld) -> &ProjectInfo {
+    world
+        .subject_project
+        .as_ref()
+        .expect("a project must be set first")
+}
+
+fn category_group<'a>(world: &'a DomainWorld, name: &str) -> &'a CategoryGroup {
+    world
+        .category_groups
+        .as_ref()
+        .expect("group by category first")
+        .iter()
+        .find(|group: &&CategoryGroup| group.name() == name)
+        .unwrap_or_else(|| panic!("no category named {name}"))
+}
+
+#[given(regex = r#"^a project "([^"]*)" with no description$"#)]
+fn given_project_no_description(world: &mut DomainWorld, name: String) {
+    world.subject_project = Some(ProjectInfo::named(name));
+}
+
+#[given(regex = r#"^a project "([^"]*)" described as "(.*)"$"#)]
+fn given_project_described(world: &mut DomainWorld, name: String, description: String) {
+    world.subject_project = Some(ProjectInfo::named(name).with_description(description));
+}
+
+#[given(regex = r#"^a project "([^"]*)" with no category$"#)]
+fn given_project_no_category(world: &mut DomainWorld, name: String) {
+    world.subject_project = Some(ProjectInfo::named(name));
+}
+
+#[given(regex = r#"^a project "([^"]*)" in category "([^"]*)"$"#)]
+fn given_project_in_category(world: &mut DomainWorld, name: String, category: String) {
+    world.subject_project = Some(ProjectInfo::named(name).with_category(category));
+}
+
+#[when(regex = r"^I shorten its description to width (\d+)$")]
+fn shorten_description(world: &mut DomainWorld, width: usize) {
+    world.short_description = Some(subject(world).descr_short(width));
+}
+
+#[when(regex = r#"^I read its category with default "([^"]*)"$"#)]
+fn read_category(world: &mut DomainWorld, default: String) {
+    world.resolved_category = Some(subject(world).category_or(&default).to_owned());
+}
+
+#[then(regex = r#"^the short description is "(.*)"$"#)]
+fn short_description_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(world.short_description.as_deref(), Some(expected.as_str()));
+}
+
+#[then(regex = r#"^the category is "([^"]*)"$"#)]
+fn category_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(world.resolved_category.as_deref(), Some(expected.as_str()));
+}
+
+#[given("no projects to group")]
+fn given_no_projects_to_group(world: &mut DomainWorld) {
+    world.projects_to_group.clear();
+}
+
+#[given(regex = r#"^a project "([^"]*)" in category "([^"]*)" to group$"#)]
+fn given_project_in_category_to_group(world: &mut DomainWorld, name: String, category: String) {
+    world
+        .projects_to_group
+        .push(ProjectInfo::named(name).with_category(category));
+}
+
+#[given(regex = r#"^a project "([^"]*)" with no category to group$"#)]
+fn given_project_no_category_to_group(world: &mut DomainWorld, name: String) {
+    world.projects_to_group.push(ProjectInfo::named(name));
+}
+
+#[when(regex = r#"^I group by category with default "([^"]*)"$"#)]
+fn group_projects(world: &mut DomainWorld, default: String) {
+    world.category_groups = Some(group_by_category(&world.projects_to_group, &default));
+}
+
+#[then(regex = r"^(\d+) categor(?:y|ies) results?$")]
+fn category_count(world: &mut DomainWorld, count: usize) {
+    let groups: &[CategoryGroup] = world.category_groups.as_ref().expect("group first");
+    assert_eq!(groups.len(), count);
+}
+
+#[then(regex = r#"^the category "([^"]*)" holds (\d+) projects?$"#)]
+fn category_holds_count(world: &mut DomainWorld, name: String, count: usize) {
+    assert_eq!(category_group(world, &name).projects().len(), count);
+}
+
+#[then(regex = r#"^the category "([^"]*)" holds "([^"]*)"$"#)]
+fn category_holds_project(world: &mut DomainWorld, name: String, project: String) {
+    let found: bool = category_group(world, &name)
+        .projects()
+        .iter()
+        .any(|info: &ProjectInfo| info.name() == project);
+    assert!(found, "expected category {name} to hold {project}");
 }
 
 #[tokio::main]
