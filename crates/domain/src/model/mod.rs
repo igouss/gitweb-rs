@@ -32,5 +32,6 @@ pub mod safety;
 pub mod settings;
 pub mod signature;
 pub mod tag;
+pub mod timestamp;
 pub mod tree;
 pub mod url;

@@ -33,6 +33,7 @@ use gitweb_domain::model::routing::{Dispatch, route};
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::settings::{FeatureName, Settings, SettingsLayer};
 use gitweb_domain::model::signature::Signature;
+use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_domain::model::url::unescape;
 
 #[derive(Debug, Default, World)]
@@ -112,6 +113,9 @@ struct DomainWorld {
     settings_layers: Vec<SettingsLayer>,
     resolved_settings: Option<Settings>,
     routed: Option<Result<Dispatch, DomainError>>,
+    timestamp: Option<Timestamp>,
+    timestamp_text: Option<String>,
+    at_night: Option<bool>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -170,6 +174,72 @@ fn age_reads(world: &mut DomainWorld, expected: String) {
 fn class_is(world: &mut DomainWorld, expected: String) {
     let actual: AgeClass = world.class.expect("classify before asserting");
     assert_eq!(format!("{actual:?}"), expected);
+}
+
+#[given(regex = r#"^a timestamp at epoch (-?\d+) with timezone "(.*)"$"#)]
+fn given_timestamp(world: &mut DomainWorld, epoch: i64, tz: String) {
+    world.timestamp = Some(Timestamp::new(epoch, &tz));
+}
+
+#[given("there is no timestamp")]
+fn given_no_timestamp(world: &mut DomainWorld) {
+    world.timestamp = None;
+}
+
+#[when("I render its RFC-2822 form")]
+fn render_rfc2822(world: &mut DomainWorld) {
+    world.timestamp_text = world.timestamp.as_ref().map(|t: &Timestamp| t.rfc2822());
+}
+
+#[when("I render its ISO-8601 form")]
+fn render_iso8601(world: &mut DomainWorld) {
+    world.timestamp_text = world.timestamp.as_ref().map(|t: &Timestamp| t.iso8601());
+}
+
+#[when("I render its local form")]
+fn render_local(world: &mut DomainWorld) {
+    world.timestamp_text = world.timestamp.as_ref().map(|t: &Timestamp| t.iso_tz());
+}
+
+#[when("I check whether it is at night")]
+fn check_at_night(world: &mut DomainWorld) {
+    world.at_night = world
+        .timestamp
+        .as_ref()
+        .map(|t: &Timestamp| t.is_at_night());
+}
+
+#[then(regex = r#"^the timestamp reads "(.*)"$"#)]
+fn timestamp_reads(world: &mut DomainWorld, expected: String) {
+    assert_eq!(world.timestamp_text.as_deref(), Some(expected.as_str()));
+}
+
+#[then("nothing is rendered")]
+fn nothing_is_rendered(world: &mut DomainWorld) {
+    assert_eq!(world.timestamp_text, None);
+}
+
+#[then(regex = r"^at-night is (true|false)$")]
+fn at_night_is(world: &mut DomainWorld, expected: bool) {
+    assert_eq!(world.at_night, Some(expected));
+}
+
+#[then(regex = r"^the local hour is (\d+)$")]
+fn local_hour_is(world: &mut DomainWorld, expected: u8) {
+    let timestamp: &Timestamp = world.timestamp.as_ref().expect("a timestamp");
+    assert_eq!(timestamp.local_hour(), expected);
+}
+
+#[then(regex = r"^the local minute is (\d+)$")]
+fn local_minute_is(world: &mut DomainWorld, expected: u8) {
+    let timestamp: &Timestamp = world.timestamp.as_ref().expect("a timestamp");
+    assert_eq!(timestamp.local_minute(), expected);
+}
+
+#[then(regex = r#"^the displayed timezone is "(.*)"$"#)]
+fn displayed_timezone_is(world: &mut DomainWorld, expected: String) {
+    let timestamp: &Timestamp = world.timestamp.as_ref().expect("a timestamp");
+    assert_eq!(timestamp.timezone(), expected);
 }
 
 #[given(regex = r#"^a file mode "(.*)"$"#)]
