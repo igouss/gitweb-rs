@@ -4,13 +4,12 @@
 //! one-row "object header" table linking the *tagged* object via its kind, the
 //! tagger authorship rows when the tag carries a tagger, and the message body.
 //! URLs are gitweb's `href()`, built at the web boundary, so this view takes the
-//! finished object link and only decides layout, escaping, and the recency CSS
-//! hook on the tagger's age. The message is pre-split into display lines by the
-//! boundary (gitweb's `$tag{'comment'}` list).
+//! finished object link and only decides layout, escaping, and the markup of the
+//! tagger's absolute timestamp. The message is pre-split into display lines by
+//! the boundary (gitweb's `$tag{'comment'}` list).
 
-use gitweb_domain::model::age::Age;
+use gitweb_domain::model::timestamp::Timestamp;
 
-use crate::age::age_class_name;
 use crate::chrome::{Crumb, PageFooter, footer, page_header};
 use crate::markup::{Markup, html};
 
@@ -29,16 +28,16 @@ pub struct TaggedObjectView {
 }
 
 /// The tagger authorship row, present only when the tag object carries a tagger:
-/// the tagger's name, their email when the ident has one, and how long ago the
-/// tag was made.
+/// the tagger's name, their email when the ident has one, and the absolute date
+/// the tag was made.
 #[derive(Debug, Clone)]
 pub struct TagAuthorView {
     /// The tagger's display name.
     pub name: String,
     /// The tagger's email, if any (rendered inside angle brackets).
     pub email: Option<String>,
-    /// How long ago the tag was made, coloured by recency.
-    pub age: Age,
+    /// The absolute timestamp the tag was made at.
+    pub timestamp: Timestamp,
 }
 
 /// The whole single-tag page body: the breadcrumb trail, the tag name heading,
@@ -95,7 +94,7 @@ fn object_row(object: &TaggedObjectView) -> Markup {
 
 /// The tagger row, emitted only when the tag carries a tagger (gitweb prints the
 /// authorship rows `if defined($tag{'author'})`): the tagger's name, their email
-/// in angle brackets when present, and the recency-coloured age.
+/// in angle brackets when present, and the absolute date they tagged it.
 fn tagger_row(tagger: Option<&TagAuthorView>) -> Markup {
     html! {
         @if let Some(tagger) = tagger {
@@ -106,7 +105,7 @@ fn tagger_row(tagger: Option<&TagAuthorView>) -> Markup {
                     @if let Some(email) = &tagger.email {
                         " " span class="tagger-email" { "<" (email) ">" }
                     }
-                    " " (age_badge(tagger.age))
+                    " " (timestamp_badge(&tagger.timestamp))
                 }
                 td class="link" {}
             }
@@ -114,11 +113,26 @@ fn tagger_row(tagger: Option<&TagAuthorView>) -> Markup {
     }
 }
 
-/// The tagger's age, coloured by recency the same way the ref listings colour
-/// theirs.
-fn age_badge(age: Age) -> Markup {
+/// The tagger's absolute date — gitweb's `format_timestamp_html`, modernized:
+/// the UTC date as the visible text inside a machine-readable `<time datetime>`
+/// (so the `javascript-timezone` feature, gitweb_in_rust-h2t, can rewrite it to
+/// the viewer's zone), followed by gitweb's `(HH:MM tz)` hint in the commit's own
+/// zone. The hint carries the `atnight` class when the local hour is before
+/// 06:00, the recency highlight gitweb attaches to wee-hours timestamps.
+fn timestamp_badge(timestamp: &Timestamp) -> Markup {
+    let local_class: &str = if timestamp.is_at_night() {
+        "local-time atnight"
+    } else {
+        "local-time"
+    };
+    let local_time: String = format!(
+        "{:02}:{:02}",
+        timestamp.local_hour(),
+        timestamp.local_minute()
+    );
     html! {
-        span class={ "age " (age_class_name(age.class())) } { (age.humanized()) }
+        time class="commit-date" datetime=(timestamp.iso8601()) { (timestamp.rfc2822()) }
+        " (" span class=(local_class) { (local_time) } " " (timestamp.timezone()) ")"
     }
 }
 

@@ -10,27 +10,27 @@
 //! This is the orchestration over the [`Repository`] port. It resolves the hash,
 //! classifies it with [`Repository::object_kind`] (so a non-tag is the exact
 //! `Unknown tag object` 404 rather than a generic read failure), then reads the
-//! tag and assembles a framework-free [`TagView`]. The clock is injected
-//! (`now`), so the tagger's age is computed here, once, like every other
-//! ref-listing use case, and the view-model stays free of any time dependency.
+//! tag and assembles a framework-free [`TagView`]. gitweb's `git_tag` renders the
+//! tagger through `git_print_authorship_rows` → `format_timestamp_html`, i.e. the
+//! tag's own *absolute* date, so this use case needs no clock at all.
 
 use crate::error::DomainError;
-use crate::model::age::Age;
 use crate::model::object_id::ObjectId;
 use crate::model::object_kind::ObjectKind;
 use crate::model::signature::Signature;
 use crate::model::tag::Tag;
+use crate::model::timestamp::Timestamp;
 use crate::port::repository::Repository;
 
 /// The tagger identity on a tag view: who tagged it, their email if the ident
-/// carries one, and how long ago — gitweb's `git_print_authorship_rows` for a
-/// tag's `tagger` line, modernized to the same relative age the ref listings
-/// show.
+/// carries one, and the absolute date they tagged it — gitweb's
+/// `git_print_authorship_rows` for a tag's `tagger` line, whose
+/// `format_timestamp_html` renders the tagger's own timestamp.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TagAuthor {
     name: String,
     email: Option<String>,
-    age: Age,
+    timestamp: Timestamp,
 }
 
 impl TagAuthor {
@@ -47,10 +47,11 @@ impl TagAuthor {
         self.email.as_deref()
     }
 
-    /// How long ago the tag was made, relative to the request time.
+    /// The absolute date the tag was made (gitweb's `format_timestamp_html` of
+    /// the tagger line).
     #[must_use]
-    pub fn age(&self) -> Age {
-        self.age
+    pub fn timestamp(&self) -> &Timestamp {
+        &self.timestamp
     }
 }
 
@@ -109,7 +110,6 @@ impl TagView {
 }
 
 /// Resolves the requested `hash` to an annotated tag and assembles its view.
-/// `now` is the request-time epoch the tagger's age is measured against.
 ///
 /// # Errors
 ///
@@ -117,35 +117,35 @@ impl TagView {
 /// when the hash names an object that is not a tag (a commit, or a lightweight
 /// tag's object), and propagates the repository's not-found when the hash
 /// resolves to nothing — both gitweb's `die_error(404)`.
-pub fn show_tag(repo: &dyn Repository, hash: &str, now: i64) -> Result<TagView, DomainError> {
+pub fn show_tag(repo: &dyn Repository, hash: &str) -> Result<TagView, DomainError> {
     let oid: ObjectId = repo.resolve(hash)?;
     if repo.object_kind(&oid)? != ObjectKind::Tag {
         return Err(DomainError::NotFound("Unknown tag object".to_owned()));
     }
     let tag: Tag = repo.find_tag(&oid)?;
-    Ok(view_of(&tag, now))
+    Ok(view_of(&tag))
 }
 
 /// Assembles the view-model from a read tag object: its name and own id, the
 /// tagged object and kind (which decides the object row's link), the tagger
 /// authorship when present, and the message body.
-fn view_of(tag: &Tag, now: i64) -> TagView {
+fn view_of(tag: &Tag) -> TagView {
     TagView {
         name: tag.name().to_owned(),
         tag_id: tag.id().clone(),
         object: tag.object().clone(),
         object_kind: tag.object_kind(),
-        tagger: tag.tagger().map(|who: &Signature| author_of(who, now)),
+        tagger: tag.tagger().map(author_of),
         message: tag.message().to_owned(),
     }
 }
 
-/// Maps a tagger [`Signature`] to the view's authorship, computing the relative
-/// age against the request time `now`.
-fn author_of(who: &Signature, now: i64) -> TagAuthor {
+/// Maps a tagger [`Signature`] to the view's authorship, carrying the tagger's
+/// own absolute timestamp (gitweb's `parse_date($tag{author_epoch}, …_tz)`).
+fn author_of(who: &Signature) -> TagAuthor {
     TagAuthor {
         name: who.name().to_owned(),
         email: who.email().map(str::to_owned),
-        age: Age::from_seconds(now - who.epoch()),
+        timestamp: Timestamp::from_signature(who),
     }
 }

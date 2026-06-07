@@ -16,6 +16,8 @@ Feature: Serving a single annotated tag (tag action)
     And the response body contains "Release 1.0"
     And the response body contains "Ada Lovelace"
     And the response body contains ">commit<"
+    And the response body contains "Thu, 1 Jan 1970 00:16:40 +0000"
+    And the response body contains "1970-01-01T00:16:40Z"
 
   Scenario: a lightweight tag's object is not a tag object
     Given a repository "repo.git" with an unborn HEAD

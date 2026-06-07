@@ -7,6 +7,7 @@ use cucumber::gherkin::Step;
 use cucumber::{World, given, then, when};
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::age::{Age, AgeClass};
+use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_render::age::age_class_name;
 use gitweb_render::chrome::{
     Crumb, DocumentHead, FeedLink, FooterLink, HiddenField, Logo, NavItem, PageFooter, SearchForm,
@@ -612,11 +613,6 @@ fn when_render_tags_page_empty(world: &mut RenderWorld) {
 
 // ---- Single tag view --------------------------------------------------------
 
-/// The fixed tagger age these render scenarios use — 600 seconds, which renders
-/// as "10 min ago" in the fresh recency bucket. The render layer does not vary
-/// the age, so it is a literal in the steps rather than a captured parameter.
-const RENDER_TAG_AGE: i64 = 600;
-
 /// Splits a `"Name <email>"` tagger ident into its parts. The render givens
 /// always supply an email; the email-absent case is a domain-layer concern.
 fn tagger_parts(ident: &str) -> (String, String) {
@@ -647,18 +643,39 @@ fn tag_page_of(
     }
 }
 
-/// A tagger view from an ident and an age in seconds.
-fn tagger_view(ident: &str, aged: i64) -> TagAuthorView {
+/// A tagger view from an ident and an absolute tag epoch + timezone.
+fn tagger_view(ident: &str, epoch: i64, tz: &str) -> TagAuthorView {
     let (name, email): (String, String) = tagger_parts(ident);
     TagAuthorView {
         name,
         email: Some(email),
-        age: Age::from_seconds(aged),
+        timestamp: Timestamp::new(epoch, tz),
     }
 }
 
+/// Sets up a tag page with its object row and message but no tagger yet — the
+/// "tagged by …" step attaches one. gitweb's object_header row and the tagger
+/// authorship rows are separate facts, so they are separate Givens here.
+fn set_up_tag(
+    world: &mut RenderWorld,
+    kind: &str,
+    name: &str,
+    object_id: &str,
+    href: &str,
+    message_lines: Vec<String>,
+) {
+    world.tag_page = Some(tag_page_of(
+        name,
+        object_id,
+        href,
+        kind,
+        None,
+        message_lines,
+    ));
+}
+
 #[given(
-    regex = r#"^a (commit|blob|tree) tag "([^"]*)" pointing at "([^"]*)" at "([^"]*)" tagged by "([^"]*)" aged 600 with message "(.*)"$"#
+    regex = r#"^a (commit|blob|tree) tag "([^"]*)" pointing at "([^"]*)" at "([^"]*)" with message "(.*)"$"#
 )]
 fn given_tag_with_message(
     world: &mut RenderWorld,
@@ -666,59 +683,23 @@ fn given_tag_with_message(
     name: String,
     object_id: String,
     href: String,
-    ident: String,
     message: String,
 ) {
-    let tagger: Option<TagAuthorView> = Some(tagger_view(&ident, RENDER_TAG_AGE));
-    world.tag_page = Some(tag_page_of(
-        &name,
-        &object_id,
-        &href,
-        &kind,
-        tagger,
-        vec![message],
-    ));
+    set_up_tag(world, &kind, &name, &object_id, &href, vec![message]);
 }
 
 #[given(
-    regex = r#"^a commit tag "([^"]*)" pointing at "([^"]*)" at "([^"]*)" with no tagger and message "(.*)"$"#
+    regex = r#"^a commit tag "([^"]*)" pointing at "([^"]*)" at "([^"]*)" with a two-line message$"#
 )]
-fn given_tag_no_tagger(
-    world: &mut RenderWorld,
-    name: String,
-    object_id: String,
-    href: String,
-    message: String,
-) {
-    world.tag_page = Some(tag_page_of(
-        &name,
-        &object_id,
-        &href,
-        "commit",
-        None,
-        vec![message],
-    ));
+fn given_tag_multiline(world: &mut RenderWorld, name: String, object_id: String, href: String) {
+    let lines: Vec<String> = vec!["First line".to_owned(), "Second line".to_owned()];
+    set_up_tag(world, "commit", &name, &object_id, &href, lines);
 }
 
-#[given(
-    regex = r#"^a commit tag "([^"]*)" pointing at "([^"]*)" at "([^"]*)" tagged by "([^"]*)" aged 600 with a two-line message$"#
-)]
-fn given_tag_multiline(
-    world: &mut RenderWorld,
-    name: String,
-    object_id: String,
-    href: String,
-    ident: String,
-) {
-    let tagger: Option<TagAuthorView> = Some(tagger_view(&ident, RENDER_TAG_AGE));
-    world.tag_page = Some(tag_page_of(
-        &name,
-        &object_id,
-        &href,
-        "commit",
-        tagger,
-        vec!["First line".to_owned(), "Second line".to_owned()],
-    ));
+#[given(regex = r#"^tagged by "([^"]*)" at epoch (\d+) ([-+]\d{4})$"#)]
+fn given_tagged_by(world: &mut RenderWorld, ident: String, epoch: i64, tz: String) {
+    let page: &mut TagPage = world.tag_page.as_mut().expect("a tag page set up first");
+    page.tagger = Some(tagger_view(&ident, epoch, &tz));
 }
 
 #[when("I render the tag page")]

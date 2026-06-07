@@ -2,14 +2,11 @@ Feature: Viewing a single annotated tag (tag action)
   The tag use case (gitweb's git_tag / parse_tag) resolves the requested hash,
   insists it names a tag OBJECT, and assembles that tag for display: the tag's
   own name, the object it points at and that object's kind (so the view can link
-  the object to the right action), the tagger identity and how long ago it was
-  made when the tag carries one, and the message body. A hash that resolves to
-  anything other than a tag object — a commit, or a lightweight tag's object — is
-  gitweb's "Unknown tag object" (404); a hash that resolves to nothing is simply
-  not found.
-
-  Background:
-    Given the current time is 1000000
+  the object to the right action), the tagger identity and the absolute date it
+  was made when the tag carries one, and the message body. A hash that resolves
+  to anything other than a tag object — a commit, or a lightweight tag's object —
+  is gitweb's "Unknown tag object" (404); a hash that resolves to nothing is
+  simply not found.
 
   # --- the happy path: an annotated tag of a commit ---
 
@@ -19,7 +16,7 @@ Feature: Viewing a single annotated tag (tag action)
     Then the tag view name is "v1.0"
     And the tag view points at a "commit"
     And the tag view has a tagger
-    And the tag view tagger shows the age "10 min ago"
+    And the tag view tagger shows the date "Mon, 12 Jan 1970 13:36:40 +0000"
     And the tag view message is "Release 1.0"
 
   # --- the tagged object's kind decides the object link (commit / blob / tree) ---

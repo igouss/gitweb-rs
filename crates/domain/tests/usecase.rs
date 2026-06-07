@@ -782,7 +782,7 @@ fn show_the_single_tag(world: &mut UsecaseWorld, hash: String) {
         branches: world.branches.clone(),
         tags: world.tags.clone(),
     };
-    world.tag_result = Some(show_tag(&repo, &hash, world.now));
+    world.tag_result = Some(show_tag(&repo, &hash));
 }
 
 // --- single tag view: Thens --------------------------------------------------
@@ -807,14 +807,14 @@ fn tag_view_has_no_tagger(world: &mut UsecaseWorld) {
     assert!(tag_show_view(world).tagger().is_none());
 }
 
-#[then(regex = r#"^the tag view tagger shows the age "([^"]*)"$"#)]
-fn tag_view_tagger_age(world: &mut UsecaseWorld, expected: String) {
-    let age: String = tag_show_view(world)
+#[then(regex = r#"^the tag view tagger shows the date "([^"]*)"$"#)]
+fn tag_view_tagger_date(world: &mut UsecaseWorld, expected: String) {
+    let date: String = tag_show_view(world)
         .tagger()
         .expect("the tag view has a tagger")
-        .age()
-        .humanized();
-    assert_eq!(age, expected);
+        .timestamp()
+        .rfc2822();
+    assert_eq!(date, expected);
 }
 
 #[then(regex = r#"^the tag view message is "([^"]*)"$"#)]

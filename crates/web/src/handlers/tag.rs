@@ -4,10 +4,8 @@
 //! runs the [`show_tag`] use case over it for the request hash, maps the
 //! resulting view-model to the render layer's tag page — building the tagged
 //! object's link with [`href`], since URLs are the boundary's job — wraps it in
-//! the document chrome, and returns the page as a [`View`]. The clock lives here,
-//! at the boundary: the request time is read once and handed to the use case so
-//! the tagger's age is computed against a real `now` while the domain stays
-//! clock-free.
+//! the document chrome, and returns the page as a [`View`]. gitweb's `git_tag`
+//! shows the tagger's own absolute date, so no request clock is involved.
 
 use std::sync::Arc;
 
@@ -23,7 +21,6 @@ use gitweb_render::markup::Markup;
 use gitweb_render::tag::{TagAuthorView, TagPage, TaggedObjectView, tag_body};
 
 use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
-use crate::clock::now_epoch;
 use crate::dispatch::Handler;
 use crate::response::View;
 use crate::url::href;
@@ -51,7 +48,7 @@ impl Handler for TagHandler {
             .as_deref()
             .ok_or_else(|| DomainError::Invalid("Project needed".to_owned()))?;
         let repository: Box<dyn Repository> = self.store.open(project)?;
-        let view: TagView = show_tag(repository.as_ref(), requested_hash(request), now_epoch())?;
+        let view: TagView = show_tag(repository.as_ref(), requested_hash(request))?;
         Ok(View::html(render_page(&self.settings, project, &view)))
     }
 }
@@ -110,7 +107,7 @@ fn author_view(author: &TagAuthor) -> TagAuthorView {
     TagAuthorView {
         name: author.name().to_owned(),
         email: author.email().map(str::to_owned),
-        age: author.age(),
+        timestamp: author.timestamp().clone(),
     }
 }
 
