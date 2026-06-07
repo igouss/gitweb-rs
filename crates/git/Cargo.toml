@@ -69,3 +69,9 @@ harness = false
 [[test]]
 name = "search"
 harness = false
+
+# Conformance for the `grep` operation: content search (file/line hits) at one
+# revision, with binary files, skipped symlinks/gitlinks, and the match cap.
+[[test]]
+name = "grep"
+harness = false

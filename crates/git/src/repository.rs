@@ -19,6 +19,7 @@ use gitweb_domain::model::change::ChangeStatus;
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::diff::{CombinedDiff, CombinedDiffEntry, CombinedParent, Diff};
 use gitweb_domain::model::file_mode::{FileKind, FileMode};
+use gitweb_domain::model::grep::{GREP_MATCH_LIMIT, GrepMatch, GrepResults, file_matches};
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::patch::{FilePatch, Patch};
@@ -519,6 +520,30 @@ impl Repository for GixRepository {
                 self.pickaxe_matches(commit, pattern)
             }),
         }
+    }
+
+    fn grep(&self, revision: &ObjectId, pattern: &str) -> Result<GrepResults, DomainError> {
+        // gitweb's `git grep -n -z -F <pattern> <tree>`: gix has no git-grep, so
+        // walk the tree's leaves (path order, recursing into subtrees) and grep
+        // each *regular file* blob. git greps only regular files, so symlinks
+        // (a blob, but a link target) and gitlinks (a commit, no content) are
+        // skipped. The per-file matching is the domain rule; here we read blobs
+        // and apply gitweb's output cap: once more than the limit's worth of
+        // matches accrue, the listing is trimmed to the limit and reported so.
+        let leaves: BTreeMap<String, Side> = self.tree_leaves(revision)?;
+        let mut found: Vec<GrepMatch> = Vec::new();
+        for (path, (mode, oid)) in &leaves {
+            if !matches!(mode.kind(), FileKind::Regular | FileKind::Executable) {
+                continue;
+            }
+            let content: Vec<u8> = self.side_content(oid, *mode)?;
+            found.extend(file_matches(path, &content, pattern));
+            if found.len() > GREP_MATCH_LIMIT {
+                found.truncate(GREP_MATCH_LIMIT);
+                return Ok(GrepResults::new(found, true));
+            }
+        }
+        Ok(GrepResults::new(found, false))
     }
 }
 

@@ -16,6 +16,7 @@ use gitweb_domain::model::encoding::{FallbackEncoding, to_utf8};
 use gitweb_domain::model::export::{ExportPolicy, RepoFacts};
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::forks::{ProjectGroup, partition_forks};
+use gitweb_domain::model::grep::{GrepMatch, file_matches};
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::patch::{FileContent, FilePatch, Hunk, HunkLine, Patch};
@@ -81,6 +82,9 @@ struct DomainWorld {
     combined_is_deleted: Option<bool>,
     combined_has_history: Option<bool>,
     combined_not_deleted: Option<bool>,
+    grep_path: String,
+    grep_content: Vec<u8>,
+    grep_results: Option<Vec<GrepMatch>>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -1254,6 +1258,68 @@ fn combined_survives(world: &mut DomainWorld) {
 #[then("the combined entry is gone from every parent")]
 fn combined_gone(world: &mut DomainWorld) {
     assert_eq!(world.combined_not_deleted, Some(false));
+}
+
+// --- content grep (file_matches) ---------------------------------------------
+
+/// Expands the feature files' byte escapes: `\n` to a newline and `\0` to a NUL,
+/// so a fixture pins a file's exact bytes — including a trailing newline or an
+/// embedded NUL that makes the content binary.
+fn expand_escapes(text: &str) -> String {
+    text.replace("\\0", "\0").replace("\\n", "\n")
+}
+
+fn grep_matches(world: &DomainWorld) -> &[GrepMatch] {
+    world
+        .grep_results
+        .as_ref()
+        .expect("run a grep first")
+        .as_slice()
+}
+
+#[given(regex = r#"^a file "([^"]*)" with content "(.*)"$"#)]
+fn given_grep_file(world: &mut DomainWorld, path: String, content: String) {
+    world.grep_path = path;
+    world.grep_content = expand_escapes(&content).into_bytes();
+}
+
+#[given(regex = r#"^a file "([^"]*)" with latin1 content "(.*)"$"#)]
+fn given_grep_latin1_file(world: &mut DomainWorld, path: String, content: String) {
+    world.grep_path = path;
+    world.grep_content = expand_escapes(&content)
+        .chars()
+        .map(|character: char| character as u8)
+        .collect();
+}
+
+#[when(regex = r#"^I grep "(.*)"$"#)]
+fn run_grep(world: &mut DomainWorld, pattern: String) {
+    world.grep_results = Some(file_matches(
+        &world.grep_path,
+        &world.grep_content,
+        &pattern,
+    ));
+}
+
+#[then(regex = r"^(\d+) grep match(?:es)? (?:is|are) found$")]
+fn grep_count(world: &mut DomainWorld, count: usize) {
+    assert_eq!(grep_matches(world).len(), count);
+}
+
+#[then(regex = r#"^grep match (\d+) is line (\d+) "(.*)" in "([^"]*)"$"#)]
+fn grep_line_is(world: &mut DomainWorld, index: usize, line: usize, text: String, path: String) {
+    let hit: &GrepMatch = &grep_matches(world)[index];
+    assert_eq!(hit.path(), path);
+    assert_eq!(hit.line_no(), Some(line));
+    assert_eq!(hit.text(), Some(text.as_str()));
+}
+
+#[then(regex = r#"^grep match (\d+) is binary file "([^"]*)"$"#)]
+fn grep_binary_is(world: &mut DomainWorld, index: usize, path: String) {
+    let hit: &GrepMatch = &grep_matches(world)[index];
+    assert!(hit.is_binary());
+    assert_eq!(hit.path(), path);
+    assert_eq!(hit.text(), None);
 }
 
 #[tokio::main]

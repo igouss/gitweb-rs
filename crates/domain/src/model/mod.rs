@@ -13,6 +13,7 @@ pub mod encoding;
 pub mod export;
 pub mod file_mode;
 pub mod forks;
+pub mod grep;
 pub mod object_id;
 pub mod object_kind;
 pub mod patch;
