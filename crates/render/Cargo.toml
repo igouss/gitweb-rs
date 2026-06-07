@@ -11,6 +11,12 @@ description = "Framework-free, modernized HTML rendering of gitweb-rs domain vie
 unsafe_code = "forbid"
 
 [dependencies]
+# The inward dependency: render turns domain view-models into HTML. Nothing
+# else — no git library, no web framework.
+gitweb-domain = { path = "../domain" }
+# Compile-time HTML templating; auto-escapes by default, PreEscaped is the
+# raw-HTML safe-sink.
+maud = { workspace = true }
 
 [dev-dependencies]
 cucumber = { workspace = true }

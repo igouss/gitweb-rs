@@ -11,4 +11,8 @@
 //! metacharacters cannot break out of their context and control characters are
 //! made visible instead of corrupting the page.
 
+pub mod age;
+pub mod assets;
+pub mod chrome;
 pub mod escape;
+pub mod markup;

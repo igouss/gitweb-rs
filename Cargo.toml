@@ -22,3 +22,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 gix = "0.84"
 # Throwaway repos for deterministic fixtures.
 tempfile = "3"
+# Compile-time, auto-escaping HTML templating for the render adapter. PreEscaped
+# is the raw-HTML safe-sink by construction; the generated code contains no
+# unsafe, so it satisfies the workspace's unsafe_code = forbid rule.
+maud = "0.27"

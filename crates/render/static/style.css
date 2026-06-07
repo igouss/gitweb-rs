@@ -1,0 +1,262 @@
+/*
+ * gitweb-rs stylesheet — a fresh, framework-free replacement for gitweb.css.
+ *
+ * Modernized: system fonts, CSS custom properties, automatic light/dark via
+ * color-scheme, semantic element selectors over gitweb's div-class soup. The
+ * recency classes (age-fresh/age-recent/age-old) and the control-character
+ * span (.cntrl) preserve gitweb's *behaviour* (colour by recency, visualise
+ * controls) with modern names.
+ */
+
+:root {
+	color-scheme: light dark;
+
+	--bg: #ffffff;
+	--fg: #1a1a1a;
+	--fg-muted: #5a5a5a;
+	--link: #0b62c4;
+	--link-visited: #6b4fb8;
+	--border: #d7d7d7;
+	--surface: #f6f6f6;
+	--surface-2: #ececec;
+	--accent: #d8633b;
+
+	--age-fresh: #1a7f37;
+	--age-recent: #6a737d;
+	--age-old: #8a8a8a;
+
+	--cntrl-bg: #ffe9e0;
+	--cntrl-fg: #b22a00;
+
+	--mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+	--sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #16181d;
+		--fg: #e6e6e6;
+		--fg-muted: #9aa0a6;
+		--link: #6cb6ff;
+		--link-visited: #b39ddb;
+		--border: #2c313a;
+		--surface: #1e2128;
+		--surface-2: #262b34;
+		--accent: #e8845f;
+
+		--age-fresh: #3fb950;
+		--age-recent: #8b949e;
+		--age-old: #6e7681;
+
+		--cntrl-bg: #3a1d12;
+		--cntrl-fg: #ff9b78;
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	padding: 0 1rem 3rem;
+	background: var(--bg);
+	color: var(--fg);
+	font-family: var(--sans);
+	font-size: 15px;
+	line-height: 1.5;
+}
+
+a {
+	color: var(--link);
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:visited {
+	color: var(--link-visited);
+}
+
+/* ---- page header: logo + breadcrumbs -------------------------------------- */
+
+.page-header {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+	padding: 0.6rem 0;
+	border-bottom: 1px solid var(--border);
+}
+
+.page-header .logo img,
+.page-header .logo svg {
+	display: block;
+	height: 1.6rem;
+	width: auto;
+}
+
+.breadcrumbs {
+	font-size: 1.1rem;
+	font-weight: 600;
+}
+
+.breadcrumbs .current {
+	color: var(--fg);
+}
+
+.breadcrumbs .sep {
+	color: var(--fg-muted);
+	margin: 0 0.15rem;
+	font-weight: 400;
+}
+
+/* ---- search form ---------------------------------------------------------- */
+
+.search {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	flex-wrap: wrap;
+	padding: 0.5rem 0;
+}
+
+.search select,
+.search input[type="search"] {
+	font: inherit;
+	padding: 0.2rem 0.35rem;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	background: var(--surface);
+	color: var(--fg);
+}
+
+.search .search-help {
+	font-weight: 700;
+	border: 1px solid var(--border);
+	border-radius: 50%;
+	width: 1.4rem;
+	height: 1.4rem;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
+/* ---- page navigation (action tabs) --------------------------------------- */
+
+.page-nav {
+	display: flex;
+	align-items: baseline;
+	gap: 0.4rem;
+	flex-wrap: wrap;
+	padding: 0.5rem 0;
+	border-bottom: 1px solid var(--border);
+}
+
+.page-nav .current {
+	font-weight: 700;
+	color: var(--fg);
+}
+
+.page-nav .sep {
+	color: var(--fg-muted);
+}
+
+.page-nav .nav-extra {
+	margin-left: auto;
+	color: var(--fg-muted);
+}
+
+/* ---- main content --------------------------------------------------------- */
+
+main {
+	padding: 1rem 0;
+}
+
+.section-header {
+	font-size: 1.05rem;
+	font-weight: 700;
+	margin: 1.2rem 0 0.5rem;
+	padding-bottom: 0.25rem;
+	border-bottom: 1px solid var(--border);
+}
+
+table {
+	border-collapse: collapse;
+	width: 100%;
+}
+
+th,
+td {
+	text-align: left;
+	padding: 0.3rem 0.6rem;
+	border-bottom: 1px solid var(--border);
+	vertical-align: top;
+}
+
+th {
+	color: var(--fg-muted);
+	font-weight: 600;
+}
+
+code,
+pre,
+.mono {
+	font-family: var(--mono);
+}
+
+/* ---- recency colouring (gitweb age_class) -------------------------------- */
+
+.age-fresh {
+	color: var(--age-fresh);
+	font-weight: 600;
+}
+
+.age-recent {
+	color: var(--age-recent);
+}
+
+.age-old {
+	color: var(--age-old);
+}
+
+/* unknown age gets no special colour, matching gitweb's inert "noage" */
+
+/* ---- visualised control characters (gitweb quot_cec) --------------------- */
+
+.cntrl {
+	background: var(--cntrl-bg);
+	color: var(--cntrl-fg);
+	border-radius: 3px;
+	padding: 0 0.15em;
+	font-family: var(--mono);
+	font-size: 0.85em;
+}
+
+/* ---- footer --------------------------------------------------------------- */
+
+.page-footer {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+	margin-top: 1.5rem;
+	padding-top: 0.6rem;
+	border-top: 1px solid var(--border);
+	color: var(--fg-muted);
+	font-size: 0.9rem;
+}
+
+.page-footer .footer-desc {
+	margin: 0;
+	flex: 1 1 auto;
+}
+
+.page-footer .feed {
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	padding: 0.1rem 0.4rem;
+	background: var(--surface);
+}
