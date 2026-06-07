@@ -59,3 +59,8 @@ harness = false
 [[test]]
 name = "patch"
 harness = false
+
+# Conformance for the `blame` operation: per-line attribution, rename-following.
+[[test]]
+name = "blame"
+harness = false

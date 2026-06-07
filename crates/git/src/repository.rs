@@ -32,8 +32,8 @@ use gitweb_domain::port::repository::{ArchiveFormat, Page, Repository, SearchQue
 use gitweb_domain::model::diff::DiffEntry;
 
 use crate::conv::{
-    absent_mode, backend, is_null_oid, read_commit, to_diff_entry, to_domain_oid, to_file_mode,
-    to_file_patch, to_gix_oid, to_object_kind, to_signature, to_tree_entry,
+    absent_mode, backend, is_null_oid, read_commit, to_blame, to_diff_entry, to_domain_oid,
+    to_file_mode, to_file_patch, to_gix_oid, to_object_kind, to_signature, to_tree_entry,
 };
 
 /// Read access to one on-disk git repository, backed by gix.
@@ -394,10 +394,34 @@ impl Repository for GixRepository {
         Ok(CombinedDiff::new(entries))
     }
 
-    fn blame(&self, _at: &ObjectId, _path: &str) -> Result<Blame, DomainError> {
-        Err(DomainError::Backend(
-            "blame: not yet implemented".to_owned(),
-        ))
+    fn blame(&self, at: &ObjectId, path: &str) -> Result<Blame, DomainError> {
+        // gitweb's blame first parses the base commit (404 if absent) and looks
+        // up the file at it (404 if absent); mirror those two checks so missing
+        // commit and missing path are clean `NotFound`s, not opaque backend
+        // failures buried in gix-blame's traversal.
+        let object: gix::Object<'_> = self.require_object(at)?;
+        let commit: gix::Commit<'_> =
+            object
+                .try_into_commit()
+                .map_err(|_error: gix::object::try_into::Error| {
+                    DomainError::Invalid(format!("not a commit: {}", at.as_str()))
+                })?;
+        if self.entry_oid_at(&commit, path)?.is_none() {
+            return Err(DomainError::NotFound(path.to_owned()));
+        }
+        let suspect: gix::ObjectId = commit.id;
+
+        // `git blame` follows a file across a whole-file rename by default, so
+        // rename tracking is enabled to match gitweb's plain `git blame -p`.
+        let options: gix::repository::blame_file::Options = gix::repository::blame_file::Options {
+            rewrites: Some(gix::diff::Rewrites::default()),
+            ..Default::default()
+        };
+        let outcome: gix::blame::Outcome = self
+            .repo
+            .blame_file(gix::bstr::BStr::new(path), suspect, options)
+            .map_err(backend)?;
+        Ok(to_blame(outcome))
     }
 
     fn archive(&self, _tree: &ObjectId, _format: ArchiveFormat) -> Result<Vec<u8>, DomainError> {

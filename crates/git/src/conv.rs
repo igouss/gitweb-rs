@@ -10,9 +10,11 @@ use gix::object::tree::diff::ChangeDetached;
 
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::binary::is_binary;
+use gitweb_domain::model::blame::{Blame, BlameLine};
 use gitweb_domain::model::change::ChangeStatus;
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::diff::DiffEntry;
+use gitweb_domain::model::encoding::{FallbackEncoding, to_utf8};
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
@@ -377,6 +379,45 @@ fn to_domain_hunk(
         raw.after_len,
         lines,
     )
+}
+
+/// Flattens a gix blame [`Outcome`] into the domain's [`Blame`]: one
+/// [`BlameLine`] per final line, in final-file order.
+///
+/// gix groups consecutive lines sharing an origin into hunk *entries*; each
+/// entry carries its starting line in both the final file and the source
+/// (introducing) commit, and the lines themselves. gitweb's blame is one row
+/// per final line — `<commit> <orig lineno> <final lineno>` plus the text — so
+/// the entries are expanded back into individual lines. Line numbers are
+/// 1-based, matching `git blame -p`. The entries arrive in resolution order, so
+/// they are sorted by final line number to honour the [`Blame`] contract.
+///
+/// Text is decoded the way gitweb's `to_utf8` does: kept verbatim when valid
+/// UTF-8, otherwise read through the latin1 fallback.
+///
+/// [`Outcome`]: gix::blame::Outcome
+pub(crate) fn to_blame(outcome: gix::blame::Outcome) -> Blame {
+    let mut lines: Vec<BlameLine> = Vec::new();
+    for (entry, hunk_lines) in outcome.entries_with_lines() {
+        let commit: ObjectId = to_domain_oid(entry.commit_id);
+        for (offset, text) in hunk_lines.iter().enumerate() {
+            let final_lineno: usize = entry.start_in_blamed_file as usize + offset + 1;
+            let orig_lineno: usize = entry.start_in_source_file as usize + offset + 1;
+            // gix's blame tokens keep their trailing newline; gitweb chomps it
+            // off each row, so strip a single trailing `\n` before decoding.
+            let raw: &[u8] = text.as_ref();
+            let trimmed: &[u8] = raw.strip_suffix(b"\n").unwrap_or(raw);
+            let content: String = to_utf8(trimmed, FallbackEncoding::Latin1);
+            lines.push(BlameLine::new(
+                commit.clone(),
+                orig_lineno,
+                final_lineno,
+                content,
+            ));
+        }
+    }
+    lines.sort_by_key(|line: &BlameLine| line.final_lineno());
+    Blame::new(lines)
 }
 
 /// Translates one diff line into a domain [`HunkLine`]. Non-UTF-8 bytes are
