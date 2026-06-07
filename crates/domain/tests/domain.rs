@@ -5,6 +5,7 @@
 
 use cucumber::gherkin::Step;
 use cucumber::{World, given, then, when};
+use gitweb_domain::model::action::Action;
 use gitweb_domain::model::age::{Age, AgeClass};
 use gitweb_domain::model::binary::is_binary;
 use gitweb_domain::model::change::ChangeStatus;
@@ -57,6 +58,8 @@ struct DomainWorld {
     mod_to: Option<FileMode>,
     type_name: String,
     object_kind: Option<ObjectKind>,
+    action_name: String,
+    parsed_action: Option<Action>,
     path_input: String,
     path_valid: Option<bool>,
     ref_input: String,
@@ -480,6 +483,34 @@ fn object_kind_is(world: &mut DomainWorld, expected: String) {
 #[then("there is no object kind")]
 fn there_is_no_object_kind(world: &mut DomainWorld) {
     assert_eq!(world.object_kind, None);
+}
+
+#[given(regex = r#"^a request action "(.*)"$"#)]
+fn given_request_action(world: &mut DomainWorld, name: String) {
+    world.action_name = name;
+}
+
+#[when("I read the action")]
+fn read_action(world: &mut DomainWorld) {
+    world.parsed_action = Action::parse(&world.action_name);
+}
+
+#[then(regex = r#"^the action's wire name is "(.*)"$"#)]
+fn action_wire_name_is(world: &mut DomainWorld, expected: String) {
+    let action: Action = world.parsed_action.expect("an action must be parsed");
+    assert_eq!(action.as_str(), expected);
+}
+
+#[then("there is no action")]
+fn there_is_no_action(world: &mut DomainWorld) {
+    assert_eq!(world.parsed_action, None);
+}
+
+#[then(regex = r#"^needing a project reads "(yes|no)"$"#)]
+fn needing_a_project_reads(world: &mut DomainWorld, expected: String) {
+    let action: Action = world.parsed_action.expect("an action must be parsed");
+    let reads: &str = if action.needs_project() { "yes" } else { "no" };
+    assert_eq!(reads, expected);
 }
 
 #[given(regex = r#"^the candidate path "(.*)"$"#)]
