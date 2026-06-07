@@ -1,0 +1,25 @@
+[package]
+name = "gitweb-fixtures"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Deterministic git-repo fixtures built with gix, for use as the Given in BDD specs."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+gix = { workspace = true }
+tempfile = { workspace = true }
+
+[dev-dependencies]
+cucumber = { workspace = true }
+tokio = { workspace = true }
+
+# Gherkin conformance for the fixture builder: golden OIDs + determinism.
+# cucumber supplies its own main(), so the default libtest harness is disabled.
+[[test]]
+name = "fixtures"
+harness = false
