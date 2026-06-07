@@ -22,6 +22,7 @@ pub mod patch;
 pub mod path_info;
 pub mod project;
 pub mod project_info;
+pub mod project_order;
 pub mod projects_list;
 pub mod ref_name;
 pub mod reference;

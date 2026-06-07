@@ -19,9 +19,11 @@ use gitweb_domain::error::DomainError;
 use gitweb_domain::model::action::Action;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
+use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
+use gitweb_web::handlers::ProjectListHandler;
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
 use gitweb_web::{Dispatcher, Handler, router};
@@ -276,6 +278,18 @@ fn given_stub_page_handler(world: &mut WebWorld, action_name: String) {
 fn given_stub_plain_handler(world: &mut WebWorld, action_name: String) {
     let body: String = format!("STUB:{action_name}");
     register_stub(world, &action_name, "text/plain; charset=utf-8", body);
+}
+
+// --- Given: registering real capability handlers -----------------------------
+
+#[given("the project-list landing page is served")]
+fn given_project_list_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(Settings::builtin());
+    let handler: Arc<dyn Handler> = Arc::new(ProjectListHandler::new(store, settings));
+    world.dispatcher.register(Action::ProjectList, handler);
 }
 
 // --- When: drive the assembled router with one in-process request ------------

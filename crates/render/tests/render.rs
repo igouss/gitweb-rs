@@ -6,7 +6,7 @@
 use cucumber::gherkin::Step;
 use cucumber::{World, given, then, when};
 use gitweb_domain::error::DomainError;
-use gitweb_domain::model::age::AgeClass;
+use gitweb_domain::model::age::{Age, AgeClass};
 use gitweb_render::age::age_class_name;
 use gitweb_render::chrome::{
     Crumb, DocumentHead, FeedLink, FooterLink, HiddenField, Logo, NavItem, PageFooter, SearchForm,
@@ -17,6 +17,9 @@ use gitweb_render::escape::{
     esc_attr, esc_html, esc_html_nbsp, esc_param, esc_path, esc_path_info, esc_url,
 };
 use gitweb_render::markup::{Markup, html, raw};
+use gitweb_render::project_list::{
+    ProjectLinks, ProjectList, ProjectRow, SortHeader, project_list,
+};
 
 #[derive(Debug, Default, World)]
 struct RenderWorld {
@@ -25,6 +28,7 @@ struct RenderWorld {
     crumbs: Vec<Crumb>,
     nav_items: Vec<NavItem>,
     footer_links: Vec<FooterLink>,
+    project_rows: Vec<ProjectRow>,
     domain_error: Option<DomainError>,
     status: Option<HttpStatus>,
     output: Option<String>,
@@ -326,6 +330,89 @@ fn when_footer_no_desc(world: &mut RenderWorld) {
         links: std::mem::take(&mut world.footer_links),
     };
     world.output = Some(footer(&page_footer).into_string());
+}
+
+// ---- Projects-list table ----------------------------------------------------
+
+/// Synthesizes a row's quick links from its summary href, so the rendered table
+/// carries four distinct, labelled action links.
+fn project_links(href: &str) -> ProjectLinks {
+    ProjectLinks {
+        summary: href.to_owned(),
+        shortlog: format!("{href}/shortlog"),
+        log: format!("{href}/log"),
+        tree: format!("{href}/tree"),
+    }
+}
+
+/// A column header: plain text (no link) when `key` is the active sort `order`,
+/// otherwise a link to re-sort by it.
+fn sort_header(label: &str, key: &str, order: &str) -> SortHeader {
+    SortHeader {
+        label: label.to_owned(),
+        href: if key == order {
+            None
+        } else {
+            Some(format!("/?o={key}"))
+        },
+    }
+}
+
+#[given(regex = r#"^a listed project "(.*)" at "([^"]*)"$"#)]
+fn given_listed_project(world: &mut RenderWorld, name: String, href: String) {
+    world.project_rows.push(ProjectRow {
+        links: project_links(&href),
+        name,
+        href,
+        description: None,
+        owner: None,
+        age: None,
+    });
+}
+
+#[given(
+    regex = r#"^a listed project "([^"]*)" at "([^"]*)" described "(.*)" owned by "([^"]*)" aged (\d+)$"#
+)]
+fn given_listed_project_full(
+    world: &mut RenderWorld,
+    name: String,
+    href: String,
+    description: String,
+    owner: String,
+    age_seconds: i64,
+) {
+    world.project_rows.push(ProjectRow {
+        links: project_links(&href),
+        name,
+        href,
+        description: Some(description),
+        owner: Some(owner),
+        age: Some(Age::from_seconds(age_seconds)),
+    });
+}
+
+#[given(regex = r#"^a listed project "([^"]*)" at "([^"]*)" with no commits$"#)]
+fn given_listed_project_no_commits(world: &mut RenderWorld, name: String, href: String) {
+    world.project_rows.push(ProjectRow {
+        links: project_links(&href),
+        name,
+        href,
+        description: None,
+        owner: None,
+        age: None,
+    });
+}
+
+#[when(regex = r#"^I render the project list sorted by "([^"]*)"$"#)]
+fn when_render_project_list(world: &mut RenderWorld, order: String) {
+    let list: ProjectList = ProjectList {
+        project_header: sort_header("Project", "project", &order),
+        description_header: sort_header("Description", "descr", &order),
+        owner_header: sort_header("Owner", "owner", &order),
+        age_header: sort_header("Last Change", "age", &order),
+        rows: std::mem::take(&mut world.project_rows),
+    };
+    world.output = Some(project_list(&list).into_string());
 }
 
 // ---- Error responses (die_error) --------------------------------------------

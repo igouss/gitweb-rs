@@ -25,6 +25,7 @@ use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::patch::{FileContent, FilePatch, Hunk, HunkLine, Patch};
 use gitweb_domain::model::path_info::PathInfo;
 use gitweb_domain::model::project_info::{CategoryGroup, ProjectInfo, group_by_category};
+use gitweb_domain::model::project_order::ProjectOrder;
 use gitweb_domain::model::projects_list::{ProjectListEntry, parse_project_line};
 use gitweb_domain::model::ref_name::RefName;
 use gitweb_domain::model::request::Request;
@@ -88,6 +89,8 @@ struct DomainWorld {
     resolved_category: Option<String>,
     projects_to_group: Vec<ProjectInfo>,
     category_groups: Option<Vec<CategoryGroup>>,
+    order_listing: Vec<ProjectInfo>,
+    parsed_order: Option<Result<ProjectOrder, DomainError>>,
     projects_list_line: String,
     parsed_entry: Option<Option<ProjectListEntry>>,
     combined_entry: Option<CombinedDiffEntry>,
@@ -1385,6 +1388,83 @@ fn category_holds_project(world: &mut DomainWorld, name: String, project: String
         .iter()
         .any(|info: &ProjectInfo| info.name() == project);
     assert!(found, "expected category {name} to hold {project}");
+}
+
+// --- Projects-list ordering (ProjectOrder) -----------------------------------
+
+#[given(regex = r#"^the listing has a project "([^"]*)"$"#)]
+fn listing_project(world: &mut DomainWorld, name: String) {
+    world.order_listing.push(ProjectInfo::named(name));
+}
+
+#[given(regex = r#"^the listing has a project "([^"]*)" owned by "([^"]*)"$"#)]
+fn listing_project_owned(world: &mut DomainWorld, name: String, owner: String) {
+    world
+        .order_listing
+        .push(ProjectInfo::named(name).with_owner(owner));
+}
+
+#[given(regex = r#"^the listing has a project "([^"]*)" with no owner$"#)]
+fn listing_project_no_owner(world: &mut DomainWorld, name: String) {
+    world.order_listing.push(ProjectInfo::named(name));
+}
+
+#[given(regex = r#"^the listing has a project "([^"]*)" described as "(.*)"$"#)]
+fn listing_project_described(world: &mut DomainWorld, name: String, description: String) {
+    world
+        .order_listing
+        .push(ProjectInfo::named(name).with_description(description));
+}
+
+#[given(regex = r#"^the listing has a project "([^"]*)" last changed at (\d+)$"#)]
+fn listing_project_aged(world: &mut DomainWorld, name: String, epoch: i64) {
+    world
+        .order_listing
+        .push(ProjectInfo::named(name).with_last_activity(epoch));
+}
+
+#[given(regex = r#"^the listing has a project "([^"]*)" with no commits$"#)]
+fn listing_project_no_commits(world: &mut DomainWorld, name: String) {
+    world.order_listing.push(ProjectInfo::named(name));
+}
+
+#[when(regex = r#"^I parse the project order "([^"]*)"$"#)]
+fn parse_project_order(world: &mut DomainWorld, token: String) {
+    world.parsed_order = Some(ProjectOrder::parse(&token));
+}
+
+#[then(regex = r#"^the parsed order is "([^"]*)"$"#)]
+fn parsed_order_is(world: &mut DomainWorld, expected: String) {
+    let order: ProjectOrder = world
+        .parsed_order
+        .as_ref()
+        .expect("parse the order first")
+        .clone()
+        .expect("a valid order");
+    assert_eq!(order.as_str(), expected);
+}
+
+#[then("parsing the order is rejected as invalid")]
+fn parsing_order_rejected(world: &mut DomainWorld) {
+    let result: &Result<ProjectOrder, DomainError> =
+        world.parsed_order.as_ref().expect("parse the order first");
+    assert!(matches!(result, Err(DomainError::Invalid(_))));
+}
+
+#[when(regex = r#"^I order the listing by "([^"]*)"$"#)]
+fn order_the_listing(world: &mut DomainWorld, token: String) {
+    let order: ProjectOrder = ProjectOrder::parse(&token).expect("the order under test is valid");
+    order.sort(&mut world.order_listing);
+}
+
+#[then(regex = r#"^the listing order is "(.*)"$"#)]
+fn listing_order_is(world: &mut DomainWorld, expected: String) {
+    let names: Vec<&str> = world
+        .order_listing
+        .iter()
+        .map(|info: &ProjectInfo| info.name())
+        .collect();
+    assert_eq!(names.join(", "), expected);
 }
 
 // --- Projects-list file lines ------------------------------------------------

@@ -21,3 +21,10 @@ tokio = { workspace = true }
 [[test]]
 name = "domain"
 harness = false
+
+# Gherkin-driven BDD runner for use cases: the orchestration over the ports,
+# driven through an in-memory fake store (no adapter dependency). cucumber
+# supplies its own main(), so the default libtest harness is disabled.
+[[test]]
+name = "usecase"
+harness = false

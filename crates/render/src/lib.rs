@@ -17,3 +17,4 @@ pub mod chrome;
 pub mod error;
 pub mod escape;
 pub mod markup;
+pub mod project_list;

@@ -1,0 +1,30 @@
+Feature: Serving the projects-list landing page
+  gitweb's default page (git_project_list) lists every discoverable project under
+  the root. The assembled router resolves a bare request to the project_list
+  action and serves the page as HTML; an empty root is gitweb's
+  "404 No projects found"; an unknown sort order is "400 Unknown order parameter".
+  This drives the real gix ProjectStore over a project root laid down on disk.
+
+  Scenario: an empty project root reports no projects found
+    Given an empty project root
+    And the project-list landing page is served
+    When I GET "/"
+    Then the response status is 404
+    And the response body contains "No projects found"
+
+  Scenario: the landing page lists the discovered projects as HTML
+    Given a project root containing repository "alpha.git"
+    And the root also contains repository "beta.git"
+    And the project-list landing page is served
+    When I GET "/"
+    Then the response status is 200
+    And the response content type is "text/html; charset=utf-8"
+    And the response body contains "alpha.git"
+    And the response body contains "beta.git"
+    And the response body contains "Last Change"
+
+  Scenario: an unknown sort order is rejected
+    Given a project root containing repository "alpha.git"
+    And the project-list landing page is served
+    When I GET "/?o=sideways"
+    Then the response status is 400
