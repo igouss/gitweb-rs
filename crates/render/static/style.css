@@ -28,6 +28,8 @@
 	--cntrl-bg: #ffe9e0;
 	--cntrl-fg: #b22a00;
 
+	--danger: #b91c1c;
+
 	--mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
 	--sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
@@ -50,6 +52,8 @@
 
 		--cntrl-bg: #3a1d12;
 		--cntrl-fg: #ff9b78;
+
+		--danger: #f87171;
 	}
 }
 
@@ -259,4 +263,25 @@ pre,
 	border-radius: 4px;
 	padding: 0.1rem 0.4rem;
 	background: var(--surface);
+}
+
+/* ---- error page (gitweb die_error) --------------------------------------- */
+
+main.error {
+	padding: 2rem 0;
+}
+
+.error-status {
+	font-size: 1.2rem;
+	font-weight: 700;
+	color: var(--danger);
+}
+
+.error-detail {
+	margin-top: 1rem;
+	color: var(--fg-muted);
+}
+
+.error-detail pre {
+	overflow-x: auto;
 }

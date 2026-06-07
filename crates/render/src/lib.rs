@@ -14,5 +14,6 @@
 pub mod age;
 pub mod assets;
 pub mod chrome;
+pub mod error;
 pub mod escape;
 pub mod markup;

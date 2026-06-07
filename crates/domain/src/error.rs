@@ -17,6 +17,9 @@ pub enum DomainError {
     NotFound(String),
     /// Input named an object or ref but it was malformed or the wrong kind.
     Invalid(String),
+    /// Access to the resource is denied by policy (export rules, a disabled
+    /// feature, an unmet precondition) — gitweb's `die_error(403, ...)` cases.
+    Forbidden(String),
     /// The underlying git backend failed for a reason outside the domain.
     Backend(String),
 }
@@ -26,6 +29,7 @@ impl fmt::Display for DomainError {
         match self {
             Self::NotFound(what) => write!(f, "not found: {what}"),
             Self::Invalid(what) => write!(f, "invalid: {what}"),
+            Self::Forbidden(what) => write!(f, "forbidden: {what}"),
             Self::Backend(why) => write!(f, "backend error: {why}"),
         }
     }

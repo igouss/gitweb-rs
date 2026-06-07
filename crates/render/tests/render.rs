@@ -5,12 +5,14 @@
 
 use cucumber::gherkin::Step;
 use cucumber::{World, given, then, when};
+use gitweb_domain::error::DomainError;
 use gitweb_domain::model::age::AgeClass;
 use gitweb_render::age::age_class_name;
 use gitweb_render::chrome::{
     Crumb, DocumentHead, FeedLink, FooterLink, HiddenField, Logo, NavItem, PageFooter, SearchForm,
     SearchOption, breadcrumbs, document, footer, page_header, page_nav, search_form,
 };
+use gitweb_render::error::{ErrorResponse, HttpStatus, error_page, error_response};
 use gitweb_render::escape::{
     esc_attr, esc_html, esc_html_nbsp, esc_param, esc_path, esc_path_info, esc_url,
 };
@@ -23,6 +25,8 @@ struct RenderWorld {
     crumbs: Vec<Crumb>,
     nav_items: Vec<NavItem>,
     footer_links: Vec<FooterLink>,
+    domain_error: Option<DomainError>,
+    status: Option<HttpStatus>,
     output: Option<String>,
 }
 
@@ -322,6 +326,101 @@ fn when_footer_no_desc(world: &mut RenderWorld) {
         links: std::mem::take(&mut world.footer_links),
     };
     world.output = Some(footer(&page_footer).into_string());
+}
+
+// ---- Error responses (die_error) --------------------------------------------
+
+fn record_error(world: &mut RenderWorld, response: ErrorResponse) {
+    world.status = Some(response.status);
+    world.output = Some(response.body.into_string());
+}
+
+fn record_page(world: &mut RenderWorld, status: HttpStatus, body: Markup) {
+    world.status = Some(status);
+    world.output = Some(body.into_string());
+}
+
+#[given(regex = r#"^a not-found failure "(.*)"$"#)]
+fn given_not_found(world: &mut RenderWorld, what: String) {
+    world.domain_error = Some(DomainError::NotFound(what));
+}
+
+#[given(regex = r#"^an invalid-input failure "(.*)"$"#)]
+fn given_invalid(world: &mut RenderWorld, what: String) {
+    world.domain_error = Some(DomainError::Invalid(what));
+}
+
+#[given(regex = r#"^a forbidden failure "(.*)"$"#)]
+fn given_forbidden(world: &mut RenderWorld, what: String) {
+    world.domain_error = Some(DomainError::Forbidden(what));
+}
+
+#[given(regex = r#"^a backend failure "(.*)"$"#)]
+fn given_backend(world: &mut RenderWorld, why: String) {
+    world.domain_error = Some(DomainError::Backend(why));
+}
+
+#[when("I render the error response")]
+fn when_render_error_response(world: &mut RenderWorld) {
+    let error: &DomainError = world
+        .domain_error
+        .as_ref()
+        .expect("scenario must set a domain failure");
+    record_error(world, error_response(error));
+}
+
+#[when(regex = r#"^I render a 400 error page saying "(.*)" with detail "(.*)"$"#)]
+fn when_render_400_detail(world: &mut RenderWorld, message: String, detail: String) {
+    let body: Markup = error_page(HttpStatus::BAD_REQUEST, &message, Some(raw(detail)));
+    record_page(world, HttpStatus::BAD_REQUEST, body);
+}
+
+#[when(regex = r#"^I render a 404 error page saying "(.*)"$"#)]
+fn when_render_404(world: &mut RenderWorld, message: String) {
+    let body: Markup = error_page(HttpStatus::NOT_FOUND, &message, None);
+    record_page(world, HttpStatus::NOT_FOUND, body);
+}
+
+#[when(regex = r#"^I render a 500 error page saying "(.*)"$"#)]
+fn when_render_500(world: &mut RenderWorld, message: String) {
+    let body: Markup = error_page(HttpStatus::INTERNAL, &message, None);
+    record_page(world, HttpStatus::INTERNAL, body);
+}
+
+#[when(regex = r#"^I render a 503 error page saying "(.*)"$"#)]
+fn when_render_503(world: &mut RenderWorld, message: String) {
+    let body: Markup = error_page(HttpStatus::UNAVAILABLE, &message, None);
+    record_page(world, HttpStatus::UNAVAILABLE, body);
+}
+
+#[then(regex = r"^the HTTP status is (\d+)$")]
+fn then_http_status(world: &mut RenderWorld, code: u16) {
+    let status: HttpStatus = world.status.expect("a rendered error sets a status");
+    assert_eq!(status.code, code);
+}
+
+#[then(regex = r#"^the status title is "(.*)"$"#)]
+fn then_status_title(world: &mut RenderWorld, expected: String) {
+    let status: HttpStatus = world.status.expect("a rendered error sets a status");
+    assert_eq!(status.title(), expected);
+}
+
+#[then(regex = r#"^the body contains "(.*)"$"#)]
+fn then_body_contains(world: &mut RenderWorld, expected: String) {
+    let output: &str = world.output.as_deref().expect("a rendered body");
+    assert!(
+        output.contains(&expected),
+        "expected body to contain {expected:?}\n  got: {output}"
+    );
+}
+
+#[then(regex = r#"^the body does not contain "(.*)"$"#)]
+fn then_body_excludes(world: &mut RenderWorld, unexpected: String) {
+    let output: &str = world.output.as_deref().expect("a rendered body");
+    assert!(
+        !output.contains(&unexpected),
+        "expected body NOT to contain {unexpected:?}\n  got: {output}"
+    );
 }
 
 // ---- Then: assert the rendered result ---------------------------------------
