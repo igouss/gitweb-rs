@@ -17,6 +17,7 @@ use crate::model::commit::Commit;
 use crate::model::diff::Diff;
 use crate::model::object_id::ObjectId;
 use crate::model::object_kind::ObjectKind;
+use crate::model::patch::Patch;
 use crate::model::reference::Reference;
 use crate::model::tag::Tag;
 use crate::model::tree::Tree;
@@ -128,6 +129,13 @@ pub trait Repository {
     /// The diff between two trees. `from` is `None` to diff against the empty
     /// tree, e.g. for a root commit.
     fn diff(&self, from: Option<&ObjectId>, to: &ObjectId) -> Result<Diff, DomainError>;
+
+    /// The textual unified diff (patch) between two trees: the same change set
+    /// as [`Repository::diff`], rendered as git's patch text with hunks the way
+    /// `git diff-tree -p` emits and gitweb's `commitdiff_plain` / `patch`
+    /// endpoints stream. `from` is `None` to diff against the empty tree (a root
+    /// commit).
+    fn patch(&self, from: Option<&ObjectId>, to: &ObjectId) -> Result<Patch, DomainError>;
 
     /// Line-by-line blame of `path` as of commit `at`.
     fn blame(&self, at: &ObjectId, path: &str) -> Result<Blame, DomainError>;

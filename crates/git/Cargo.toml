@@ -39,3 +39,8 @@ harness = false
 [[test]]
 name = "diff"
 harness = false
+
+# Conformance for the `patch` operation: unified diff text + hunks.
+[[test]]
+name = "patch"
+harness = false

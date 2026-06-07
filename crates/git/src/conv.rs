@@ -4,15 +4,19 @@
 //! the adapter proper read as a description of *what* the port asks for, not as
 //! a mess of `.to_string()` and byte juggling. Everything here is pure.
 
+use gix::diff::blob::unified_diff::{ConsumeHunk, ContextSize, DiffLineKind, HunkHeader};
+use gix::diff::blob::{Algorithm, InternedInput, UnifiedDiff, diff_with_slider_heuristics};
 use gix::object::tree::diff::ChangeDetached;
 
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::binary::is_binary;
 use gitweb_domain::model::change::ChangeStatus;
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::diff::DiffEntry;
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
+use gitweb_domain::model::patch::{FileContent, FilePatch, Hunk, HunkLine};
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::tree::TreeEntry;
 
@@ -202,4 +206,192 @@ pub(crate) fn to_diff_entry(change: &ChangeDetached) -> Result<Option<DiffEntry>
         ),
     };
     Ok(Some(entry))
+}
+
+/// Whether `oid` is the all-zero null id, i.e. the absent side of an addition or
+/// deletion (so there is no blob to read on that side).
+pub(crate) fn is_null_oid(oid: &ObjectId) -> bool {
+    oid.as_str().bytes().all(|byte: u8| byte == b'0')
+}
+
+/// Builds one [`FilePatch`] from a diff entry and the two sides' raw bytes.
+///
+/// A side that git treats as binary (a NUL in the examined window, per the
+/// domain's [`is_binary`]) collapses the whole file to a one-line notice; text
+/// is diffed into hunks. The from/to metadata is carried straight through from
+/// the structured [`DiffEntry`].
+pub(crate) fn to_file_patch(entry: &DiffEntry, before: &[u8], after: &[u8]) -> FilePatch {
+    let content: FileContent = if is_binary(before) || is_binary(after) {
+        FileContent::Binary
+    } else {
+        FileContent::Text(text_hunks(before, after))
+    };
+    FilePatch::new(
+        entry.status(),
+        entry.from_mode(),
+        entry.to_mode(),
+        entry.from_oid().clone(),
+        entry.to_oid().clone(),
+        entry.from_path().to_owned(),
+        entry.to_path().to_owned(),
+        content,
+    )
+}
+
+/// One hunk as gix-diff hands it to us, before translation to the domain: line
+/// offsets plus the typed, owned line bytes.
+struct RawHunk {
+    before_start: u32,
+    before_len: u32,
+    after_start: u32,
+    after_len: u32,
+    lines: Vec<(DiffLineKind, Vec<u8>)>,
+}
+
+/// A [`ConsumeHunk`] sink that just collects each hunk gix-diff produces, so the
+/// no-trailing-newline pass can run over the whole set afterwards.
+#[derive(Default)]
+struct RawCollector {
+    hunks: Vec<RawHunk>,
+}
+
+impl ConsumeHunk for RawCollector {
+    type Out = Vec<RawHunk>;
+
+    fn consume_hunk(
+        &mut self,
+        header: HunkHeader,
+        lines: &[(DiffLineKind, &[u8])],
+    ) -> std::io::Result<()> {
+        let owned: Vec<(DiffLineKind, Vec<u8>)> = lines
+            .iter()
+            .map(|line: &(DiffLineKind, &[u8])| (line.0, line.1.to_vec()))
+            .collect();
+        self.hunks.push(RawHunk {
+            before_start: header.before_hunk_start,
+            before_len: header.before_hunk_len,
+            after_start: header.after_hunk_start,
+            after_len: header.after_hunk_len,
+            lines: owned,
+        });
+        Ok(())
+    }
+
+    fn finish(self) -> Self::Out {
+        self.hunks
+    }
+}
+
+/// Computes the unified-diff hunks between two text blobs.
+///
+/// gix-diff (over imara-diff) tokenises a byte slice into lines *without* their
+/// terminator and runs git's slider heuristics, so the hunk boundaries match
+/// git's closely. The `\ No newline at end of file` marker is git's, not the
+/// tokeniser's, so it is reattached afterwards by [`finalize`].
+fn text_hunks(before: &[u8], after: &[u8]) -> Vec<Hunk> {
+    let input: InternedInput<&[u8]> = InternedInput::new(before, after);
+    let diff: gix::diff::blob::Diff = diff_with_slider_heuristics(Algorithm::Histogram, &input);
+    let raws: Vec<RawHunk> = UnifiedDiff::new(
+        &diff,
+        &input,
+        RawCollector::default(),
+        ContextSize::symmetrical(3),
+    )
+    .consume()
+    .expect("collecting hunks into memory cannot fail");
+    finalize(raws, before, after, input.before.len(), input.after.len())
+}
+
+/// Translates the collected raw hunks into domain hunks, reattaching the
+/// `\ No newline at end of file` marker. git emits the marker only when a side
+/// has no trailing newline *and* its final line actually appears in the output,
+/// so it is placed on the last line of the final hunk only when that hunk
+/// reaches end-of-file on the side in question.
+fn finalize(
+    raws: Vec<RawHunk>,
+    before: &[u8],
+    after: &[u8],
+    before_total: usize,
+    after_total: usize,
+) -> Vec<Hunk> {
+    let before_nl_missing: bool = !before.is_empty() && !before.ends_with(b"\n");
+    let after_nl_missing: bool = !after.is_empty() && !after.ends_with(b"\n");
+    let last_index: usize = raws.len().saturating_sub(1);
+    raws.into_iter()
+        .enumerate()
+        .map(|item: (usize, RawHunk)| {
+            let is_last: bool = item.0 == last_index;
+            to_domain_hunk(
+                item.1,
+                is_last,
+                before_nl_missing,
+                after_nl_missing,
+                before_total as u32,
+                after_total as u32,
+            )
+        })
+        .collect()
+}
+
+fn to_domain_hunk(
+    raw: RawHunk,
+    is_last: bool,
+    before_nl_missing: bool,
+    after_nl_missing: bool,
+    before_total: u32,
+    after_total: u32,
+) -> Hunk {
+    let reaches_after_eof: bool = raw.after_start + raw.after_len > after_total;
+    let reaches_before_eof: bool = raw.before_start + raw.before_len > before_total;
+    let after_marker: Option<usize> = if is_last && after_nl_missing && reaches_after_eof {
+        raw.lines
+            .iter()
+            .rposition(|line: &(DiffLineKind, Vec<u8>)| {
+                matches!(line.0, DiffLineKind::Add | DiffLineKind::Context)
+            })
+    } else {
+        None
+    };
+    let before_marker: Option<usize> = if is_last && before_nl_missing && reaches_before_eof {
+        raw.lines
+            .iter()
+            .rposition(|line: &(DiffLineKind, Vec<u8>)| {
+                matches!(line.0, DiffLineKind::Remove | DiffLineKind::Context)
+            })
+    } else {
+        None
+    };
+    let lines: Vec<HunkLine> = raw
+        .lines
+        .iter()
+        .enumerate()
+        .map(|entry: (usize, &(DiffLineKind, Vec<u8>))| {
+            let no_newline: bool = Some(entry.0) == after_marker || Some(entry.0) == before_marker;
+            to_hunk_line(entry.1.0, &entry.1.1, no_newline)
+        })
+        .collect();
+    Hunk::new(
+        raw.before_start,
+        raw.before_len,
+        raw.after_start,
+        raw.after_len,
+        lines,
+    )
+}
+
+/// Translates one diff line into a domain [`HunkLine`]. Non-UTF-8 bytes are
+/// decoded lossily; the byte-exact plain endpoint, which streams git's raw
+/// bytes, is a later concern.
+fn to_hunk_line(kind: DiffLineKind, bytes: &[u8], no_newline: bool) -> HunkLine {
+    let text: String = String::from_utf8_lossy(bytes).into_owned();
+    let line: HunkLine = match kind {
+        DiffLineKind::Add => HunkLine::addition(text),
+        DiffLineKind::Remove => HunkLine::deletion(text),
+        DiffLineKind::Context => HunkLine::context(text),
+    };
+    if no_newline {
+        line.without_trailing_newline()
+    } else {
+        line
+    }
 }

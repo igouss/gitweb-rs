@@ -16,8 +16,10 @@ use gitweb_domain::model::blame::Blame;
 use gitweb_domain::model::blob::Blob;
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::diff::Diff;
+use gitweb_domain::model::file_mode::{FileKind, FileMode};
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
+use gitweb_domain::model::patch::{FilePatch, Patch};
 use gitweb_domain::model::ref_name::RefName;
 use gitweb_domain::model::reference::Reference;
 use gitweb_domain::model::signature::Signature;
@@ -28,8 +30,8 @@ use gitweb_domain::port::repository::{ArchiveFormat, Page, Repository, SearchQue
 use gitweb_domain::model::diff::DiffEntry;
 
 use crate::conv::{
-    backend, read_commit, to_diff_entry, to_domain_oid, to_gix_oid, to_object_kind, to_signature,
-    to_tree_entry,
+    backend, is_null_oid, read_commit, to_diff_entry, to_domain_oid, to_file_patch, to_gix_oid,
+    to_object_kind, to_signature, to_tree_entry,
 };
 
 /// Read access to one on-disk git repository, backed by gix.
@@ -93,6 +95,30 @@ impl GixRepository {
             .map_err(|_error: gix::object::peel::to_kind::Error| {
                 DomainError::Invalid(format!("not a tree-ish: {}", oid.as_str()))
             })
+    }
+
+    /// The raw bytes of one side of a changed path, for diffing.
+    ///
+    /// The absent side of an addition or deletion (the null id) has no blob, so
+    /// it is the empty buffer. A gitlink (submodule) entry points at a commit in
+    /// another repository that is not present here, so git's synthetic
+    /// `Subproject commit <id>` line stands in for its "content". Otherwise the
+    /// blob is read straight from the object database.
+    fn side_content(&self, oid: &ObjectId, mode: FileMode) -> Result<Vec<u8>, DomainError> {
+        if is_null_oid(oid) {
+            return Ok(Vec::new());
+        }
+        if matches!(mode.kind(), FileKind::Submodule) {
+            return Ok(format!("Subproject commit {}\n", oid.as_str()).into_bytes());
+        }
+        let object: gix::Object<'_> = self.require_object(oid)?;
+        if object.kind != gix::object::Kind::Blob {
+            return Err(DomainError::Invalid(format!(
+                "not a blob: {}",
+                oid.as_str()
+            )));
+        }
+        Ok(object.detach().data)
     }
 
     /// Whether `commit` changed `path` relative to its first parent — gitweb's
@@ -298,6 +324,22 @@ impl Repository for GixRepository {
                 .then_with(|| a.from_path().cmp(b.from_path()))
         });
         Ok(Diff::new(entries))
+    }
+
+    fn patch(&self, from: Option<&ObjectId>, to: &ObjectId) -> Result<Patch, DomainError> {
+        // The structured change set is exactly what `diff` computes; this adds
+        // the per-file blob reads and the hunk computation, then hands each file
+        // to the domain's patch formatter. `diff` already maps a missing object
+        // to `NotFound` and a `None` from-side to the empty tree (gitweb
+        // `--root`), so a root commit and an invalid id are handled there.
+        let diff: Diff = self.diff(from, to)?;
+        let mut files: Vec<FilePatch> = Vec::with_capacity(diff.entries().len());
+        for entry in diff.entries() {
+            let before: Vec<u8> = self.side_content(entry.from_oid(), entry.from_mode())?;
+            let after: Vec<u8> = self.side_content(entry.to_oid(), entry.to_mode())?;
+            files.push(to_file_patch(entry, &before, &after));
+        }
+        Ok(Patch::new(files))
     }
 
     fn blame(&self, _at: &ObjectId, _path: &str) -> Result<Blame, DomainError> {
