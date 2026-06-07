@@ -738,6 +738,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gitweb-web"
+version = "0.0.0"
+dependencies = [
+ "cucumber",
+ "gitweb-domain",
+ "gitweb-fixtures",
+ "gitweb-git",
+ "tokio",
+]
+
+[[package]]
 name = "gix"
 version = "0.84.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

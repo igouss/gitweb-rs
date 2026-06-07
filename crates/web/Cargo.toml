@@ -1,0 +1,31 @@
+[package]
+name = "gitweb-web"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The axum web boundary for gitweb-rs: inbound request resolution, dispatch, and responses."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+# The inward dependency: the boundary speaks to the domain through its ports and
+# the done request rules. No git library here — only the ProjectStore port.
+gitweb-domain = { path = "../domain" }
+
+[dev-dependencies]
+# features/web runs over a real, gix-built project root: the fixture lays it down
+# and the gix ProjectStore adapter is wired in as the composition root would.
+# These are test-only; production web code depends solely on the domain ports.
+gitweb-fixtures = { path = "../fixtures" }
+gitweb-git = { path = "../git" }
+cucumber = { workspace = true }
+tokio = { workspace = true }
+
+# Gherkin-driven BDD for the web boundary. cucumber supplies its own main(), so
+# the default libtest harness is disabled.
+[[test]]
+name = "web"
+harness = false
