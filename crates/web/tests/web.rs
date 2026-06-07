@@ -23,7 +23,7 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
-use gitweb_web::handlers::{HeadsHandler, ProjectListHandler, TagsHandler};
+use gitweb_web::handlers::{HeadsHandler, ProjectListHandler, TagHandler, TagsHandler};
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
 use gitweb_web::{Dispatcher, Handler, router};
@@ -341,6 +341,16 @@ fn given_tags_served(world: &mut WebWorld) {
     let settings: Arc<Settings> = Arc::new(Settings::builtin());
     let handler: Arc<dyn Handler> = Arc::new(TagsHandler::new(store, settings));
     world.dispatcher.register(Action::Tags, handler);
+}
+
+#[given("the tag action is served")]
+fn given_tag_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(Settings::builtin());
+    let handler: Arc<dyn Handler> = Arc::new(TagHandler::new(store, settings));
+    world.dispatcher.register(Action::Tag, handler);
 }
 
 // --- When: drive the assembled router with one in-process request ------------

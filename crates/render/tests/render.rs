@@ -21,6 +21,7 @@ use gitweb_render::markup::{Markup, html, raw};
 use gitweb_render::project_list::{
     ProjectLinks, ProjectList, ProjectRow, SortHeader, project_list,
 };
+use gitweb_render::tag::{TagAuthorView, TagPage, TaggedObjectView, tag_body};
 use gitweb_render::tags::{TagEntryView, TagReftype, TagsPage, TagsTable, tags_body, tags_table};
 
 #[derive(Debug, Default, World)]
@@ -33,6 +34,7 @@ struct RenderWorld {
     project_rows: Vec<ProjectRow>,
     head_entries: Vec<HeadEntryView>,
     tag_entries: Vec<TagEntryView>,
+    tag_page: Option<TagPage>,
     domain_error: Option<DomainError>,
     status: Option<HttpStatus>,
     output: Option<String>,
@@ -606,6 +608,123 @@ fn when_render_tags_page_empty(world: &mut RenderWorld) {
         table: TagsTable { rows: Vec::new() },
     };
     world.output = Some(tags_body(&page).into_string());
+}
+
+// ---- Single tag view --------------------------------------------------------
+
+/// The fixed tagger age these render scenarios use — 600 seconds, which renders
+/// as "10 min ago" in the fresh recency bucket. The render layer does not vary
+/// the age, so it is a literal in the steps rather than a captured parameter.
+const RENDER_TAG_AGE: i64 = 600;
+
+/// Splits a `"Name <email>"` tagger ident into its parts. The render givens
+/// always supply an email; the email-absent case is a domain-layer concern.
+fn tagger_parts(ident: &str) -> (String, String) {
+    let (name, rest): (&str, &str) = ident.split_once(" <").expect("ident has an email");
+    (name.to_owned(), rest.trim_end_matches('>').to_owned())
+}
+
+/// Assembles a tag page with no project chrome, so the assertions see only the
+/// tag-specific markup.
+fn tag_page_of(
+    name: &str,
+    object_id: &str,
+    href: &str,
+    kind_label: &str,
+    tagger: Option<TagAuthorView>,
+    message_lines: Vec<String>,
+) -> TagPage {
+    TagPage {
+        crumbs: Vec::new(),
+        name: name.to_owned(),
+        object: TaggedObjectView {
+            id: object_id.to_owned(),
+            kind_label: kind_label.to_owned(),
+            href: href.to_owned(),
+        },
+        tagger,
+        message_lines,
+    }
+}
+
+/// A tagger view from an ident and an age in seconds.
+fn tagger_view(ident: &str, aged: i64) -> TagAuthorView {
+    let (name, email): (String, String) = tagger_parts(ident);
+    TagAuthorView {
+        name,
+        email: Some(email),
+        age: Age::from_seconds(aged),
+    }
+}
+
+#[given(
+    regex = r#"^a (commit|blob|tree) tag "([^"]*)" pointing at "([^"]*)" at "([^"]*)" tagged by "([^"]*)" aged 600 with message "(.*)"$"#
+)]
+fn given_tag_with_message(
+    world: &mut RenderWorld,
+    kind: String,
+    name: String,
+    object_id: String,
+    href: String,
+    ident: String,
+    message: String,
+) {
+    let tagger: Option<TagAuthorView> = Some(tagger_view(&ident, RENDER_TAG_AGE));
+    world.tag_page = Some(tag_page_of(
+        &name,
+        &object_id,
+        &href,
+        &kind,
+        tagger,
+        vec![message],
+    ));
+}
+
+#[given(
+    regex = r#"^a commit tag "([^"]*)" pointing at "([^"]*)" at "([^"]*)" with no tagger and message "(.*)"$"#
+)]
+fn given_tag_no_tagger(
+    world: &mut RenderWorld,
+    name: String,
+    object_id: String,
+    href: String,
+    message: String,
+) {
+    world.tag_page = Some(tag_page_of(
+        &name,
+        &object_id,
+        &href,
+        "commit",
+        None,
+        vec![message],
+    ));
+}
+
+#[given(
+    regex = r#"^a commit tag "([^"]*)" pointing at "([^"]*)" at "([^"]*)" tagged by "([^"]*)" aged 600 with a two-line message$"#
+)]
+fn given_tag_multiline(
+    world: &mut RenderWorld,
+    name: String,
+    object_id: String,
+    href: String,
+    ident: String,
+) {
+    let tagger: Option<TagAuthorView> = Some(tagger_view(&ident, RENDER_TAG_AGE));
+    world.tag_page = Some(tag_page_of(
+        &name,
+        &object_id,
+        &href,
+        "commit",
+        tagger,
+        vec!["First line".to_owned(), "Second line".to_owned()],
+    ));
+}
+
+#[when("I render the tag page")]
+fn when_render_tag_page(world: &mut RenderWorld) {
+    let page: TagPage = world.tag_page.take().expect("a tag page was set up");
+    world.output = Some(tag_body(&page).into_string());
 }
 
 // ---- Error responses (die_error) --------------------------------------------

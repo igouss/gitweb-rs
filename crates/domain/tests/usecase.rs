@@ -36,6 +36,7 @@ use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
 use gitweb_domain::usecase::project_list::{
     ProjectListRow, ProjectListView, assemble_project_list,
 };
+use gitweb_domain::usecase::tag::{TagView, show_tag};
 use gitweb_domain::usecase::tags::{TagRow, TagsView, assemble_tags};
 
 /// An in-memory [`ProjectStore`] over a fixed set of projects. It serves
@@ -78,6 +79,7 @@ struct UsecaseWorld {
     heads_result: Option<Result<HeadsView, DomainError>>,
     tags: Vec<FakeTag>,
     tags_result: Option<Result<TagsView, DomainError>>,
+    tag_result: Option<Result<TagView, DomainError>>,
 }
 
 /// One branch in the fake repository: its short name, the id of its tip commit,
@@ -94,7 +96,9 @@ struct FakeBranch {
 /// itself for a lightweight one. `object_kind` is the kind of the object the tag
 /// ultimately names, and `epoch` is its creation time (the tagger time for an
 /// annotated tag, the committer time for a lightweight tag of a commit, ignored
-/// for a lightweight tag of a blob or tree).
+/// for a lightweight tag of a blob or tree). `message` is the full annotated-tag
+/// message (its first non-empty line is the listing subject); `has_tagger` is
+/// whether the tag object carries a tagger line.
 #[derive(Debug, Clone)]
 struct FakeTag {
     full_name: String,
@@ -103,7 +107,8 @@ struct FakeTag {
     object_kind: ObjectKind,
     annotated: bool,
     epoch: i64,
-    subject: Option<String>,
+    message: String,
+    has_tagger: bool,
 }
 
 /// A deterministic 40-hex object id derived from `seed`, so distinct branch
@@ -196,21 +201,45 @@ impl Repository for FakeRepository {
         ))
     }
 
-    fn resolve(&self, _rev: &str) -> Result<ObjectId, DomainError> {
-        unimplemented!("the heads use case never resolves a revision")
+    fn resolve(&self, rev: &str) -> Result<ObjectId, DomainError> {
+        let full: String = format!("refs/tags/{rev}");
+        if let Some(tag) = self
+            .tags
+            .iter()
+            .find(|tag: &&FakeTag| tag.full_name == full)
+        {
+            return Ok(tag.ref_target.clone());
+        }
+        if let Some(branch) = self
+            .branches
+            .iter()
+            .find(|branch: &&FakeBranch| branch.name == rev)
+        {
+            return Ok(branch.tip.clone());
+        }
+        Err(DomainError::NotFound(rev.to_owned()))
     }
 
     fn object_kind(&self, oid: &ObjectId) -> Result<ObjectKind, DomainError> {
-        let tag: &FakeTag = self
+        if let Some(tag) = self
             .tags
             .iter()
             .find(|tag: &&FakeTag| &tag.ref_target == oid)
-            .ok_or_else(|| DomainError::NotFound(oid.as_str().to_owned()))?;
-        Ok(if tag.annotated {
-            ObjectKind::Tag
-        } else {
-            tag.object_kind
-        })
+        {
+            return Ok(if tag.annotated {
+                ObjectKind::Tag
+            } else {
+                tag.object_kind
+            });
+        }
+        if self
+            .branches
+            .iter()
+            .any(|branch: &FakeBranch| &branch.tip == oid)
+        {
+            return Ok(ObjectKind::Commit);
+        }
+        Err(DomainError::NotFound(oid.as_str().to_owned()))
     }
 
     fn find_tree(&self, _oid: &ObjectId) -> Result<Tree, DomainError> {
@@ -227,18 +256,18 @@ impl Repository for FakeRepository {
             .iter()
             .find(|tag: &&FakeTag| tag.annotated && &tag.ref_target == oid)
             .ok_or_else(|| DomainError::NotFound(oid.as_str().to_owned()))?;
-        let tagger: Signature =
+        let tagger: Option<Signature> = tag.has_tagger.then(|| {
             Signature::parse(&format!("Tagger <tagger@example.com> {} +0000", tag.epoch))
-                .expect("a valid fixture tagger signature");
+                .expect("a valid fixture tagger signature")
+        });
         let name: String = RefName::new(tag.full_name.clone()).short().into_owned();
-        let message: String = format!("{}\n", tag.subject.as_deref().unwrap_or(""));
         Ok(Tag::new(
             tag.ref_target.clone(),
             tag.object.clone(),
             tag.object_kind,
             name,
-            Some(tagger),
-            message,
+            tagger,
+            tag.message.clone(),
         ))
     }
 
@@ -590,7 +619,38 @@ fn repo_has_annotated_tag(
         object_kind,
         annotated: true,
         epoch,
-        subject: Some(subject),
+        message: format!("{subject}\n"),
+        has_tagger: true,
+    });
+}
+
+#[given(regex = r#"^an annotated tag "([^"]*)" of a commit with no tagger$"#)]
+fn repo_has_taggerless_annotated_tag(world: &mut UsecaseWorld, name: String) {
+    let (ref_target, object): (ObjectId, ObjectId) = annotated_ids(&name);
+    world.tags.push(FakeTag {
+        full_name: format!("refs/tags/{name}"),
+        ref_target,
+        object,
+        object_kind: ObjectKind::Commit,
+        annotated: true,
+        epoch: 0,
+        message: "anonymous tag\n".to_owned(),
+        has_tagger: false,
+    });
+}
+
+#[given(regex = r#"^an annotated tag "([^"]*)" of a commit with a two-line message$"#)]
+fn repo_has_multiline_annotated_tag(world: &mut UsecaseWorld, name: String) {
+    let (ref_target, object): (ObjectId, ObjectId) = annotated_ids(&name);
+    world.tags.push(FakeTag {
+        full_name: format!("refs/tags/{name}"),
+        ref_target,
+        object,
+        object_kind: ObjectKind::Commit,
+        annotated: true,
+        epoch: 999_400,
+        message: "First line\nSecond line\n".to_owned(),
+        has_tagger: true,
     });
 }
 
@@ -604,7 +664,8 @@ fn repo_has_lightweight_commit_tag(world: &mut UsecaseWorld, name: String, epoch
         object_kind: ObjectKind::Commit,
         annotated: false,
         epoch,
-        subject: None,
+        message: String::new(),
+        has_tagger: false,
     });
 }
 
@@ -619,7 +680,8 @@ fn repo_has_lightweight_object_tag(world: &mut UsecaseWorld, name: String, kind:
         object_kind,
         annotated: false,
         epoch: 0,
-        subject: None,
+        message: String::new(),
+        has_tagger: false,
     });
 }
 
@@ -689,6 +751,100 @@ fn tag_shows_age(world: &mut UsecaseWorld, name: String, expected: String) {
 #[then(regex = r#"^the tag "([^"]*)" has no age$"#)]
 fn tag_has_no_age(world: &mut UsecaseWorld, name: String) {
     assert_eq!(tag_row(world, &name).age(), None);
+}
+
+// --- single tag view: accessors ----------------------------------------------
+
+/// The resolved single-tag view, or a panic if the scenario produced an error.
+fn tag_show_view(world: &UsecaseWorld) -> &TagView {
+    world
+        .tag_result
+        .as_ref()
+        .expect("show the tag first")
+        .as_ref()
+        .expect("the tag resolved")
+}
+
+/// The single-tag failure, or a panic if the scenario produced a success.
+fn tag_show_error(world: &UsecaseWorld) -> &DomainError {
+    match world.tag_result.as_ref().expect("show the tag first") {
+        Ok(_) => panic!("expected showing the tag to fail"),
+        Err(failure) => failure,
+    }
+}
+
+// --- single tag view: When ---------------------------------------------------
+
+#[when(regex = r#"^I show the tag "([^"]*)"$"#)]
+fn show_the_single_tag(world: &mut UsecaseWorld, hash: String) {
+    let repo: FakeRepository = FakeRepository {
+        head: world.head.clone(),
+        branches: world.branches.clone(),
+        tags: world.tags.clone(),
+    };
+    world.tag_result = Some(show_tag(&repo, &hash, world.now));
+}
+
+// --- single tag view: Thens --------------------------------------------------
+
+#[then(regex = r#"^the tag view name is "([^"]*)"$"#)]
+fn tag_view_name_is(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(tag_show_view(world).name(), expected);
+}
+
+#[then(regex = r#"^the tag view points at a "([^"]*)"$"#)]
+fn tag_view_points_at(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(tag_show_view(world).object_kind().as_str(), expected);
+}
+
+#[then("the tag view has a tagger")]
+fn tag_view_has_tagger(world: &mut UsecaseWorld) {
+    assert!(tag_show_view(world).tagger().is_some());
+}
+
+#[then("the tag view has no tagger")]
+fn tag_view_has_no_tagger(world: &mut UsecaseWorld) {
+    assert!(tag_show_view(world).tagger().is_none());
+}
+
+#[then(regex = r#"^the tag view tagger shows the age "([^"]*)"$"#)]
+fn tag_view_tagger_age(world: &mut UsecaseWorld, expected: String) {
+    let age: String = tag_show_view(world)
+        .tagger()
+        .expect("the tag view has a tagger")
+        .age()
+        .humanized();
+    assert_eq!(age, expected);
+}
+
+#[then(regex = r#"^the tag view message is "([^"]*)"$"#)]
+fn tag_view_message_is(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(tag_show_view(world).message().trim_end(), expected);
+}
+
+#[then(regex = r"^the tag view message has (\d+) lines$")]
+fn tag_view_message_line_count(world: &mut UsecaseWorld, expected: usize) {
+    assert_eq!(tag_show_view(world).message().lines().count(), expected);
+}
+
+#[then(regex = r#"^the tag view message line (\d+) is "([^"]*)"$"#)]
+fn tag_view_message_line_is(world: &mut UsecaseWorld, number: usize, expected: String) {
+    let line: &str = tag_show_view(world)
+        .message()
+        .lines()
+        .nth(number - 1)
+        .expect("the message has that line");
+    assert_eq!(line, expected);
+}
+
+#[then(regex = r#"^showing the tag fails with "([^"]*)"$"#)]
+fn tag_view_fails_with(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(tag_show_error(world).message(), expected);
+}
+
+#[then("showing the tag fails as not found")]
+fn tag_view_fails_not_found(world: &mut UsecaseWorld) {
+    assert!(matches!(tag_show_error(world), DomainError::NotFound(_)));
 }
 
 #[tokio::main]

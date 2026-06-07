@@ -14,8 +14,10 @@
 
 pub mod heads;
 pub mod project_list;
+pub mod tag;
 pub mod tags;
 
 pub use heads::HeadsHandler;
 pub use project_list::ProjectListHandler;
+pub use tag::TagHandler;
 pub use tags::TagsHandler;
