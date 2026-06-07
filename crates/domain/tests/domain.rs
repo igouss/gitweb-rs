@@ -11,10 +11,12 @@ use gitweb_domain::model::chop::{ChopMode, chop_str};
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::email_privacy::redact;
 use gitweb_domain::model::encoding::{FallbackEncoding, to_utf8};
+use gitweb_domain::model::export::{ExportPolicy, RepoFacts};
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::ref_name::RefName;
+use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::signature::Signature;
 
 #[derive(Debug, Default, World)]
@@ -45,6 +47,13 @@ struct DomainWorld {
     change: Option<ChangeStatus>,
     type_name: String,
     object_kind: Option<ObjectKind>,
+    path_input: String,
+    path_valid: Option<bool>,
+    ref_input: String,
+    ref_valid: Option<bool>,
+    export_policy: ExportPolicy,
+    repo_facts: RepoFacts,
+    visible: Option<bool>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -427,6 +436,131 @@ fn object_kind_is(world: &mut DomainWorld, expected: String) {
 #[then("there is no object kind")]
 fn there_is_no_object_kind(world: &mut DomainWorld) {
     assert_eq!(world.object_kind, None);
+}
+
+#[given(regex = r#"^the candidate path "(.*)"$"#)]
+fn given_candidate_path(world: &mut DomainWorld, path: String) {
+    world.path_input = path;
+}
+
+#[given("a candidate path with a NUL byte")]
+fn given_candidate_path_with_nul(world: &mut DomainWorld) {
+    world.path_input = "src/\0evil".to_owned();
+}
+
+#[when("I validate it as a path")]
+fn validate_as_path(world: &mut DomainWorld) {
+    world.path_valid = Some(SafePath::parse(&world.path_input).is_some());
+}
+
+#[then("the path is accepted")]
+fn path_is_accepted(world: &mut DomainWorld) {
+    assert_eq!(world.path_valid, Some(true));
+}
+
+#[then("the path is rejected")]
+fn path_is_rejected(world: &mut DomainWorld) {
+    assert_eq!(world.path_valid, Some(false));
+}
+
+#[given(regex = r#"^the candidate ref "(.*)"$"#)]
+fn given_candidate_ref(world: &mut DomainWorld, reference: String) {
+    world.ref_input = reference;
+}
+
+#[given("a candidate ref of 64 hex characters")]
+fn given_candidate_ref_64_hex(world: &mut DomainWorld) {
+    world.ref_input = "0".repeat(64);
+}
+
+#[when("I validate it as a ref")]
+fn validate_as_ref(world: &mut DomainWorld) {
+    world.ref_valid = Some(SafeRef::parse(&world.ref_input).is_some());
+}
+
+#[then("the ref is accepted")]
+fn ref_is_accepted(world: &mut DomainWorld) {
+    assert_eq!(world.ref_valid, Some(true));
+}
+
+#[then("the ref is rejected")]
+fn ref_is_rejected(world: &mut DomainWorld) {
+    assert_eq!(world.ref_valid, Some(false));
+}
+
+#[given("a repository whose HEAD is linked")]
+fn given_head_linked(world: &mut DomainWorld) {
+    world.repo_facts.head_linked = true;
+}
+
+#[given("a repository whose HEAD is not linked")]
+fn given_head_not_linked(world: &mut DomainWorld) {
+    world.repo_facts.head_linked = false;
+}
+
+#[given("a permissive export policy")]
+fn given_permissive_policy(world: &mut DomainWorld) {
+    world.export_policy = ExportPolicy::default();
+}
+
+#[given("an export marker is required")]
+fn given_marker_required(world: &mut DomainWorld) {
+    world.export_policy.require_marker = true;
+}
+
+#[given("the export marker is present")]
+fn given_marker_present(world: &mut DomainWorld) {
+    world.repo_facts.marker_present = true;
+}
+
+#[given("the export marker is absent")]
+fn given_marker_absent(world: &mut DomainWorld) {
+    world.repo_facts.marker_present = false;
+}
+
+#[given("strict export is enabled")]
+fn given_strict_enabled(world: &mut DomainWorld) {
+    world.export_policy.strict = true;
+}
+
+#[given("the repository is in the projects list")]
+fn given_in_projects_list(world: &mut DomainWorld) {
+    world.repo_facts.in_projects_list = true;
+}
+
+#[given("the repository is not in the projects list")]
+fn given_not_in_projects_list(world: &mut DomainWorld) {
+    world.repo_facts.in_projects_list = false;
+}
+
+#[given("an auth hook is configured")]
+fn given_auth_hook_configured(world: &mut DomainWorld) {
+    world.export_policy.has_auth_hook = true;
+}
+
+#[given("the auth hook allows the repository")]
+fn given_auth_hook_allows(world: &mut DomainWorld) {
+    world.repo_facts.auth_hook_allows = true;
+}
+
+#[given("the auth hook denies the repository")]
+fn given_auth_hook_denies(world: &mut DomainWorld) {
+    world.repo_facts.auth_hook_allows = false;
+}
+
+#[when("I evaluate visibility")]
+fn evaluate_visibility(world: &mut DomainWorld) {
+    world.visible = Some(world.export_policy.permits(&world.repo_facts));
+}
+
+#[then("the repository is visible")]
+fn repository_is_visible(world: &mut DomainWorld) {
+    assert_eq!(world.visible, Some(true));
+}
+
+#[then("the repository is hidden")]
+fn repository_is_hidden(world: &mut DomainWorld) {
+    assert_eq!(world.visible, Some(false));
 }
 
 #[tokio::main]
