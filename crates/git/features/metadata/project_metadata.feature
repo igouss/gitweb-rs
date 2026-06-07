@@ -84,6 +84,38 @@ Feature: Per-project metadata through the gix ProjectStore adapter
     And the clone URLs include "git://example.org/solo.git"
     And the clone URLs include "https://example.org/solo.git"
 
+  # --- last activity: the most recent branch commit (git_get_last_activity) ---
+  # gitweb reports a project's "last change" as the committer timestamp of its
+  # most recently updated branch (`git for-each-ref --sort=-committerdate
+  # --count=1 refs/heads`). The adapter surfaces the raw timestamp; turning it
+  # into an age is the view's job, so conformance can pin exact epoch seconds.
+
+  Scenario: an unborn repository with no commits has no last activity
+    Given a project root containing an empty repository "fresh.git"
+    When I read the metadata of "fresh.git"
+    Then there is no last activity
+
+  Scenario: a single-branch repository reports that branch's commit time
+    Given a project root containing an empty repository "single.git"
+    And "single.git" has a branch "main" committed at 1700000000
+    When I read the metadata of "single.git"
+    Then the last activity timestamp is 1700000000
+
+  Scenario: with several branches the most recent commit wins, whatever the order
+    Given a project root containing an empty repository "busy.git"
+    And "busy.git" has a branch "main" committed at 1700000000
+    And "busy.git" has a branch "feature" committed at 1700002000
+    And "busy.git" has a branch "topic" committed at 1700001000
+    When I read the metadata of "busy.git"
+    Then the last activity timestamp is 1700002000
+
+  Scenario: only branch refs count, so a newer tag does not move the last activity
+    Given a project root containing an empty repository "tagged.git"
+    And "tagged.git" has a branch "main" committed at 1700000000
+    And "tagged.git" has a tag "v1" committed at 1700009000
+    When I read the metadata of "tagged.git"
+    Then the last activity timestamp is 1700000000
+
   # --- the missing and unsafe edges, shared with open() ---
 
   Scenario: reading metadata for a name that does not exist fails as not found

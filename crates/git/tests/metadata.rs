@@ -93,6 +93,22 @@ fn given_gitweb_config(world: &mut MetadataWorld, name: String, key: String, val
     root(world).set_gitweb_config(&name, &key, &value);
 }
 
+#[given(regex = r#"^a project root containing an empty repository "([^"]*)"$"#)]
+fn given_root_with_empty_repo(world: &mut MetadataWorld, name: String) {
+    ensure_root(world);
+    root(world).add_empty_repo(&name);
+}
+
+#[given(regex = r#"^"([^"]*)" has a branch "([^"]*)" committed at (\d+)$"#)]
+fn given_branch_at(world: &mut MetadataWorld, name: String, branch: String, epoch: i64) {
+    root(world).add_branch_at(&name, &branch, epoch);
+}
+
+#[given(regex = r#"^"([^"]*)" has a tag "([^"]*)" committed at (\d+)$"#)]
+fn given_tag_at(world: &mut MetadataWorld, name: String, tag: String, epoch: i64) {
+    root(world).add_tag_at(&name, &tag, epoch);
+}
+
 // --- When --------------------------------------------------------------------
 
 #[when(regex = r#"^I read the metadata of "([^"]*)"$"#)]
@@ -139,6 +155,18 @@ fn clone_urls_include(world: &mut MetadataWorld, url: String) {
         .iter()
         .any(|candidate: &String| candidate == &url);
     assert!(found, "expected the clone URLs to include {url}");
+}
+
+// --- Thens: last activity ----------------------------------------------------
+
+#[then(regex = r"^the last activity timestamp is (\d+)$")]
+fn last_activity_is(world: &mut MetadataWorld, expected: i64) {
+    assert_eq!(ok_info(world).last_activity(), Some(expected));
+}
+
+#[then("there is no last activity")]
+fn no_last_activity(world: &mut MetadataWorld) {
+    assert_eq!(ok_info(world).last_activity(), None);
 }
 
 // --- Thens: failure modes ----------------------------------------------------

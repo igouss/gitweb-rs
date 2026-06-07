@@ -33,6 +33,30 @@ fn ada() -> Identity {
     }
 }
 
+/// Writes a one-file root commit whose author and committer times are both
+/// `epoch`, with content keyed off `label` so distinct labels (branch or tag
+/// names) yield distinct commits. Returns the commit id, for the caller to point
+/// a branch or tag at.
+fn commit_at(builder: &RepoBuilder, label: &str, epoch: i64) -> gix::ObjectId {
+    let who: Identity = Identity {
+        epoch_seconds: epoch,
+        ..ada()
+    };
+    let blob: gix::ObjectId = builder.blob(format!("{label}\n").as_bytes());
+    let tree: gix::ObjectId = builder.tree(&[TreeEntry {
+        name: "file.txt".to_owned(),
+        mode: Mode::File,
+        oid: blob,
+    }]);
+    builder.commit(&CommitSpec {
+        tree,
+        parents: Vec::new(),
+        author: who.clone(),
+        committer: who,
+        message: format!("{label}\n"),
+    })
+}
+
 impl ProjectRoot {
     /// A fresh, empty project root in a throwaway temp directory.
     #[must_use]
@@ -78,6 +102,37 @@ impl ProjectRoot {
     pub fn add_dir(&self, name: &str) {
         let full: PathBuf = self.dir.path().join(name);
         std::fs::create_dir_all(full).expect("create a plain fixture directory");
+    }
+
+    /// Lays down a bare repository at `name` with a `HEAD` but no commits — an
+    /// unborn repository. gitweb still discovers it (the `HEAD` is present), but
+    /// it has no branches, so its last activity is absent. Branches and tags are
+    /// added afterwards with [`Self::add_branch_at`] / [`Self::add_tag_at`] so a
+    /// spec controls each ref's commit time exactly.
+    pub fn add_empty_repo(&self, name: &str) {
+        let full: PathBuf = self.dir.path().join(name);
+        let builder: RepoBuilder = RepoBuilder::init_at(&full);
+        builder.set_head("main");
+    }
+
+    /// Points `refs/heads/<branch>` at a fresh commit authored and committed at
+    /// `epoch` (Unix seconds) in the repository at `name`. The commit's content
+    /// is keyed off the branch name, so each branch is a distinct commit and
+    /// "most recent branch wins" is testable by varying only the times.
+    pub fn add_branch_at(&self, name: &str, branch: &str, epoch: i64) {
+        let builder: RepoBuilder = RepoBuilder::open_at(&self.dir.path().join(name));
+        let commit: gix::ObjectId = commit_at(&builder, branch, epoch);
+        builder.branch(branch, commit);
+    }
+
+    /// Points a lightweight `refs/tags/<tag>` at a fresh commit committed at
+    /// `epoch` in the repository at `name`, on no branch. This exercises gitweb's
+    /// rule that only branch refs count for last activity: a newer tag must not
+    /// move it.
+    pub fn add_tag_at(&self, name: &str, tag: &str, epoch: i64) {
+        let builder: RepoBuilder = RepoBuilder::open_at(&self.dir.path().join(name));
+        let commit: gix::ObjectId = commit_at(&builder, tag, epoch);
+        builder.lightweight_tag(tag, commit);
     }
 
     /// Writes the repository's `description` file (gitweb reads its first line),

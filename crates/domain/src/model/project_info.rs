@@ -23,6 +23,7 @@ pub struct ProjectInfo {
     owner: Option<String>,
     category: Option<String>,
     clone_urls: Vec<String>,
+    last_activity: Option<i64>,
 }
 
 impl ProjectInfo {
@@ -35,6 +36,7 @@ impl ProjectInfo {
             owner: None,
             category: None,
             clone_urls: Vec::new(),
+            last_activity: None,
         }
     }
 
@@ -66,6 +68,17 @@ impl ProjectInfo {
         self
     }
 
+    /// Sets the last-activity time: the committer timestamp (Unix epoch seconds)
+    /// of the project's most recently updated branch, as gitweb's
+    /// `git_get_last_activity` derives it. The value is the raw timestamp, not an
+    /// age — the view turns it into a relative age via [`crate::model::age::Age`],
+    /// so the clock stays out of the metadata.
+    #[must_use]
+    pub fn with_last_activity(mut self, epoch: i64) -> Self {
+        self.last_activity = Some(epoch);
+        self
+    }
+
     /// The store-relative name used to open the project.
     #[must_use]
     pub fn name(&self) -> &str {
@@ -94,6 +107,14 @@ impl ProjectInfo {
     #[must_use]
     pub fn clone_urls(&self) -> &[String] {
         &self.clone_urls
+    }
+
+    /// The last-activity time (committer epoch seconds of the most recent
+    /// branch), or `None` for a project with no branch commits — an unborn or
+    /// empty repository, where gitweb shows no "last change".
+    #[must_use]
+    pub fn last_activity(&self) -> Option<i64> {
+        self.last_activity
     }
 
     /// The short description shown in the projects list: the full description

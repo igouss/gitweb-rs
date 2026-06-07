@@ -84,6 +84,15 @@ impl RepoBuilder {
         Self { repo, _dir: None }
     }
 
+    /// Reopens an existing bare repository at a caller-owned `path`, to add more
+    /// objects or refs to a fixture built earlier. Like [`Self::init_at`], it
+    /// owns no temp directory and deletes nothing on drop.
+    #[must_use]
+    pub fn open_at(path: &Path) -> Self {
+        let repo: gix::Repository = gix::open(path).expect("open an existing fixture repo");
+        Self { repo, _dir: None }
+    }
+
     /// The on-disk path of the repository, for adapters that open it by path.
     #[must_use]
     pub fn path(&self) -> &Path {

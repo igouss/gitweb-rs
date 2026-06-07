@@ -21,7 +21,7 @@ use gitweb_domain::model::safety::SafePath;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 
-use crate::conv::backend;
+use crate::conv::{backend, to_signature};
 use crate::repository::GixRepository;
 
 /// Discovery and opening of the repositories under one project root, backed by
@@ -156,8 +156,45 @@ impl ProjectStore for GixProjectStore {
         for url in clone_urls(&git_dir, &config) {
             info = info.with_clone_url(url);
         }
+        // gitweb's git_get_last_activity: the committer time of the most recent
+        // branch. Absent for an unborn/empty repo, so the field stays unset.
+        if let Some(when) = most_recent_branch_time(&repo)? {
+            info = info.with_last_activity(when);
+        }
         Ok(info)
     }
+}
+
+/// gitweb's `git_get_last_activity`: the committer timestamp (Unix epoch seconds)
+/// of the project's most recently updated branch. gitweb runs `git for-each-ref
+/// --sort=-committerdate --count=1 refs/heads` and reads the committer time off
+/// the winning ref; here we take the maximum committer time over the branch heads
+/// (`refs/heads/`, the default `get_branch_refs`). Tags and other refs are not
+/// branches, so they never count. A repository with no branch commits — unborn or
+/// empty — has no activity, so the result is `None`.
+fn most_recent_branch_time(repo: &gix::Repository) -> Result<Option<i64>, DomainError> {
+    let platform: gix::reference::iter::Platform<'_> = repo.references().map_err(backend)?;
+    let mut latest: Option<i64> = None;
+    for item in platform.all().map_err(backend)? {
+        let reference: gix::Reference<'_> = item.map_err(backend)?;
+        let full: String = reference.name().as_bstr().to_string();
+        if !full.starts_with("refs/heads/") {
+            continue;
+        }
+        let commit: gix::Commit<'_> = reference
+            .into_fully_peeled_id()
+            .map_err(backend)?
+            .object()
+            .map_err(backend)?
+            .try_into_commit()
+            .map_err(|_error: gix::object::try_into::Error| {
+                backend("a branch ref did not resolve to a commit")
+            })?;
+        let signature: gix::actor::SignatureRef<'_> = commit.committer().map_err(backend)?;
+        let when: i64 = to_signature(signature)?.epoch();
+        latest = Some(latest.map_or(when, |best: i64| best.max(when)));
+    }
+    Ok(latest)
 }
 
 /// gitweb's `git_get_file_or_project_config`: the first line of the repository
