@@ -60,6 +60,13 @@ impl FileMode {
             .map(|bits: u32| Self { bits })
     }
 
+    /// The six-digit octal form git writes in a patch's extended headers and
+    /// `index` line (e.g. `100644`, `040000`, `120000`, `160000`).
+    #[must_use]
+    pub fn octal(self) -> String {
+        format!("{:06o}", self.bits)
+    }
+
     /// Whether two modes name the same git object *type*, ignoring permission
     /// bits.
     ///

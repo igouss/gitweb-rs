@@ -3,6 +3,7 @@
 //! Runs every `.feature` under `features/domain`. cucumber supplies its own
 //! `main`, so this test target sets `harness = false` in Cargo.toml.
 
+use cucumber::gherkin::Step;
 use cucumber::{World, given, then, when};
 use gitweb_domain::model::age::{Age, AgeClass};
 use gitweb_domain::model::binary::is_binary;
@@ -15,6 +16,7 @@ use gitweb_domain::model::export::{ExportPolicy, RepoFacts};
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
+use gitweb_domain::model::patch::{FileContent, FilePatch, Hunk, HunkLine, Patch};
 use gitweb_domain::model::ref_name::RefName;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::signature::Signature;
@@ -56,6 +58,8 @@ struct DomainWorld {
     export_policy: ExportPolicy,
     repo_facts: RepoFacts,
     visible: Option<bool>,
+    patch_under_test: Option<Patch>,
+    rendered: Option<String>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -576,6 +580,312 @@ fn repository_is_visible(world: &mut DomainWorld) {
 #[then("the repository is hidden")]
 fn repository_is_hidden(world: &mut DomainWorld) {
     assert_eq!(world.visible, Some(false));
+}
+
+// --- Patch (unified diff) formatting -----------------------------------------
+
+/// An object id that is the given hex digit repeated forty times — a valid,
+/// recognisable SHA-1 for pinning `index` lines in specs.
+fn oid_of(digit: char) -> ObjectId {
+    ObjectId::parse(&digit.to_string().repeat(40)).expect("forty hex digits is a valid object id")
+}
+
+fn mode_of(octal: &str) -> FileMode {
+    FileMode::from_octal(octal).expect("a valid octal mode")
+}
+
+fn modified_patch(path: &str) -> FilePatch {
+    let hunk: Hunk = Hunk::new(
+        1,
+        1,
+        1,
+        1,
+        vec![HunkLine::deletion("old"), HunkLine::addition("new")],
+    );
+    FilePatch::new(
+        ChangeStatus::from_modification(mode_of("100644"), mode_of("100644")),
+        mode_of("100644"),
+        mode_of("100644"),
+        oid_of('1'),
+        oid_of('2'),
+        path,
+        path,
+        FileContent::Text(vec![hunk]),
+    )
+}
+
+fn created_patch(path: &str) -> FilePatch {
+    let hunk: Hunk = Hunk::new(
+        0,
+        0,
+        1,
+        2,
+        vec![
+            HunkLine::addition("line one"),
+            HunkLine::addition("line two"),
+        ],
+    );
+    FilePatch::new(
+        ChangeStatus::added(),
+        mode_of("000000"),
+        mode_of("100644"),
+        oid_of('0'),
+        oid_of('2'),
+        path,
+        path,
+        FileContent::Text(vec![hunk]),
+    )
+}
+
+fn deleted_patch(path: &str) -> FilePatch {
+    let hunk: Hunk = Hunk::new(1, 1, 0, 0, vec![HunkLine::deletion("was here")]);
+    FilePatch::new(
+        ChangeStatus::deleted(),
+        mode_of("100644"),
+        mode_of("000000"),
+        oid_of('1'),
+        oid_of('0'),
+        path,
+        path,
+        FileContent::Text(vec![hunk]),
+    )
+}
+
+fn one_file(patch: FilePatch) -> Patch {
+    Patch::new(vec![patch])
+}
+
+#[given(regex = r#"^a modified file patch for "([^"]+)"$"#)]
+fn given_modified_patch(world: &mut DomainWorld, path: String) {
+    world.patch_under_test = Some(one_file(modified_patch(&path)));
+}
+
+#[given(regex = r#"^a created file patch for "([^"]+)" with two lines$"#)]
+fn given_created_patch(world: &mut DomainWorld, path: String) {
+    world.patch_under_test = Some(one_file(created_patch(&path)));
+}
+
+#[given(regex = r#"^a deleted file patch for "([^"]+)"$"#)]
+fn given_deleted_patch(world: &mut DomainWorld, path: String) {
+    world.patch_under_test = Some(one_file(deleted_patch(&path)));
+}
+
+#[given(regex = r#"^an executable-bit file patch for "([^"]+)"$"#)]
+fn given_mode_change_patch(world: &mut DomainWorld, path: String) {
+    let patch: FilePatch = FilePatch::new(
+        ChangeStatus::from_modification(mode_of("100644"), mode_of("100755")),
+        mode_of("100644"),
+        mode_of("100755"),
+        oid_of('1'),
+        oid_of('1'),
+        path.clone(),
+        path,
+        FileContent::Text(vec![]),
+    );
+    world.patch_under_test = Some(one_file(patch));
+}
+
+#[given(regex = r#"^an executable-bit-and-content file patch for "([^"]+)"$"#)]
+fn given_mode_and_content_patch(world: &mut DomainWorld, path: String) {
+    let hunk: Hunk = Hunk::new(
+        1,
+        1,
+        1,
+        1,
+        vec![HunkLine::deletion("old"), HunkLine::addition("new")],
+    );
+    let patch: FilePatch = FilePatch::new(
+        ChangeStatus::from_modification(mode_of("100644"), mode_of("100755")),
+        mode_of("100644"),
+        mode_of("100755"),
+        oid_of('1'),
+        oid_of('2'),
+        path.clone(),
+        path,
+        FileContent::Text(vec![hunk]),
+    );
+    world.patch_under_test = Some(one_file(patch));
+}
+
+#[given(regex = r#"^an exact rename file patch from "([^"]+)" to "([^"]+)"$"#)]
+fn given_exact_rename_patch(world: &mut DomainWorld, from: String, to: String) {
+    let patch: FilePatch = FilePatch::new(
+        ChangeStatus::renamed(100),
+        mode_of("100644"),
+        mode_of("100644"),
+        oid_of('1'),
+        oid_of('1'),
+        from,
+        to,
+        FileContent::Text(vec![]),
+    );
+    world.patch_under_test = Some(one_file(patch));
+}
+
+#[given(regex = r#"^an inexact rename file patch from "([^"]+)" to "([^"]+)" at (\d+)%$"#)]
+fn given_inexact_rename_patch(world: &mut DomainWorld, from: String, to: String, score: u8) {
+    let hunk: Hunk = Hunk::new(
+        1,
+        2,
+        1,
+        2,
+        vec![
+            HunkLine::context("kept"),
+            HunkLine::deletion("old"),
+            HunkLine::addition("new"),
+        ],
+    );
+    let patch: FilePatch = FilePatch::new(
+        ChangeStatus::renamed(score),
+        mode_of("100644"),
+        mode_of("100644"),
+        oid_of('1'),
+        oid_of('2'),
+        from,
+        to,
+        FileContent::Text(vec![hunk]),
+    );
+    world.patch_under_test = Some(one_file(patch));
+}
+
+#[given(regex = r#"^an exact copy file patch from "([^"]+)" to "([^"]+)"$"#)]
+fn given_exact_copy_patch(world: &mut DomainWorld, from: String, to: String) {
+    let patch: FilePatch = FilePatch::new(
+        ChangeStatus::copied(100),
+        mode_of("100644"),
+        mode_of("100644"),
+        oid_of('1'),
+        oid_of('1'),
+        from,
+        to,
+        FileContent::Text(vec![]),
+    );
+    world.patch_under_test = Some(one_file(patch));
+}
+
+#[given(regex = r#"^a binary modification file patch for "([^"]+)"$"#)]
+fn given_binary_modification_patch(world: &mut DomainWorld, path: String) {
+    let patch: FilePatch = FilePatch::new(
+        ChangeStatus::from_modification(mode_of("100644"), mode_of("100644")),
+        mode_of("100644"),
+        mode_of("100644"),
+        oid_of('1'),
+        oid_of('2'),
+        path.clone(),
+        path,
+        FileContent::Binary,
+    );
+    world.patch_under_test = Some(one_file(patch));
+}
+
+#[given(regex = r#"^a binary creation file patch for "([^"]+)"$"#)]
+fn given_binary_creation_patch(world: &mut DomainWorld, path: String) {
+    let patch: FilePatch = FilePatch::new(
+        ChangeStatus::added(),
+        mode_of("000000"),
+        mode_of("100644"),
+        oid_of('0'),
+        oid_of('2'),
+        path.clone(),
+        path,
+        FileContent::Binary,
+    );
+    world.patch_under_test = Some(one_file(patch));
+}
+
+#[given(
+    regex = r#"^a created file patch for "([^"]+)" whose single line has no trailing newline$"#
+)]
+fn given_created_no_newline_patch(world: &mut DomainWorld, path: String) {
+    let hunk: Hunk = Hunk::new(
+        0,
+        0,
+        1,
+        1,
+        vec![HunkLine::addition("target/path").without_trailing_newline()],
+    );
+    let patch: FilePatch = FilePatch::new(
+        ChangeStatus::added(),
+        mode_of("000000"),
+        mode_of("120000"),
+        oid_of('0'),
+        oid_of('2'),
+        path.clone(),
+        path,
+        FileContent::Text(vec![hunk]),
+    );
+    world.patch_under_test = Some(one_file(patch));
+}
+
+#[given("a patch over no files")]
+fn given_empty_patch(world: &mut DomainWorld) {
+    world.patch_under_test = Some(Patch::new(vec![]));
+}
+
+#[given("a patch over a created file and a deleted file")]
+fn given_multi_file_patch(world: &mut DomainWorld) {
+    world.patch_under_test = Some(Patch::new(vec![
+        created_patch("added.txt"),
+        deleted_patch("gone.txt"),
+    ]));
+}
+
+#[when("I render the patch")]
+fn render_patch(world: &mut DomainWorld) {
+    let patch: &Patch = world
+        .patch_under_test
+        .as_ref()
+        .expect("a patch must be built before rendering");
+    world.rendered = Some(patch.render());
+}
+
+fn rendered(world: &DomainWorld) -> &str {
+    world
+        .rendered
+        .as_deref()
+        .expect("the patch must be rendered before asserting on it")
+}
+
+#[then(regex = r#"^the patch contains "(.*)"$"#)]
+fn then_patch_contains(world: &mut DomainWorld, fragment: String) {
+    assert!(
+        rendered(world).contains(&fragment),
+        "expected patch to contain {fragment:?}, got:\n{}",
+        rendered(world)
+    );
+}
+
+#[then(regex = r#"^the patch does not contain "(.*)"$"#)]
+fn then_patch_not_contains(world: &mut DomainWorld, fragment: String) {
+    assert!(
+        !rendered(world).contains(&fragment),
+        "expected patch not to contain {fragment:?}, got:\n{}",
+        rendered(world)
+    );
+}
+
+#[then(regex = r#"^the patch has a line "(.*)"$"#)]
+fn then_patch_has_line(world: &mut DomainWorld, expected: String) {
+    assert!(
+        rendered(world).lines().any(|line: &str| line == expected),
+        "expected patch to have the exact line {expected:?}, got:\n{}",
+        rendered(world)
+    );
+}
+
+#[then("the patch is:")]
+fn then_patch_is(world: &mut DomainWorld, step: &Step) {
+    let expected: &str = step
+        .docstring
+        .as_deref()
+        .expect("scenario must supply a docstring")
+        .trim_matches('\n');
+    assert_eq!(rendered(world).trim_end_matches('\n'), expected);
+}
+
+#[then("the patch is empty")]
+fn then_patch_is_empty(world: &mut DomainWorld) {
+    assert_eq!(rendered(world), "");
 }
 
 #[tokio::main]

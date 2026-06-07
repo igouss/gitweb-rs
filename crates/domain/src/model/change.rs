@@ -94,6 +94,15 @@ impl ChangeStatus {
         }
     }
 
+    /// A path that was copied from another path, with its similarity score.
+    #[must_use]
+    pub fn copied(similarity: u8) -> Self {
+        Self {
+            kind: ChangeKind::Copied,
+            similarity,
+        }
+    }
+
     /// Classifies a content change between two file modes.
     ///
     /// A raw diff-tree line hands gitweb a ready-made status letter, but gix

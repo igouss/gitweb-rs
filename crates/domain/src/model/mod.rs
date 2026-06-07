@@ -14,6 +14,7 @@ pub mod export;
 pub mod file_mode;
 pub mod object_id;
 pub mod object_kind;
+pub mod patch;
 pub mod project;
 pub mod ref_name;
 pub mod reference;
