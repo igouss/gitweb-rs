@@ -60,6 +60,18 @@ impl FileMode {
             .map(|bits: u32| Self { bits })
     }
 
+    /// Whether two modes name the same git object *type*, ignoring permission
+    /// bits.
+    ///
+    /// git's `T`-vs-`M` rule compares only the `S_IFMT` type field, so an
+    /// executable and a plain regular file count as the same type (a content
+    /// change between them is `M`), while a file, a symlink, and a gitlink are
+    /// each distinct types (a change between them is `T`).
+    #[must_use]
+    pub fn same_type(self, other: FileMode) -> bool {
+        (self.bits & S_IFMT) == (other.bits & S_IFMT)
+    }
+
     /// Classifies the mode into a [`FileKind`].
     ///
     /// gitlink is checked before the standard type bits because its value

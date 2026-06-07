@@ -25,8 +25,11 @@ use gitweb_domain::model::tag::Tag;
 use gitweb_domain::model::tree::{Tree, TreeEntry};
 use gitweb_domain::port::repository::{ArchiveFormat, Page, Repository, SearchQuery};
 
+use gitweb_domain::model::diff::DiffEntry;
+
 use crate::conv::{
-    backend, read_commit, to_domain_oid, to_gix_oid, to_object_kind, to_signature, to_tree_entry,
+    backend, read_commit, to_diff_entry, to_domain_oid, to_gix_oid, to_object_kind, to_signature,
+    to_tree_entry,
 };
 
 /// Read access to one on-disk git repository, backed by gix.
@@ -77,6 +80,19 @@ impl GixRepository {
         let entry: Option<gix::object::tree::Entry<'_>> =
             tree.lookup_entry_by_path(path).map_err(backend)?;
         Ok(entry.map(|found: gix::object::tree::Entry<'_>| found.id().detach()))
+    }
+
+    /// Peels the object named by `oid` to its tree — accepting a commit or a
+    /// tree id, as `git diff-tree` does. A missing object is
+    /// [`DomainError::NotFound`]; an object that cannot be a tree (e.g. a blob)
+    /// is [`DomainError::Invalid`].
+    fn require_tree(&self, oid: &ObjectId) -> Result<gix::Tree<'_>, DomainError> {
+        let object: gix::Object<'_> = self.require_object(oid)?;
+        object
+            .peel_to_tree()
+            .map_err(|_error: gix::object::peel::to_kind::Error| {
+                DomainError::Invalid(format!("not a tree-ish: {}", oid.as_str()))
+            })
     }
 
     /// Whether `commit` changed `path` relative to its first parent — gitweb's
@@ -251,8 +267,37 @@ impl Repository for GixRepository {
         Ok(out)
     }
 
-    fn diff(&self, _from: Option<&ObjectId>, _to: &ObjectId) -> Result<Diff, DomainError> {
-        Err(DomainError::Backend("diff: not yet implemented".to_owned()))
+    fn diff(&self, from: Option<&ObjectId>, to: &ObjectId) -> Result<Diff, DomainError> {
+        // gitweb's `git diff-tree -r -M`: recurse to leaf files, detect renames
+        // at git's default 50% similarity. A `None` from-side (a root commit) is
+        // gitweb's `--root`, i.e. a diff against the empty tree, so gix's empty
+        // tree is left implicit.
+        let to_tree: gix::Tree<'_> = self.require_tree(to)?;
+        let from_tree: Option<gix::Tree<'_>> = match from {
+            Some(oid) => Some(self.require_tree(oid)?),
+            None => None,
+        };
+        let options: gix::diff::Options =
+            gix::diff::Options::default().with_rewrites(Some(gix::diff::Rewrites::default()));
+        let changes: Vec<gix::object::tree::diff::ChangeDetached> = self
+            .repo
+            .diff_tree_to_tree(from_tree.as_ref(), Some(&to_tree), Some(options))
+            .map_err(backend)?;
+
+        let mut entries: Vec<DiffEntry> = Vec::new();
+        for change in &changes {
+            if let Some(entry) = to_diff_entry(change)? {
+                entries.push(entry);
+            }
+        }
+        // gix's traversal interleaves directory and leaf changes; sort by path so
+        // the diff is stable regardless of traversal order.
+        entries.sort_by(|a: &DiffEntry, b: &DiffEntry| {
+            a.to_path()
+                .cmp(b.to_path())
+                .then_with(|| a.from_path().cmp(b.from_path()))
+        });
+        Ok(Diff::new(entries))
     }
 
     fn blame(&self, _at: &ObjectId, _path: &str) -> Result<Blame, DomainError> {

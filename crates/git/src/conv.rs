@@ -4,8 +4,12 @@
 //! the adapter proper read as a description of *what* the port asks for, not as
 //! a mess of `.to_string()` and byte juggling. Everything here is pure.
 
+use gix::object::tree::diff::ChangeDetached;
+
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::change::ChangeStatus;
 use gitweb_domain::model::commit::Commit;
+use gitweb_domain::model::diff::DiffEntry;
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
@@ -86,4 +90,116 @@ pub(crate) fn to_tree_entry(
     let name: String = entry.filename.to_string();
     let oid: ObjectId = to_domain_oid(entry.oid.to_owned());
     Ok(TreeEntry::new(mode, name, oid))
+}
+
+/// A gix tree-entry mode as the domain's [`FileMode`], via the domain's own
+/// octal parser so mode classification stays in one place.
+fn to_file_mode(mode: gix::objs::tree::EntryMode) -> Result<FileMode, DomainError> {
+    let octal: String = mode.kind().as_octal_str().to_string();
+    FileMode::from_octal(&octal).ok_or_else(|| backend(format!("invalid file mode: {octal}")))
+}
+
+/// The absent-side mode (`000000`) gitweb shows for a created or deleted path.
+fn absent_mode() -> FileMode {
+    FileMode::from_octal("000000").expect("000000 is a valid octal mode")
+}
+
+/// The null object id of `oid`'s hash kind — the all-zero id gitweb shows for
+/// the missing side of an addition or deletion.
+fn null_oid_like(oid: &gix::ObjectId) -> ObjectId {
+    to_domain_oid(oid.kind().null())
+}
+
+/// The rename's similarity as a percentage. A perfect rename has no blob diff
+/// (`source_id == id`), so it is 100%; gix's ratio covers the inexact case.
+///
+/// gix's ratio is not byte-identical to git's similarity index, but the only
+/// format-stable consumer (the `similarity index` line in patch output) is
+/// produced elsewhere, so the approximation is harmless here.
+fn rewrite_similarity(diff: Option<&gix::diff::blob::DiffLineStats>) -> u8 {
+    match diff {
+        None => 100,
+        Some(stats) => (stats.similarity * 100.0).round().clamp(0.0, 100.0) as u8,
+    }
+}
+
+/// Translates one gix tree-diff change into the domain's [`DiffEntry`], or
+/// `None` for a directory entry.
+///
+/// gitweb runs `git diff-tree -r`, which recurses into subtrees and reports
+/// only leaf files; gix instead reports the directory entry *and* its leaves, so
+/// directory (tree) changes are dropped here. Copies are out of scope, so a
+/// rewrite is always a rename.
+pub(crate) fn to_diff_entry(change: &ChangeDetached) -> Result<Option<DiffEntry>, DomainError> {
+    if change.entry_mode().is_tree() {
+        return Ok(None);
+    }
+    let entry: DiffEntry = match change {
+        ChangeDetached::Addition {
+            location,
+            entry_mode,
+            id,
+            ..
+        } => DiffEntry::new(
+            ChangeStatus::added(),
+            absent_mode(),
+            to_file_mode(*entry_mode)?,
+            null_oid_like(id),
+            to_domain_oid(*id),
+            location.to_string(),
+            location.to_string(),
+        ),
+        ChangeDetached::Deletion {
+            location,
+            entry_mode,
+            id,
+            ..
+        } => DiffEntry::new(
+            ChangeStatus::deleted(),
+            to_file_mode(*entry_mode)?,
+            absent_mode(),
+            to_domain_oid(*id),
+            null_oid_like(id),
+            location.to_string(),
+            location.to_string(),
+        ),
+        ChangeDetached::Modification {
+            location,
+            previous_entry_mode,
+            previous_id,
+            entry_mode,
+            id,
+        } => {
+            let from_mode: FileMode = to_file_mode(*previous_entry_mode)?;
+            let to_mode: FileMode = to_file_mode(*entry_mode)?;
+            DiffEntry::new(
+                ChangeStatus::from_modification(from_mode, to_mode),
+                from_mode,
+                to_mode,
+                to_domain_oid(*previous_id),
+                to_domain_oid(*id),
+                location.to_string(),
+                location.to_string(),
+            )
+        }
+        ChangeDetached::Rewrite {
+            source_location,
+            source_entry_mode,
+            source_id,
+            entry_mode,
+            id,
+            location,
+            diff,
+            ..
+        } => DiffEntry::new(
+            ChangeStatus::renamed(rewrite_similarity(diff.as_ref())),
+            to_file_mode(*source_entry_mode)?,
+            to_file_mode(*entry_mode)?,
+            to_domain_oid(*source_id),
+            to_domain_oid(*id),
+            source_location.to_string(),
+            location.to_string(),
+        ),
+    };
+    Ok(Some(entry))
 }

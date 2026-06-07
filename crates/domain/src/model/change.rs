@@ -7,6 +7,8 @@
 //! and copies (`C`). Any other letter is something gitweb does not display, so
 //! it parses to nothing here.
 
+use crate::model::file_mode::FileMode;
+
 /// What happened to a path between two trees.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChangeKind {
@@ -63,6 +65,53 @@ impl ChangeStatus {
             (false, _) => return None,
         };
         Some(Self { kind, similarity })
+    }
+
+    /// A path that was created.
+    #[must_use]
+    pub fn added() -> Self {
+        Self {
+            kind: ChangeKind::Added,
+            similarity: 0,
+        }
+    }
+
+    /// A path that was removed.
+    #[must_use]
+    pub fn deleted() -> Self {
+        Self {
+            kind: ChangeKind::Deleted,
+            similarity: 0,
+        }
+    }
+
+    /// A path that was moved from another path, with its similarity score.
+    #[must_use]
+    pub fn renamed(similarity: u8) -> Self {
+        Self {
+            kind: ChangeKind::Renamed,
+            similarity,
+        }
+    }
+
+    /// Classifies a content change between two file modes.
+    ///
+    /// A raw diff-tree line hands gitweb a ready-made status letter, but gix
+    /// reports a modification as a pair of modes, so we re-derive git's
+    /// `M`-vs-`T` rule: flipping the executable bit leaves a regular file a
+    /// regular file (`M`), while changing between file, symlink, and gitlink is
+    /// a type change (`T`).
+    #[must_use]
+    pub fn from_modification(from: FileMode, to: FileMode) -> Self {
+        let kind: ChangeKind = if from.same_type(to) {
+            ChangeKind::Modified
+        } else {
+            ChangeKind::TypeChanged
+        };
+        Self {
+            kind,
+            similarity: 0,
+        }
     }
 
     /// The kind of change.

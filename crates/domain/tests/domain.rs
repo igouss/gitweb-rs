@@ -45,6 +45,8 @@ struct DomainWorld {
     commit_title_short: Option<String>,
     status_token: String,
     change: Option<ChangeStatus>,
+    mod_from: Option<FileMode>,
+    mod_to: Option<FileMode>,
     type_name: String,
     object_kind: Option<ObjectKind>,
     path_input: String,
@@ -398,6 +400,19 @@ fn given_status_token(world: &mut DomainWorld, token: String) {
 #[when("I read the change status")]
 fn read_change_status(world: &mut DomainWorld) {
     world.change = ChangeStatus::parse(&world.status_token);
+}
+
+#[given(regex = r#"^a modification from mode "(.*)" to mode "(.*)"$"#)]
+fn given_modification(world: &mut DomainWorld, from: String, to: String) {
+    world.mod_from = FileMode::from_octal(&from);
+    world.mod_to = FileMode::from_octal(&to);
+}
+
+#[when("I classify the modification")]
+fn classify_modification(world: &mut DomainWorld) {
+    let from: FileMode = world.mod_from.expect("a valid from-mode");
+    let to: FileMode = world.mod_to.expect("a valid to-mode");
+    world.change = Some(ChangeStatus::from_modification(from, to));
 }
 
 #[then(regex = r#"^the change is "(\w+)"$"#)]
