@@ -7,6 +7,7 @@
 
 use crate::error::DomainError;
 use crate::model::project::Project;
+use crate::model::project_info::ProjectInfo;
 use crate::port::repository::Repository;
 
 /// Discovery and opening of the repositories under a project root.
@@ -16,4 +17,10 @@ pub trait ProjectStore {
 
     /// Opens one project by name for reading.
     fn open(&self, name: &str) -> Result<Box<dyn Repository>, DomainError>;
+
+    /// The display metadata for one project — description, owner, category, and
+    /// clone URLs — resolved from its filesystem files and `gitweb.*` config
+    /// (gitweb's `git_get_project_*` family). A name that does not resolve to a
+    /// repository fails the same way [`open`](Self::open) does.
+    fn info(&self, name: &str) -> Result<ProjectInfo, DomainError>;
 }

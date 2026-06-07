@@ -79,6 +79,51 @@ impl ProjectRoot {
         let full: PathBuf = self.dir.path().join(name);
         std::fs::create_dir_all(full).expect("create a plain fixture directory");
     }
+
+    /// Writes the repository's `description` file (gitweb reads its first line),
+    /// overwriting the default one `git init` lays down.
+    pub fn set_description(&self, name: &str, text: &str) {
+        self.write_metadata_file(name, "description", &format!("{text}\n"));
+    }
+
+    /// Deletes the repository's `description` file, so gitweb falls back to the
+    /// `gitweb.description` config value.
+    pub fn remove_description(&self, name: &str) {
+        let path: PathBuf = self.dir.path().join(name).join("description");
+        std::fs::remove_file(path).expect("remove the fixture description file");
+    }
+
+    /// Writes the repository's `category` file (gitweb reads its first line).
+    pub fn set_category(&self, name: &str, text: &str) {
+        self.write_metadata_file(name, "category", &format!("{text}\n"));
+    }
+
+    /// Writes the repository's `cloneurl` file — one clone URL per line, in the
+    /// order gitweb lists them.
+    pub fn set_clone_urls(&self, name: &str, urls: &[&str]) {
+        let body: String = urls
+            .iter()
+            .map(|url: &&str| format!("{url}\n"))
+            .collect::<String>();
+        self.write_metadata_file(name, "cloneurl", &body);
+    }
+
+    /// Appends a single `gitweb.<key> = <value>` entry to the repository's git
+    /// config. Calling it twice with the same key records a multi-valued setting
+    /// (e.g. several `gitweb.url` clone URLs).
+    pub fn set_gitweb_config(&self, name: &str, key: &str, value: &str) {
+        let config: PathBuf = self.dir.path().join(name).join("config");
+        let mut text: String =
+            std::fs::read_to_string(&config).expect("read the fixture repo config");
+        text.push_str(&format!("[gitweb]\n\t{key} = {value}\n"));
+        std::fs::write(&config, text).expect("write the fixture repo config");
+    }
+
+    /// Writes one metadata file at the root of the named repository.
+    fn write_metadata_file(&self, name: &str, file: &str, contents: &str) {
+        let path: PathBuf = self.dir.path().join(name).join(file);
+        std::fs::write(path, contents).expect("write a fixture metadata file");
+    }
 }
 
 impl Default for ProjectRoot {

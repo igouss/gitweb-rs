@@ -35,6 +35,11 @@ harness = false
 name = "discovery"
 harness = false
 
+# Conformance for per-project metadata: description/owner/category/clone URLs.
+[[test]]
+name = "metadata"
+harness = false
+
 # Conformance for the `diff` operation: two-tree diff + rename detection.
 [[test]]
 name = "diff"

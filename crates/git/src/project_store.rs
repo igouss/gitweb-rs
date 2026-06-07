@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::project::Project;
+use gitweb_domain::model::project_info::ProjectInfo;
 use gitweb_domain::model::safety::SafePath;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
@@ -35,6 +36,19 @@ impl GixProjectStore {
     pub fn new(root: PathBuf) -> Self {
         Self { root }
     }
+
+    /// Resolves a store-relative `name` to its on-disk git directory, validating
+    /// the name first (gitweb's `is_valid_project`) so the join can never escape
+    /// the root, and confirming a repository actually lives there.
+    fn locate(&self, name: &str) -> Result<PathBuf, DomainError> {
+        let safe: SafePath =
+            SafePath::parse(name).ok_or_else(|| DomainError::Invalid(name.to_owned()))?;
+        let path: PathBuf = self.root.join(safe.as_str());
+        if !head_linked(&path) {
+            return Err(DomainError::NotFound(name.to_owned()));
+        }
+        Ok(path)
+    }
 }
 
 impl ProjectStore for GixProjectStore {
@@ -48,16 +62,81 @@ impl ProjectStore for GixProjectStore {
 
     fn open(&self, name: &str) -> Result<Box<dyn Repository>, DomainError> {
         // Validate before access: reject traversal, absolute and NUL-bearing
-        // names so the join can never escape the root (gitweb is_valid_project).
-        let safe: SafePath =
-            SafePath::parse(name).ok_or_else(|| DomainError::Invalid(name.to_owned()))?;
-        let path: PathBuf = self.root.join(safe.as_str());
-        if !head_linked(&path) {
-            return Err(DomainError::NotFound(name.to_owned()));
-        }
+        // names so the join can never escape the root (gitweb is_valid_project),
+        // and confirm a repository really lives there.
+        let path: PathBuf = self.locate(name)?;
         let repo: GixRepository = GixRepository::open(&path)?;
         Ok(Box::new(repo))
     }
+
+    fn info(&self, name: &str) -> Result<ProjectInfo, DomainError> {
+        let git_dir: PathBuf = self.locate(name)?;
+        let repo: gix::Repository = gix::open(&git_dir).map_err(backend)?;
+        let config: gix::config::Snapshot<'_> = repo.config_snapshot();
+
+        // Each scalar field is gitweb's git_get_file_or_project_config: the
+        // repository file if present, otherwise the gitweb.<key> config value.
+        let mut info: ProjectInfo = ProjectInfo::named(name);
+        if let Some(description) =
+            file_or_config(&git_dir, "description", &config, "gitweb.description")
+        {
+            info = info.with_description(description);
+        }
+        if let Some(owner) = config.string("gitweb.owner").map(cow_to_string) {
+            info = info.with_owner(owner);
+        }
+        if let Some(category) = file_or_config(&git_dir, "category", &config, "gitweb.category") {
+            info = info.with_category(category);
+        }
+        for url in clone_urls(&git_dir, &config) {
+            info = info.with_clone_url(url);
+        }
+        Ok(info)
+    }
+}
+
+/// gitweb's `git_get_file_or_project_config`: the first line of the repository
+/// file `file_name`, or, when that file is absent, the `gitweb.<key>` config
+/// value.
+fn file_or_config(
+    git_dir: &Path,
+    file_name: &str,
+    config: &gix::config::Snapshot<'_>,
+    key: &str,
+) -> Option<String> {
+    match first_line(&git_dir.join(file_name)) {
+        Some(line) => Some(line),
+        None => config.string(key).map(cow_to_string),
+    }
+}
+
+/// The clone URLs: every line of the repository's `cloneurl` file, or, when that
+/// file is absent, the (possibly multi-valued) `gitweb.url` config — matching
+/// gitweb's `git_get_project_url_list`.
+fn clone_urls(git_dir: &Path, config: &gix::config::Snapshot<'_>) -> Vec<String> {
+    if let Ok(text) = fs::read_to_string(git_dir.join("cloneurl")) {
+        return text.lines().map(str::to_owned).collect();
+    }
+    config
+        .plumbing()
+        .strings("gitweb.url")
+        .map(|values: Vec<std::borrow::Cow<'_, gix::bstr::BStr>>| {
+            values.into_iter().map(cow_to_string).collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The first line of `path` with its trailing newline removed (gitweb reads one
+/// line and `chomp`s it). `None` when the file is missing or empty, so the
+/// caller falls through to the config value.
+fn first_line(path: &Path) -> Option<String> {
+    let text: String = fs::read_to_string(path).ok()?;
+    text.lines().next().map(str::to_owned)
+}
+
+/// A git config value as an owned `String`, decoded lossily from its raw bytes.
+fn cow_to_string(value: std::borrow::Cow<'_, gix::bstr::BStr>) -> String {
+    value.to_string()
 }
 
 /// Walks `dir` (under `root`), recording each git repository it finds by its
