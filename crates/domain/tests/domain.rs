@@ -30,6 +30,7 @@ use gitweb_domain::model::ref_name::RefName;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::routing::{Dispatch, route};
 use gitweb_domain::model::safety::{SafePath, SafeRef};
+use gitweb_domain::model::settings::{FeatureName, Settings, SettingsLayer};
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::url::unescape;
 
@@ -105,6 +106,8 @@ struct DomainWorld {
     cfg_system_default: Option<String>,
     cfg_existing: Vec<String>,
     cfg_load_order: Option<Vec<String>>,
+    settings_layers: Vec<SettingsLayer>,
+    resolved_settings: Option<Settings>,
     routed: Option<Result<Dispatch, DomainError>>,
 }
 
@@ -1689,6 +1692,132 @@ fn load_order_is(world: &mut DomainWorld, expected: String) {
         .expect("select the config files first");
     let actual: String = order.join(", ");
     assert_eq!(actual, expected);
+}
+
+// --- Global settings value precedence (Settings) -----------------------------
+
+fn last_layer(world: &mut DomainWorld) -> &mut SettingsLayer {
+    world
+        .settings_layers
+        .last_mut()
+        .expect("add a config source first")
+}
+
+fn resolved(world: &DomainWorld) -> &Settings {
+    world
+        .resolved_settings
+        .as_ref()
+        .expect("resolve the settings first")
+}
+
+fn split_list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(|item: &str| item.trim().to_owned())
+        .collect()
+}
+
+fn named_feature(name: &str) -> FeatureName {
+    FeatureName::from_key(name).expect("a known feature key")
+}
+
+#[given("no config sources")]
+fn given_no_config_sources(world: &mut DomainWorld) {
+    world.settings_layers.clear();
+}
+
+#[given("a config source")]
+fn given_a_config_source(world: &mut DomainWorld) {
+    world.settings_layers.push(SettingsLayer::default());
+}
+
+#[given(regex = r#"^it sets the projectroot to "(.*)"$"#)]
+fn set_projectroot(world: &mut DomainWorld, value: String) {
+    last_layer(world).projectroot = Some(value);
+}
+
+#[given(regex = r#"^it sets the site name to "(.*)"$"#)]
+fn set_site_name(world: &mut DomainWorld, value: String) {
+    last_layer(world).site_name = Some(value);
+}
+
+#[given(regex = r#"^it sets the clone base URLs to "(.*)"$"#)]
+fn set_clone_urls(world: &mut DomainWorld, value: String) {
+    last_layer(world).git_base_url_list = Some(split_list(&value));
+}
+
+#[given(regex = r#"^it sets the "(.*)" feature default to "(.*)"$"#)]
+fn set_feature_default(world: &mut DomainWorld, name: String, value: String) {
+    let feature: FeatureName = named_feature(&name);
+    last_layer(world)
+        .features
+        .entry(feature)
+        .or_default()
+        .default = Some(split_list(&value));
+}
+
+#[given(regex = r#"^it makes the "(.*)" feature overridable$"#)]
+fn make_feature_overridable(world: &mut DomainWorld, name: String) {
+    let feature: FeatureName = named_feature(&name);
+    last_layer(world)
+        .features
+        .entry(feature)
+        .or_default()
+        .overridable = Some(true);
+}
+
+#[when("I resolve the settings")]
+fn resolve_settings(world: &mut DomainWorld) {
+    world.resolved_settings = Some(Settings::resolve(&world.settings_layers));
+}
+
+#[then(regex = r#"^the projectroot is "(.*)"$"#)]
+fn projectroot_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(resolved(world).projectroot(), expected);
+}
+
+#[then(regex = r#"^the site name is "(.*)"$"#)]
+fn site_name_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(resolved(world).site_name(), expected);
+}
+
+#[then(regex = r#"^the default projects order is "(.*)"$"#)]
+fn default_projects_order_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(resolved(world).default_projects_order(), expected);
+}
+
+#[then(regex = r#"^the fallback encoding is "(.*)"$"#)]
+fn fallback_encoding_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(resolved(world).fallback_encoding(), expected);
+}
+
+#[then(regex = r#"^the clone base URLs are "(.*)"$"#)]
+fn clone_urls_are(world: &mut DomainWorld, expected: String) {
+    assert_eq!(resolved(world).git_base_url_list().join(", "), expected);
+}
+
+#[then(regex = r#"^the "(.*)" feature default is "(.*)"$"#)]
+fn feature_default_is(world: &mut DomainWorld, name: String, expected: String) {
+    let feature: FeatureName = named_feature(&name);
+    assert_eq!(
+        resolved(world)
+            .feature(feature)
+            .default_options()
+            .join(", "),
+        expected
+    );
+}
+
+#[then(regex = r#"^the "(.*)" feature is overridable$"#)]
+fn feature_is_overridable(world: &mut DomainWorld, name: String) {
+    let feature: FeatureName = named_feature(&name);
+    assert!(resolved(world).feature(feature).is_overridable());
+}
+
+#[then(regex = r#"^the "(.*)" feature is not overridable$"#)]
+fn feature_is_not_overridable(world: &mut DomainWorld, name: String) {
+    let feature: FeatureName = named_feature(&name);
+    assert!(!resolved(world).feature(feature).is_overridable());
 }
 
 // --- dispatch routing ---------------------------------------------------------

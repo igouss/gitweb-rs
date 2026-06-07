@@ -1,0 +1,100 @@
+Feature: Global gitweb settings value precedence
+  config_chain.feature decides WHICH global config files load and in what order
+  (weakest first). This is the other half: resolving the VALUES the rest of the
+  app reads across that ordered list of sources — built-in defaults first, then
+  each loaded source overlaid on top (and, later, per-project strongest of all).
+
+  gitweb's config files are executable Perl that re-assign `our` variables and
+  %feature entries; the strongest source that sets a value wins. We do not run
+  Perl, so a source is a partial layer and the rule overlays them. Settings
+  compose by three kinds: a scalar's value replaces; a list replaces wholesale
+  (no append); a feature's `default` and `override` flag overlay independently.
+
+  Scenario: With no sources, the built-in defaults stand
+    Given no config sources
+    When I resolve the settings
+    Then the site name is "Untitled Git"
+    And the default projects order is "project"
+    And the fallback encoding is "latin1"
+    And the "grep" feature default is "1"
+    And the "blame" feature default is "0"
+    And the "blame" feature is not overridable
+
+  # --- scalar: replace -------------------------------------------------------
+
+  Scenario: A single source sets a scalar
+    Given a config source
+    And it sets the projectroot to "/srv/git"
+    When I resolve the settings
+    Then the projectroot is "/srv/git"
+
+  Scenario: A scalar unset by a source keeps the built-in default
+    Given a config source
+    And it sets the projectroot to "/srv/git"
+    When I resolve the settings
+    Then the site name is "Untitled Git"
+
+  Scenario: The strongest source wins for a scalar
+    Given a config source
+    And it sets the site name to "Common Git"
+    And a config source
+    And it sets the site name to "Instance Git"
+    When I resolve the settings
+    Then the site name is "Instance Git"
+
+  Scenario: A weaker source still wins where the stronger one is silent
+    Given a config source
+    And it sets the projectroot to "/srv/git"
+    And it sets the site name to "Common Git"
+    And a config source
+    And it sets the site name to "Instance Git"
+    When I resolve the settings
+    Then the projectroot is "/srv/git"
+    And the site name is "Instance Git"
+
+  # --- list: replace wholesale (never append) --------------------------------
+
+  Scenario: A source replaces a list wholesale
+    Given a config source
+    And it sets the clone base URLs to "git://a/, https://b/"
+    When I resolve the settings
+    Then the clone base URLs are "git://a/, https://b/"
+
+  Scenario: A stronger source's list replaces a weaker one's, not appends
+    Given a config source
+    And it sets the clone base URLs to "git://a/, git://b/"
+    And a config source
+    And it sets the clone base URLs to "https://c/"
+    When I resolve the settings
+    Then the clone base URLs are "https://c/"
+
+  # --- feature: default and override overlay independently -------------------
+
+  Scenario: A source raises a feature default
+    Given a config source
+    And it sets the "blame" feature default to "1"
+    When I resolve the settings
+    Then the "blame" feature default is "1"
+    And the "blame" feature is not overridable
+
+  Scenario: A source enables per-project override without touching the default
+    Given a config source
+    And it makes the "blame" feature overridable
+    When I resolve the settings
+    Then the "blame" feature default is "0"
+    And the "blame" feature is overridable
+
+  Scenario: A feature's default and override flag compose from different sources
+    Given a config source
+    And it sets the "blame" feature default to "1"
+    And a config source
+    And it makes the "blame" feature overridable
+    When I resolve the settings
+    Then the "blame" feature default is "1"
+    And the "blame" feature is overridable
+
+  Scenario: A multi-option feature default replaces wholesale
+    Given a config source
+    And it sets the "snapshot" feature default to "tgz, zip"
+    When I resolve the settings
+    Then the "snapshot" feature default is "tgz, zip"
