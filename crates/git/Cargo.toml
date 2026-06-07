@@ -12,12 +12,38 @@ unsafe_code = "forbid"
 
 [dependencies]
 gitweb-domain = { path = "../domain" }
-gix = { workspace = true }
+# `worktree-archive` exposes gix's `git archive` equivalent (tar/tar.gz/zip via
+# gix-archive, all pure-Rust: flate2+zlib-rs, rawzip). It pulls `worktree-stream`.
+gix = { workspace = true, features = ["worktree-archive"] }
+# gix enables gix-archive but does not forward its container features, so turn on
+# tar/gz/zip directly. Feature unification applies them to the gix-archive that
+# `gix::Repository::worktree_archive` drives.
+gix-archive = { version = "0.33", default-features = false, features = [
+    "tar",
+    "tar_gz",
+    "zip",
+] }
+# bzip2 and xz for the tbz2/txz containers gix-archive does not produce natively.
+# Pure-Rust backends only — `libbz2-rs-sys` (not the C bzip2-sys) and lzma-rust2
+# with its unsafe `optimization` feature OFF — to honour the workspace's no-unsafe
+# rule and stay consistent with the pure-Rust zlib-rs already in the tree.
+bzip2 = { version = "0.5", default-features = false, features = ["libbz2-rs-sys"] }
+lzma-rust2 = { version = "0.15", default-features = false, features = [
+    "std",
+    "encoder",
+    "xz",
+] }
 
 [dev-dependencies]
 gitweb-fixtures = { path = "../fixtures" }
 cucumber = { workspace = true }
 tokio = { workspace = true }
+# Decoders used only to read archives back in conformance specs (bzip2 and
+# lzma-rust2 come from the production deps above). `zip`/`tar` parse entries,
+# `flate2` gunzips — pure-Rust backends throughout (no C toolchain at test time).
+flate2 = "1"
+tar = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # Gherkin conformance for the gix adapter: real reads over gix-built fixtures.
 # cucumber supplies its own main(), so the default libtest harness is disabled.
@@ -74,4 +100,10 @@ harness = false
 # revision, with binary files, skipped symlinks/gitlinks, and the match cap.
 [[test]]
 name = "grep"
+harness = false
+
+# Conformance for the `archive` operation: snapshot bytes per format (tgz/tbz2/
+# txz/zip), reproducibility, and entry representation (exec/symlink/gitlink).
+[[test]]
+name = "archive"
 harness = false

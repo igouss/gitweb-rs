@@ -12,6 +12,7 @@
 //! [`Repository`]: gitweb_domain::port::repository::Repository
 //! [`ProjectStore`]: gitweb_domain::port::project_store::ProjectStore
 
+mod archive;
 mod conv;
 mod project_store;
 mod repository;

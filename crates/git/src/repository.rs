@@ -493,10 +493,14 @@ impl Repository for GixRepository {
         Ok(to_blame(outcome))
     }
 
-    fn archive(&self, _tree: &ObjectId, _format: ArchiveFormat) -> Result<Vec<u8>, DomainError> {
-        Err(DomainError::Backend(
-            "archive: not yet implemented".to_owned(),
-        ))
+    fn archive(&self, tree: &ObjectId, format: ArchiveFormat) -> Result<Vec<u8>, DomainError> {
+        // gitweb's git_snapshot archives `$hash` (a commit or tree-ish), peeling
+        // to its tree; a non-tree-ish is a 400. `require_tree` gives the same
+        // mapping: a missing object is NotFound, a blob or other non-tree-ish is
+        // Invalid. The resolved tree id is what gix-archive streams.
+        let resolved: gix::Tree<'_> = self.require_tree(tree)?;
+        let tree_id: gix::ObjectId = resolved.id().detach();
+        crate::archive::archive_bytes(&self.repo, tree_id, format)
     }
 
     fn search(&self, query: &SearchQuery, page: Page) -> Result<Vec<Commit>, DomainError> {
