@@ -23,6 +23,7 @@ pub mod project_info;
 pub mod projects_list;
 pub mod ref_name;
 pub mod reference;
+pub mod request;
 pub mod safety;
 pub mod signature;
 pub mod tag;

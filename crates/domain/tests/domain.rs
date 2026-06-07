@@ -5,6 +5,7 @@
 
 use cucumber::gherkin::Step;
 use cucumber::{World, given, then, when};
+use gitweb_domain::error::DomainError;
 use gitweb_domain::model::action::Action;
 use gitweb_domain::model::age::{Age, AgeClass};
 use gitweb_domain::model::binary::is_binary;
@@ -24,6 +25,7 @@ use gitweb_domain::model::patch::{FileContent, FilePatch, Hunk, HunkLine, Patch}
 use gitweb_domain::model::project_info::{CategoryGroup, ProjectInfo, group_by_category};
 use gitweb_domain::model::projects_list::{ProjectListEntry, parse_project_line};
 use gitweb_domain::model::ref_name::RefName;
+use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::url::unescape;
@@ -60,6 +62,8 @@ struct DomainWorld {
     object_kind: Option<ObjectKind>,
     action_name: String,
     parsed_action: Option<Action>,
+    request_params: Vec<(String, String)>,
+    request_result: Option<Result<Request, DomainError>>,
     path_input: String,
     path_valid: Option<bool>,
     ref_input: String,
@@ -511,6 +515,153 @@ fn needing_a_project_reads(world: &mut DomainWorld, expected: String) {
     let action: Action = world.parsed_action.expect("an action must be parsed");
     let reads: &str = if action.needs_project() { "yes" } else { "no" };
     assert_eq!(reads, expected);
+}
+
+#[given("a bare request")]
+fn given_a_bare_request(_world: &mut DomainWorld) {}
+
+#[given(regex = r#"^a request parameter "(.*)" is "(.*)"$"#)]
+fn given_a_request_parameter(world: &mut DomainWorld, key: String, value: String) {
+    world.request_params.push((key, value));
+}
+
+#[when("I parse the request parameters")]
+fn parse_the_request_parameters(world: &mut DomainWorld) {
+    world.request_result = Some(Request::from_query(&world.request_params));
+}
+
+fn parsed_request(world: &DomainWorld) -> &Request {
+    match world
+        .request_result
+        .as_ref()
+        .expect("the request must be parsed")
+    {
+        Ok(request) => request,
+        Err(error) => panic!("expected the request to parse, but it was rejected: {error}"),
+    }
+}
+
+#[then("the request parses")]
+fn the_request_parses(world: &mut DomainWorld) {
+    let _request: &Request = parsed_request(world);
+}
+
+#[then("the request has no action")]
+fn the_request_has_no_action(world: &mut DomainWorld) {
+    assert_eq!(parsed_request(world).action, None);
+}
+
+#[then("the request has no project")]
+fn the_request_has_no_project(world: &mut DomainWorld) {
+    assert_eq!(parsed_request(world).project, None);
+}
+
+#[then("the request project is absent")]
+fn the_request_project_is_absent(world: &mut DomainWorld) {
+    assert_eq!(parsed_request(world).project, None);
+}
+
+#[then(regex = r#"^the request action is "(.*)"$"#)]
+fn the_request_action_is(world: &mut DomainWorld, expected: String) {
+    let action: Action = parsed_request(world)
+        .action
+        .expect("the request must have an action");
+    assert_eq!(action.as_str(), expected);
+}
+
+#[then(regex = r#"^the request hash base is "(.*)"$"#)]
+fn the_request_hash_base_is(world: &mut DomainWorld, expected: String) {
+    let request: &Request = parsed_request(world);
+    let hash_base: &SafeRef = request
+        .hash_base
+        .as_ref()
+        .expect("the request must have a hash base");
+    assert_eq!(hash_base.as_str(), expected);
+}
+
+#[then(regex = r#"^the request hash is "(.*)"$"#)]
+fn the_request_hash_is(world: &mut DomainWorld, expected: String) {
+    let request: &Request = parsed_request(world);
+    let hash: &SafeRef = request.hash.as_ref().expect("the request must have a hash");
+    assert_eq!(hash.as_str(), expected);
+}
+
+#[then(regex = r#"^the request file name is "(.*)"$"#)]
+fn the_request_file_name_is(world: &mut DomainWorld, expected: String) {
+    let request: &Request = parsed_request(world);
+    let file_name: &SafePath = request
+        .file_name
+        .as_ref()
+        .expect("the request must have a file name");
+    assert_eq!(file_name.as_str(), expected);
+}
+
+#[then(regex = r#"^the request project is "(.*)"$"#)]
+fn the_request_project_is(world: &mut DomainWorld, expected: String) {
+    let request: &Request = parsed_request(world);
+    let project: &str = request
+        .project
+        .as_deref()
+        .expect("the request must have a project");
+    assert_eq!(project, expected);
+}
+
+#[then(regex = r#"^the request page is (\d+)$"#)]
+fn the_request_page_is(world: &mut DomainWorld, expected: u32) {
+    assert_eq!(parsed_request(world).page, Some(expected));
+}
+
+#[then(regex = r#"^the request search type is "(.*)"$"#)]
+fn the_request_search_type_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(
+        parsed_request(world).search_type.as_deref(),
+        Some(expected.as_str())
+    );
+}
+
+#[then(regex = r#"^the request search text is "(.*)"$"#)]
+fn the_request_search_text_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(
+        parsed_request(world).search_text.as_deref(),
+        Some(expected.as_str())
+    );
+}
+
+#[then(regex = r#"^the request keeps the extra option "(.*)"$"#)]
+fn the_request_keeps_the_extra_option(world: &mut DomainWorld, expected: String) {
+    let request: &Request = parsed_request(world);
+    assert!(
+        request
+            .extra_options
+            .iter()
+            .any(|option: &String| option == &expected)
+    );
+}
+
+fn rejection(world: &DomainWorld) -> &DomainError {
+    match world
+        .request_result
+        .as_ref()
+        .expect("the request must be parsed")
+    {
+        Ok(_) => panic!("expected the request to be rejected, but it parsed"),
+        Err(error) => error,
+    }
+}
+
+#[then("the request is rejected as invalid")]
+fn the_request_is_rejected_as_invalid(world: &mut DomainWorld) {
+    assert!(matches!(rejection(world), DomainError::Invalid(_)));
+}
+
+#[then("the request is rejected as not found")]
+fn the_request_is_rejected_as_not_found(world: &mut DomainWorld) {
+    assert!(matches!(rejection(world), DomainError::NotFound(_)));
+}
+
+#[then("the request is rejected as forbidden")]
+fn the_request_is_rejected_as_forbidden(world: &mut DomainWorld) {
+    assert!(matches!(rejection(world), DomainError::Forbidden(_)));
 }
 
 #[given(regex = r#"^the candidate path "(.*)"$"#)]
