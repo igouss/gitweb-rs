@@ -122,7 +122,7 @@ fn null_oid_like(oid: &gix::ObjectId) -> ObjectId {
 /// gix's ratio is not byte-identical to git's similarity index, but the only
 /// format-stable consumer (the `similarity index` line in patch output) is
 /// produced elsewhere, so the approximation is harmless here.
-fn rewrite_similarity(diff: Option<&gix::diff::blob::DiffLineStats>) -> u8 {
+pub(crate) fn rewrite_similarity(diff: Option<&gix::diff::blob::DiffLineStats>) -> u8 {
     match diff {
         None => 100,
         Some(stats) => (stats.similarity * 100.0).round().clamp(0.0, 100.0) as u8,
@@ -134,8 +134,9 @@ fn rewrite_similarity(diff: Option<&gix::diff::blob::DiffLineStats>) -> u8 {
 ///
 /// gitweb runs `git diff-tree -r`, which recurses into subtrees and reports
 /// only leaf files; gix instead reports the directory entry *and* its leaves, so
-/// directory (tree) changes are dropped here. Copies are out of scope, so a
-/// rewrite is always a rename.
+/// directory (tree) changes are dropped here. This maps the renames-only base
+/// pass, where every rewrite is a rename; copies are detected in a second pass
+/// and layered on by `GixRepository::reclassify_copies`, not here.
 pub(crate) fn to_diff_entry(change: &ChangeDetached) -> Result<Option<DiffEntry>, DomainError> {
     if change.entry_mode().is_tree() {
         return Ok(None);

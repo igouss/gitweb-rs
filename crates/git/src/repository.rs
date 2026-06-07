@@ -15,7 +15,7 @@ use gix::traverse::commit::simple::CommitTimeOrder;
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::blame::Blame;
 use gitweb_domain::model::blob::Blob;
-use gitweb_domain::model::change::ChangeStatus;
+use gitweb_domain::model::change::{ChangeKind, ChangeStatus};
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::diff::{CombinedDiff, CombinedDiffEntry, CombinedParent, Diff};
 use gitweb_domain::model::file_mode::{FileKind, FileMode};
@@ -28,13 +28,16 @@ use gitweb_domain::model::reference::Reference;
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::tag::Tag;
 use gitweb_domain::model::tree::{Tree, TreeEntry};
-use gitweb_domain::port::repository::{ArchiveFormat, Page, Repository, SearchKind, SearchQuery};
+use gitweb_domain::port::repository::{
+    ArchiveFormat, Page, RenameDetection, Repository, SearchKind, SearchQuery,
+};
 
 use gitweb_domain::model::diff::DiffEntry;
 
 use crate::conv::{
-    absent_mode, backend, is_null_oid, read_commit, to_blame, to_diff_entry, to_domain_oid,
-    to_file_mode, to_file_patch, to_gix_oid, to_object_kind, to_signature, to_tree_entry,
+    absent_mode, backend, is_null_oid, read_commit, rewrite_similarity, to_blame, to_diff_entry,
+    to_domain_oid, to_file_mode, to_file_patch, to_gix_oid, to_object_kind, to_signature,
+    to_tree_entry,
 };
 
 /// Read access to one on-disk git repository, backed by gix.
@@ -219,7 +222,7 @@ impl GixRepository {
     fn pickaxe_matches(&self, commit: &Commit, pattern: &str) -> Result<bool, DomainError> {
         let needle: &[u8] = pattern.as_bytes();
         let from: Option<&ObjectId> = commit.parents().first();
-        let diff: Diff = self.diff(from, commit.id())?;
+        let diff: Diff = self.diff(from, commit.id(), RenameDetection::RenamesOnly)?;
         for entry in diff.entries() {
             let before: Vec<u8> = self.side_content(entry.from_oid(), entry.from_mode())?;
             let after: Vec<u8> = self.side_content(entry.to_oid(), entry.to_mode())?;
@@ -228,6 +231,163 @@ impl GixRepository {
             }
         }
         Ok(false)
+    }
+
+    /// The leaf changes between two trees under the given gix rewrite options,
+    /// mapped to domain entries. Shared by the renames-only base pass and any
+    /// later pass; directory entries are dropped by [`to_diff_entry`].
+    fn changed_entries(
+        &self,
+        from_tree: Option<&gix::Tree<'_>>,
+        to_tree: &gix::Tree<'_>,
+        rewrites: gix::diff::Rewrites,
+    ) -> Result<Vec<DiffEntry>, DomainError> {
+        let options: gix::diff::Options =
+            gix::diff::Options::default().with_rewrites(Some(rewrites));
+        let changes: Vec<gix::object::tree::diff::ChangeDetached> = self
+            .repo
+            .diff_tree_to_tree(from_tree, Some(to_tree), Some(options))
+            .map_err(backend)?;
+        let mut entries: Vec<DiffEntry> = Vec::new();
+        for change in &changes {
+            if let Some(entry) = to_diff_entry(change)? {
+                entries.push(entry);
+            }
+        }
+        Ok(entries)
+    }
+
+    /// The copies gix detects between two trees at the given level: each one's
+    /// destination path, the source it was copied from, and gix's similarity
+    /// hint. Only the copy pairs are kept — renames and modifications from this
+    /// pass are discarded, since the renames-only base already holds them
+    /// faithfully (gix's copy pass would shadow a modified source's own change).
+    fn copy_hints(
+        &self,
+        from_tree: &gix::Tree<'_>,
+        to_tree: &gix::Tree<'_>,
+        detection: RenameDetection,
+    ) -> Result<Vec<CopyHint>, DomainError> {
+        let options: gix::diff::Options =
+            gix::diff::Options::default().with_rewrites(Some(rewrites_for(detection)));
+        let changes: Vec<gix::object::tree::diff::ChangeDetached> = self
+            .repo
+            .diff_tree_to_tree(Some(from_tree), Some(to_tree), Some(options))
+            .map_err(backend)?;
+        Ok(changes.iter().filter_map(copy_hint).collect())
+    }
+
+    /// Turns the additions gix flagged as copies into [`ChangeKind::Copied`]
+    /// entries, in place. Each copy's from-side is the source's *pre-image* in
+    /// the old tree (not gix's source id, which for a modified source is its
+    /// post-image); a byte-identical pre-image is an exact copy at 100%, else
+    /// gix's similarity hint stands (an approximation, like rename similarity).
+    fn reclassify_copies(
+        &self,
+        entries: &mut [DiffEntry],
+        hints: &[CopyHint],
+        from_tree: &gix::Tree<'_>,
+    ) -> Result<(), DomainError> {
+        for hint in hints {
+            self.reclassify_one_copy(entries, hint, from_tree)?;
+        }
+        Ok(())
+    }
+
+    /// Reclassifies the single addition matching one copy hint. A hint whose
+    /// source is absent from the old tree, or whose destination is not an
+    /// addition in the base set, is left alone — nothing to rewrite.
+    fn reclassify_one_copy(
+        &self,
+        entries: &mut [DiffEntry],
+        hint: &CopyHint,
+        from_tree: &gix::Tree<'_>,
+    ) -> Result<(), DomainError> {
+        let source: gix::object::tree::Entry<'_> = match from_tree
+            .lookup_entry_by_path(hint.source_path.as_str())
+            .map_err(backend)?
+        {
+            Some(entry) => entry,
+            None => return Ok(()),
+        };
+        let from_mode: FileMode = to_file_mode(source.mode())?;
+        let from_oid: ObjectId = to_domain_oid(source.id().detach());
+
+        let index: usize = match entries.iter().position(|entry: &DiffEntry| {
+            entry.to_path() == hint.dest_path && entry.status().kind() == ChangeKind::Added
+        }) {
+            Some(index) => index,
+            None => return Ok(()),
+        };
+
+        let (to_mode, to_oid): (FileMode, ObjectId) = {
+            let added: &DiffEntry = &entries[index];
+            (added.to_mode(), added.to_oid().clone())
+        };
+        let similarity: u8 = if from_oid == to_oid {
+            100
+        } else {
+            hint.similarity
+        };
+        entries[index] = DiffEntry::new(
+            ChangeStatus::copied(similarity),
+            from_mode,
+            to_mode,
+            from_oid,
+            to_oid,
+            hint.source_path.clone(),
+            hint.dest_path.clone(),
+        );
+        Ok(())
+    }
+}
+
+/// One copy gix detected: where the copy landed, the path it was copied from,
+/// and gix's similarity hint (used only when the copy is not byte-exact).
+struct CopyHint {
+    source_path: String,
+    dest_path: String,
+    similarity: u8,
+}
+
+/// The gix rewrite options for a detection level. Renames track at git's default
+/// 50% similarity at every level; copies are off for `RenamesOnly`, drawn from
+/// the modified set for `Copies` (`-C`), and from every source-tree file for
+/// `CopiesHarder` (`-C --find-copies-harder`).
+fn rewrites_for(detection: RenameDetection) -> gix::diff::Rewrites {
+    let copies: Option<gix::diff::rewrites::Copies> = detection.detects_copies().then(|| {
+        let source: gix::diff::rewrites::CopySource = if detection.finds_copies_harder() {
+            gix::diff::rewrites::CopySource::FromSetOfModifiedFilesAndAllSources
+        } else {
+            gix::diff::rewrites::CopySource::FromSetOfModifiedFiles
+        };
+        gix::diff::rewrites::Copies {
+            source,
+            percentage: Some(0.5),
+        }
+    });
+    gix::diff::Rewrites {
+        copies,
+        ..gix::diff::Rewrites::default()
+    }
+}
+
+/// The copy hint for one change, or `None` if it is not a copy. Renames
+/// (`copy: false`) are excluded — the base set already carries them.
+fn copy_hint(change: &gix::object::tree::diff::ChangeDetached) -> Option<CopyHint> {
+    match change {
+        gix::object::tree::diff::ChangeDetached::Rewrite {
+            copy: true,
+            source_location,
+            location,
+            diff,
+            ..
+        } => Some(CopyHint {
+            source_path: source_location.to_string(),
+            dest_path: location.to_string(),
+            similarity: rewrite_similarity(diff.as_ref()),
+        }),
+        _ => None,
     }
 }
 
@@ -385,29 +545,42 @@ impl Repository for GixRepository {
         Ok(out)
     }
 
-    fn diff(&self, from: Option<&ObjectId>, to: &ObjectId) -> Result<Diff, DomainError> {
+    fn diff(
+        &self,
+        from: Option<&ObjectId>,
+        to: &ObjectId,
+        detection: RenameDetection,
+    ) -> Result<Diff, DomainError> {
         // gitweb's `git diff-tree -r -M`: recurse to leaf files, detect renames
         // at git's default 50% similarity. A `None` from-side (a root commit) is
         // gitweb's `--root`, i.e. a diff against the empty tree, so gix's empty
-        // tree is left implicit.
+        // tree is left implicit. This renames-only pass is always the base set —
+        // never gix's own copy pass, which would shadow a copy source's *own*
+        // modification (see `reclassify_copies`).
         let to_tree: gix::Tree<'_> = self.require_tree(to)?;
         let from_tree: Option<gix::Tree<'_>> = match from {
             Some(oid) => Some(self.require_tree(oid)?),
             None => None,
         };
-        let options: gix::diff::Options =
-            gix::diff::Options::default().with_rewrites(Some(gix::diff::Rewrites::default()));
-        let changes: Vec<gix::object::tree::diff::ChangeDetached> = self
-            .repo
-            .diff_tree_to_tree(from_tree.as_ref(), Some(&to_tree), Some(options))
-            .map_err(backend)?;
+        let mut entries: Vec<DiffEntry> = self.changed_entries(
+            from_tree.as_ref(),
+            &to_tree,
+            rewrites_for(RenameDetection::RenamesOnly),
+        )?;
 
-        let mut entries: Vec<DiffEntry> = Vec::new();
-        for change in &changes {
-            if let Some(entry) = to_diff_entry(change)? {
-                entries.push(entry);
-            }
+        // Copy detection (gitweb `-C` / `-C --find-copies-harder`) is layered on
+        // top of the faithful renames-only base. A second gix pass — with copies
+        // enabled — tells us which additions are copies and from where; we then
+        // recompute each copy's from-side against the *old* tree (its pre-image)
+        // and reclassify the matching addition, leaving every base modification
+        // untouched. Copies need a from-side, so a root commit has none.
+        if detection.detects_copies()
+            && let Some(from_tree) = from_tree.as_ref()
+        {
+            let hints: Vec<CopyHint> = self.copy_hints(from_tree, &to_tree, detection)?;
+            self.reclassify_copies(&mut entries, &hints, from_tree)?;
         }
+
         // gix's traversal interleaves directory and leaf changes; sort by path so
         // the diff is stable regardless of traversal order.
         entries.sort_by(|a: &DiffEntry, b: &DiffEntry| {
@@ -418,13 +591,18 @@ impl Repository for GixRepository {
         Ok(Diff::new(entries))
     }
 
-    fn patch(&self, from: Option<&ObjectId>, to: &ObjectId) -> Result<Patch, DomainError> {
+    fn patch(
+        &self,
+        from: Option<&ObjectId>,
+        to: &ObjectId,
+        detection: RenameDetection,
+    ) -> Result<Patch, DomainError> {
         // The structured change set is exactly what `diff` computes; this adds
         // the per-file blob reads and the hunk computation, then hands each file
         // to the domain's patch formatter. `diff` already maps a missing object
         // to `NotFound` and a `None` from-side to the empty tree (gitweb
         // `--root`), so a root commit and an invalid id are handled there.
-        let diff: Diff = self.diff(from, to)?;
+        let diff: Diff = self.diff(from, to, detection)?;
         let mut files: Vec<FilePatch> = Vec::with_capacity(diff.entries().len());
         for entry in diff.entries() {
             let before: Vec<u8> = self.side_content(entry.from_oid(), entry.from_mode())?;

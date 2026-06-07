@@ -14,7 +14,7 @@ use cucumber::{World, given, then, when};
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::patch::Patch;
-use gitweb_domain::port::repository::Repository;
+use gitweb_domain::port::repository::{RenameDetection, Repository};
 use gitweb_fixtures::{CommitSpec, Identity, Mode, ObjectId as FixtureOid, RepoBuilder, TreeEntry};
 use gitweb_git::GixRepository;
 
@@ -249,7 +249,8 @@ fn given_missing(world: &mut PatchWorld) {
 fn when_take_patch(world: &mut PatchWorld) {
     let to: ObjectId = world.to_oid.clone().expect("a to-oid must be set");
     let from: Option<ObjectId> = world.from_oid.clone();
-    let result: Result<Patch, DomainError> = repo(world).patch(from.as_ref(), &to);
+    let result: Result<Patch, DomainError> =
+        repo(world).patch(from.as_ref(), &to, RenameDetection::RenamesOnly);
     world.rendered = result.as_ref().ok().map(Patch::render);
     world.patch = Some(result);
 }

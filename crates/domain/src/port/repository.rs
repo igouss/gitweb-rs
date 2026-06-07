@@ -86,6 +86,48 @@ pub enum SearchKind {
     Pickaxe,
 }
 
+/// How aggressively a two-tree diff detects moved and copied content, matching
+/// gitweb's site-configured `@diff_opts` (its "rename detection options").
+///
+/// gitweb's default is `('-M')` — renames only; `('-C')` and
+/// `('-C', '--find-copies-harder')` are opt-in and progressively costlier. The
+/// three settings differ only in which *sources* a newly added file may be a
+/// copy of:
+/// - [`RenamesOnly`](RenameDetection::RenamesOnly) (`-M`): no copies at all; a
+///   copied file reads as a plain addition.
+/// - [`Copies`](RenameDetection::Copies) (`-C`): a copy is found only when its
+///   source was itself changed in the same diff (the "modified" set).
+/// - [`CopiesHarder`](RenameDetection::CopiesHarder) (`-C --find-copies-harder`):
+///   a copy may be found from *any* file in the source tree, including ones the
+///   diff leaves untouched.
+///
+/// Renames are detected at every level (gitweb's `-C` implies `-M`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RenameDetection {
+    /// Renames only (`-M`), gitweb's default.
+    #[default]
+    RenamesOnly,
+    /// Renames plus copies whose source was modified in the same diff (`-C`).
+    Copies,
+    /// Renames plus copies from any source-tree file (`-C --find-copies-harder`).
+    CopiesHarder,
+}
+
+impl RenameDetection {
+    /// Whether this level looks for copies at all (`-C` or harder).
+    #[must_use]
+    pub fn detects_copies(self) -> bool {
+        matches!(self, Self::Copies | Self::CopiesHarder)
+    }
+
+    /// Whether copies may come from files the diff leaves unchanged
+    /// (`--find-copies-harder`), as opposed to only the modified set.
+    #[must_use]
+    pub fn finds_copies_harder(self) -> bool {
+        matches!(self, Self::CopiesHarder)
+    }
+}
+
 /// A commit search request: what to match and the pattern to match it with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchQuery {
@@ -132,16 +174,27 @@ pub trait Repository {
         page: Page,
     ) -> Result<Vec<Commit>, DomainError>;
 
-    /// The diff between two trees. `from` is `None` to diff against the empty
-    /// tree, e.g. for a root commit.
-    fn diff(&self, from: Option<&ObjectId>, to: &ObjectId) -> Result<Diff, DomainError>;
+    /// The diff between two trees, with rename/copy detection at the given
+    /// `detection` level (gitweb's `@diff_opts`). `from` is `None` to diff
+    /// against the empty tree, e.g. for a root commit.
+    fn diff(
+        &self,
+        from: Option<&ObjectId>,
+        to: &ObjectId,
+        detection: RenameDetection,
+    ) -> Result<Diff, DomainError>;
 
     /// The textual unified diff (patch) between two trees: the same change set
-    /// as [`Repository::diff`], rendered as git's patch text with hunks the way
-    /// `git diff-tree -p` emits and gitweb's `commitdiff_plain` / `patch`
-    /// endpoints stream. `from` is `None` to diff against the empty tree (a root
-    /// commit).
-    fn patch(&self, from: Option<&ObjectId>, to: &ObjectId) -> Result<Patch, DomainError>;
+    /// as [`Repository::diff`] at the given `detection` level, rendered as git's
+    /// patch text with hunks the way `git diff-tree -p` emits and gitweb's
+    /// `commitdiff_plain` / `patch` endpoints stream. `from` is `None` to diff
+    /// against the empty tree (a root commit).
+    fn patch(
+        &self,
+        from: Option<&ObjectId>,
+        to: &ObjectId,
+        detection: RenameDetection,
+    ) -> Result<Patch, DomainError>;
 
     /// The combined diff of a merge `commit` against all its parents at once,
     /// the way gitweb renders `git diff-tree -c`/`--cc`: only paths that differ

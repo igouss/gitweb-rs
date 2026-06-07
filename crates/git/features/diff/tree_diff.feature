@@ -5,8 +5,10 @@ Feature: Tree-to-tree diff
   Diffing against a missing left side (a root commit) compares against the empty
   tree, so every path reads as an addition.
 
-  Combined multi-parent merge diffs and copy detection are out of scope here;
-  they are tracked as separate capabilities.
+  Copy detection (gitweb's `@diff_opts` `-C` / `-C --find-copies-harder`) is an
+  opt-in level on top of the default renames-only diff, exercised in the copy
+  scenarios at the end. Combined multi-parent merge diffs are out of scope here;
+  they are a separate capability.
 
   Scenario: A commit diffed against itself has no changes
     Given a commit that changes nothing
@@ -98,3 +100,60 @@ Feature: Tree-to-tree diff
     Given a commit and a missing object id
     When I diff them
     Then the diff fails to find an object
+
+  # --- Copy detection (gitweb @diff_opts: -C / -C --find-copies-harder) -------
+  # gitweb's default level is renames-only (-M); copy detection is opt-in. The
+  # levels differ only in which sources a copy may come from. Renames are still
+  # detected at every level. (gix only scans for copies when a commit changes
+  # more than one path, so these fixtures carry an unrelated change alongside the
+  # copy — a lone-copy-only commit is a documented gix limitation.)
+
+  Scenario: The renames-only level reports a copied file as a plain addition
+    Given a commit that copies an unchanged file
+    When I diff them
+    Then the change to "copy.txt" is "Added"
+
+  Scenario: Find-copies-harder detects an exact copy of an unchanged file
+    Given a commit that copies an unchanged file
+    When I diff them detecting copies harder
+    Then the change to "copy.txt" is "Copied"
+    And the change to "copy.txt" comes from "orig.txt"
+    And the change to "copy.txt" has similarity 100
+    And no path "orig.txt" changed
+
+  Scenario: Copy detection from the modified set ignores an unchanged source
+    Given a commit that copies an unchanged file
+    When I diff them detecting copies
+    Then the change to "copy.txt" is "Added"
+
+  Scenario: Copy detection from the modified set finds a copy of a modified file
+    Given a commit that modifies a file and copies its original content
+    When I diff them detecting copies
+    Then the change to "copy.txt" is "Copied"
+    And the change to "copy.txt" comes from "orig.txt"
+    And the change to "copy.txt" has similarity 100
+
+  Scenario: A copy of a modified source keeps the source's own modification
+    Given a commit that modifies a file and copies its original content
+    When I diff them detecting copies
+    Then 2 paths changed
+    And the change to "orig.txt" is "Modified"
+
+  Scenario: A near-copy above the similarity threshold is a copy
+    Given a commit that copies a file with small edits
+    When I diff them detecting copies harder
+    Then the change to "near.txt" is "Copied"
+    And the change to "near.txt" comes from "orig.txt"
+
+  Scenario: A dissimilar new file below the threshold is not a copy
+    Given a commit that adds a file barely resembling another
+    When I diff them detecting copies harder
+    Then the change to "different.txt" is "Added"
+
+  Scenario: A rename and a copy in the same diff are both detected
+    Given a commit that renames one file and copies another
+    When I diff them detecting copies harder
+    Then the change to "renamed.txt" is "Renamed"
+    And the change to "renamed.txt" comes from "moved.txt"
+    And the change to "copy.txt" is "Copied"
+    And the change to "copy.txt" comes from "kept.txt"
