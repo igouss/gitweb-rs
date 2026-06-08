@@ -9,6 +9,7 @@ pub mod change;
 pub mod chop;
 pub mod commit;
 pub mod commit_date;
+pub mod commitdiff;
 pub mod config_chain;
 pub mod content_type;
 pub mod diff;

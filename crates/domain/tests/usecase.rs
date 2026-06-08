@@ -28,7 +28,7 @@ use gitweb_domain::model::grep::GrepResults;
 use gitweb_domain::model::message_body::LogLine;
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
-use gitweb_domain::model::patch::Patch;
+use gitweb_domain::model::patch::{FileContent, FilePatch, Patch};
 use gitweb_domain::model::project::Project;
 use gitweb_domain::model::project_info::ProjectInfo;
 use gitweb_domain::model::ref_name::RefName;
@@ -45,6 +45,7 @@ use gitweb_domain::port::repository::{
 use gitweb_domain::usecase::blob::{BlobView, assemble_blob};
 use gitweb_domain::usecase::blob_plain::{BlobPlainView, assemble_blob_plain};
 use gitweb_domain::usecase::commit::{ChangedFiles, CommitView, assemble_commit};
+use gitweb_domain::usecase::commitdiff::assemble_commit_diff;
 use gitweb_domain::usecase::feed::assemble_feed;
 use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
 use gitweb_domain::usecase::history::{HistoryRow, HistoryView, assemble_history};
@@ -182,6 +183,7 @@ struct UsecaseWorld {
     feed_result: Option<Result<Feed, DomainError>>,
     commit_fixture: Option<FakeCommitFixture>,
     commit_result: Option<Result<CommitView, DomainError>>,
+    commitdiff_result: Option<Result<String, DomainError>>,
 }
 
 /// One directory in the fake repository's tree, listed by the `tree` use case.
@@ -362,6 +364,7 @@ struct FakeCommitFixture {
     kind: ObjectKind,
     diff: Vec<DiffEntry>,
     combined: Vec<CombinedDiffEntry>,
+    patch: Patch,
 }
 
 impl FakeRepository {
@@ -809,10 +812,13 @@ impl Repository for FakeRepository {
     fn patch(
         &self,
         _from: Option<&ObjectId>,
-        _to: &ObjectId,
+        to: &ObjectId,
         _detection: RenameDetection,
     ) -> Result<Patch, DomainError> {
-        unimplemented!("the heads use case never builds a patch")
+        if let Some(fixture) = self.commit_fixture.as_ref().filter(|f| &f.id == to) {
+            return Ok(fixture.patch.clone());
+        }
+        unimplemented!("only the commitdiff use case's fixture builds a patch")
     }
 
     fn combined_diff(&self, commit: &ObjectId) -> Result<CombinedDiff, DomainError> {
@@ -2928,6 +2934,7 @@ fn given_commit(world: &mut UsecaseWorld, id: String, ident: String) {
         kind: ObjectKind::Commit,
         diff: Vec::new(),
         combined: Vec::new(),
+        patch: Patch::new(Vec::new()),
     });
 }
 
@@ -2969,6 +2976,56 @@ fn given_merge_changes(world: &mut UsecaseWorld, path: String) {
 fn assemble_commit_view(world: &mut UsecaseWorld, rev: String) {
     let repo: FakeRepository = fake_repo(world);
     world.commit_result = Some(assemble_commit(&repo, Some(&rev)));
+}
+
+#[given(regex = r#"^the commit diff creates "([^"]*)"$"#)]
+fn given_commitdiff_creates(world: &mut UsecaseWorld, path: String) {
+    let to_oid: ObjectId = fake_oid(&format!("to-{path}"));
+    let file: FilePatch = FilePatch::new(
+        ChangeStatus::added(),
+        FileMode::from_octal("000000").expect("a valid absent mode"),
+        FileMode::from_octal("100644").expect("a valid file mode"),
+        to_oid.null_like(),
+        to_oid,
+        path.clone(),
+        path,
+        FileContent::Text(Vec::new()),
+    );
+    commit_fixture_mut(world).patch = Patch::new(vec![file]);
+}
+
+#[when(regex = r#"^I assemble the commitdiff text for "([^"]*)"$"#)]
+fn assemble_commitdiff_text(world: &mut UsecaseWorld, rev: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.commitdiff_result = Some(assemble_commit_diff(&repo, Some(&rev), None));
+}
+
+#[then(regex = r#"^the commitdiff text contains "(.*)"$"#)]
+fn then_commitdiff_text_contains(world: &mut UsecaseWorld, expected: String) {
+    let text: &str = match world
+        .commitdiff_result
+        .as_ref()
+        .expect("assemble the commitdiff text first")
+    {
+        Ok(text) => text,
+        Err(error) => panic!("expected commitdiff text, got error: {error:?}"),
+    };
+    assert!(
+        text.contains(&expected),
+        "expected commitdiff text to contain {expected:?}, got:\n{text}"
+    );
+}
+
+#[then(regex = r#"^assembling the commitdiff text fails with "(.*)"$"#)]
+fn then_commitdiff_text_fails(world: &mut UsecaseWorld, expected: String) {
+    match world
+        .commitdiff_result
+        .as_ref()
+        .expect("assemble the commitdiff text first")
+    {
+        Ok(text) => panic!("expected a failure, got commitdiff text:\n{text}"),
+        Err(error) => assert_eq!(error.message(), expected),
+    }
 }
 
 /// The assembled commit view (asserting the use case succeeded).

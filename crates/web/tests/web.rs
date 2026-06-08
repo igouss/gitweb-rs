@@ -25,9 +25,9 @@ use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
-    BlobHandler, BlobPlainHandler, CommitHandler, FeedHandler, HeadsHandler, HistoryHandler,
-    LogHandler, OpmlHandler, ProjectIndexHandler, ProjectListHandler, RemotesHandler,
-    ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler,
+    BlobHandler, BlobPlainHandler, CommitHandler, CommitdiffHandler, FeedHandler, HeadsHandler,
+    HistoryHandler, LogHandler, OpmlHandler, ProjectIndexHandler, ProjectListHandler,
+    RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -521,6 +521,16 @@ fn given_commit_served(world: &mut WebWorld) {
     let settings: Arc<Settings> = Arc::new(Settings::builtin());
     let handler: Arc<dyn Handler> = Arc::new(CommitHandler::new(store, settings));
     world.dispatcher.register(Action::Commit, handler);
+}
+
+#[given("the commitdiff action is served")]
+fn given_commitdiff_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(Settings::builtin());
+    let handler: Arc<dyn Handler> = Arc::new(CommitdiffHandler::new(store, settings));
+    world.dispatcher.register(Action::Commitdiff, handler);
 }
 
 #[given("the blob_plain action is served")]

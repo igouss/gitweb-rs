@@ -25,9 +25,10 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_git::GixProjectStore;
 use gitweb_web::{
-    BlobHandler, BlobPlainHandler, CommitHandler, Dispatcher, FeedHandler, Handler, HeadsHandler,
-    HistoryHandler, LogHandler, OpmlHandler, ProjectIndexHandler, ProjectListHandler,
-    RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler, router,
+    BlobHandler, BlobPlainHandler, CommitHandler, CommitdiffHandler, Dispatcher, FeedHandler,
+    Handler, HeadsHandler, HistoryHandler, LogHandler, OpmlHandler, ProjectIndexHandler,
+    ProjectListHandler, RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler,
+    TreeHandler, router,
 };
 use tower_http::services::ServeDir;
 
@@ -132,6 +133,12 @@ fn build_dispatcher(
         Arc::clone(&settings),
     ));
     dispatcher.register(Action::Commit, commit);
+
+    let commitdiff: Arc<dyn Handler> = Arc::new(CommitdiffHandler::new(
+        Arc::clone(&store),
+        Arc::clone(&settings),
+    ));
+    dispatcher.register(Action::Commitdiff, commitdiff);
 
     let blob_plain: Arc<dyn Handler> = Arc::new(BlobPlainHandler::new(
         Arc::clone(&store),

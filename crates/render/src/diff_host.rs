@@ -62,18 +62,29 @@ pub fn diff_host_body(page: &DiffHostPage) -> Markup {
             @if let Some(path) = &page.path {
                 p class="path" { (path) }
             }
-            section id="diff-root" class="diff-root" data-diff-url=(page.diff_url) {
-                p class="status" { "Loading diff…" }
-                noscript {
-                    p {
-                        "JavaScript is required to render the diff inline. "
-                        a href=(page.diff_url) { "View the raw unified diff" }
-                        "."
-                    }
-                }
-            }
-            script type="module" src=(page.viewer_module_src) {}
+            (diff_root(&page.diff_url, &page.viewer_module_src))
         }
         (footer(&PageFooter { description: None, links: Vec::new() }))
+    }
+}
+
+/// The `#diff-root` container the client viewer fills, plus the boot module: a
+/// loading placeholder and a no-JavaScript fallback that links straight to the
+/// raw unified diff. Shared by [`diff_host_body`] and the commitdiff host page
+/// ([`crate::commitdiff`]), which both ship the viewer over a clean diff URL.
+#[must_use]
+pub(crate) fn diff_root(diff_url: &str, viewer_module_src: &str) -> Markup {
+    html! {
+        section id="diff-root" class="diff-root" data-diff-url=(diff_url) {
+            p class="status" { "Loading diff…" }
+            noscript {
+                p {
+                    "JavaScript is required to render the diff inline. "
+                    a href=(diff_url) { "View the raw unified diff" }
+                    "."
+                }
+            }
+        }
+        script type="module" src=(viewer_module_src) {}
     }
 }

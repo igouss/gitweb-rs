@@ -210,8 +210,9 @@ fn parent_nav(nav: &ParentNav) -> Markup {
 }
 
 /// One authorship row: the role label, the name with optional email, and the
-/// absolute date (gitweb's `git_print_authorship_rows`).
-fn author_row(role: &str, who: &AuthorRow) -> Markup {
+/// absolute date (gitweb's `git_print_authorship_rows`). Shared with the
+/// commitdiff host page ([`crate::commitdiff`]), which shows the same rows.
+pub(crate) fn author_row(role: &str, who: &AuthorRow) -> Markup {
     html! {
         tr {
             td class="field" { (role) }
@@ -254,8 +255,9 @@ fn parent_row(parent: &ParentRow) -> Markup {
 }
 
 /// The changed-files table: a count heading and one row per changed path, or a
-/// note when the commit introduced no change.
-fn changed_files(rows: &[ChangedRow]) -> Markup {
+/// note when the commit introduced no change. Shared with the commitdiff host
+/// page ([`crate::commitdiff`]), whose rows carry the patch-anchor links.
+pub(crate) fn changed_files(rows: &[ChangedRow]) -> Markup {
     html! {
         section class="changed-files" {
             @if rows.is_empty() {

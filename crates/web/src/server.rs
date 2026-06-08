@@ -22,6 +22,7 @@ use gitweb_domain::error::DomainError;
 use gitweb_domain::port::project_store::ProjectStore;
 
 use crate::assets;
+use crate::diff_text;
 use crate::dispatch::Dispatcher;
 use crate::request::resolve;
 use crate::response::{View, error_to_response};
@@ -43,8 +44,21 @@ pub fn router(store: Arc<dyn ProjectStore + Send + Sync>, dispatcher: Arc<Dispat
         .route(assets::STYLESHEET_PATH, get(assets::stylesheet))
         .route(assets::FAVICON_PATH, get(assets::favicon))
         .route(assets::DIFF_VIEWER_PATH, get(assets::diff_viewer_js))
+        .route(diff_text::DIFF_TEXT_PATH, get(handle_diff_text))
         .fallback(handle)
         .with_state(state)
+}
+
+/// The clean-diff endpoint: the bare unified diff the client viewer fetches. A
+/// modern route with no gitweb action (see [`crate::diff_text`]); it shares the
+/// project store with the gitweb request loop and maps a failure to the same
+/// `die_error` page.
+async fn handle_diff_text(State(state): State<AppState>, uri: Uri) -> Response {
+    let query: Vec<(String, String)> = decode_query(uri.query());
+    match diff_text::serve(state.store.as_ref(), &query) {
+        Ok(view) => view.into_response(),
+        Err(error) => error_to_response(&error),
+    }
 }
 
 /// The catch-all: gitweb's request loop for one request. Decode the URL, resolve

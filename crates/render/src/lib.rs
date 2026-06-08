@@ -16,6 +16,7 @@ pub mod assets;
 pub mod blob;
 pub mod chrome;
 pub mod commit;
+pub mod commitdiff;
 pub mod diff_host;
 pub mod error;
 pub mod escape;

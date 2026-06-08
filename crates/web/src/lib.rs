@@ -15,6 +15,7 @@
 
 pub mod assets;
 pub mod clock;
+pub mod diff_text;
 pub mod dispatch;
 pub mod handlers;
 pub mod request;
@@ -24,9 +25,9 @@ pub mod url;
 
 pub use dispatch::{Dispatcher, Handler};
 pub use handlers::{
-    BlobHandler, BlobPlainHandler, CommitHandler, FeedHandler, HeadsHandler, HistoryHandler,
-    LogHandler, OpmlHandler, ProjectIndexHandler, ProjectListHandler, RemotesHandler,
-    ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler,
+    BlobHandler, BlobPlainHandler, CommitHandler, CommitdiffHandler, FeedHandler, HeadsHandler,
+    HistoryHandler, LogHandler, OpmlHandler, ProjectIndexHandler, ProjectListHandler,
+    RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler,
 };
 pub use response::View;
 pub use server::router;

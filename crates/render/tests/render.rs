@@ -20,6 +20,7 @@ use gitweb_render::commit::{
     AuthorRow, ChangeNoteView, ChangedRow, CommitPage, LinkedId, ParentNav, ParentNavLink,
     ParentRow, commit_body,
 };
+use gitweb_render::commitdiff::{CommitdiffNav, CommitdiffPage, commitdiff_body};
 use gitweb_render::diff_host::{DiffHostPage, diff_host_body};
 use gitweb_render::error::{ErrorResponse, HttpStatus, error_page, error_response};
 use gitweb_render::escape::{
@@ -1878,6 +1879,118 @@ fn render_merge_commit(world: &mut RenderWorld) {
         }],
     };
     world.output = Some(commit_body(&page).into_string());
+}
+
+// ---- Commitdiff host page ---------------------------------------------------
+
+/// A changed-files row in commitdiff context: a path with the patch-anchor and
+/// blob links the web boundary builds for `git_commitdiff`.
+fn commitdiff_changed_row(path: &str) -> ChangedRow {
+    ChangedRow {
+        path: path.to_owned(),
+        path_href: Some(format!("/r/blob/{path}")),
+        note: ChangeNoteView::None,
+        links: vec![
+            action_link("patch", "#patch1"),
+            action_link("blob", &format!("/r/blob/{path}")),
+        ],
+    }
+}
+
+#[when("I render a single-parent commitdiff page")]
+fn render_single_parent_commitdiff(world: &mut RenderWorld) {
+    let page: CommitdiffPage = CommitdiffPage {
+        crumbs: Vec::new(),
+        nav: Vec::new(),
+        formats: vec![
+            action_link("raw", "/r/raw/c0ffee"),
+            action_link("patch", "/r/patch/c0ffee"),
+        ],
+        parentage: CommitdiffNav::SingleParent(ParentNavLink {
+            short: "parent0".to_owned(),
+            href: "/r/commit/parent01".to_owned(),
+        }),
+        title: "Rework the engine".to_owned(),
+        author: author_row_of("Ada Lovelace", Some("ada@example.com")),
+        committer: author_row_of("Linus Torvalds", Some("linus@example.com")),
+        comment: vec![
+            LogLine::Text("Rework the engine".to_owned()),
+            LogLine::Text("Detailed body line.".to_owned()),
+        ],
+        changed: vec![commitdiff_changed_row("README")],
+        diff_url: "/r/diff/c0ffee".to_owned(),
+        viewer_module_src: "/static/diff-viewer.js".to_owned(),
+    };
+    world.output = Some(commitdiff_body(&page).into_string());
+}
+
+#[when("I render a root commitdiff page")]
+fn render_root_commitdiff(world: &mut RenderWorld) {
+    let page: CommitdiffPage = CommitdiffPage {
+        crumbs: Vec::new(),
+        nav: Vec::new(),
+        formats: vec![action_link("raw", "/r/raw/1n1t")],
+        parentage: CommitdiffNav::Initial,
+        title: "Initial import".to_owned(),
+        author: author_row_of("Tester", Some("t@example.com")),
+        committer: author_row_of("Tester", Some("t@example.com")),
+        comment: vec![LogLine::Text("Initial import".to_owned())],
+        changed: vec![commitdiff_changed_row("LICENSE")],
+        diff_url: "/r/diff/1n1t".to_owned(),
+        viewer_module_src: "/static/diff-viewer.js".to_owned(),
+    };
+    world.output = Some(commitdiff_body(&page).into_string());
+}
+
+#[when("I render a merge commitdiff page")]
+fn render_merge_commitdiff(world: &mut RenderWorld) {
+    let page: CommitdiffPage = CommitdiffPage {
+        crumbs: Vec::new(),
+        nav: Vec::new(),
+        formats: vec![action_link("raw", "/r/raw/mer9e")],
+        parentage: CommitdiffNav::Merge(vec![
+            ParentNavLink {
+                short: "par1".to_owned(),
+                href: "/r/commit/par1".to_owned(),
+            },
+            ParentNavLink {
+                short: "par2".to_owned(),
+                href: "/r/commit/par2".to_owned(),
+            },
+        ]),
+        title: "Merge side branches".to_owned(),
+        author: author_row_of("Tester", Some("t@example.com")),
+        committer: author_row_of("Tester", Some("t@example.com")),
+        comment: vec![LogLine::Text("Merge side branches".to_owned())],
+        changed: vec![commitdiff_changed_row("file.txt")],
+        diff_url: "/r/diff/mer9e".to_owned(),
+        viewer_module_src: "/static/diff-viewer.js".to_owned(),
+    };
+    world.output = Some(commitdiff_body(&page).into_string());
+}
+
+#[when("I render a commitdiff page from a chosen parent")]
+fn render_commitdiff_from_parent(world: &mut RenderWorld) {
+    let page: CommitdiffPage = CommitdiffPage {
+        crumbs: Vec::new(),
+        nav: Vec::new(),
+        formats: vec![action_link("raw", "/r/raw/mer9e")],
+        parentage: CommitdiffNav::FromParent {
+            number: Some(2),
+            link: ParentNavLink {
+                short: "par2".to_owned(),
+                href: "/r/commit/par2".to_owned(),
+            },
+        },
+        title: "Merge side branches".to_owned(),
+        author: author_row_of("Tester", Some("t@example.com")),
+        committer: author_row_of("Tester", Some("t@example.com")),
+        comment: vec![LogLine::Text("Merge side branches".to_owned())],
+        changed: vec![commitdiff_changed_row("file.txt")],
+        diff_url: "/r/diff/mer9e".to_owned(),
+        viewer_module_src: "/static/diff-viewer.js".to_owned(),
+    };
+    world.output = Some(commitdiff_body(&page).into_string());
 }
 
 #[tokio::main]

@@ -14,6 +14,7 @@ use gitweb_domain::model::change::ChangeStatus;
 use gitweb_domain::model::chop::{ChopMode, chop_str};
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::commit_date::CommitDate;
+use gitweb_domain::model::commitdiff::{DiffBase, diff_base};
 use gitweb_domain::model::config_chain::{ConfigChain, ConfigSlot};
 use gitweb_domain::model::content_type::PlainHeaders;
 use gitweb_domain::model::diff::{CombinedDiffEntry, CombinedParent};
@@ -95,6 +96,9 @@ struct DomainWorld {
     visible: Option<bool>,
     patch_under_test: Option<Patch>,
     rendered: Option<String>,
+    commitdiff_parents: Vec<ObjectId>,
+    commitdiff_explicit: Option<ObjectId>,
+    commitdiff_base: Option<DiffBase>,
     encoded_token: String,
     decoded_token: Option<String>,
     fork_input: Vec<String>,
@@ -1590,6 +1594,60 @@ fn then_patch_is(world: &mut DomainWorld, step: &Step) {
         .expect("scenario must supply a docstring")
         .trim_matches('\n');
     assert_eq!(rendered(world).trim_end_matches('\n'), expected);
+}
+
+// --- commitdiff diff base ----------------------------------------------------
+
+/// A deterministic object id for a short test label (e.g. `"aaaa"`): its hex
+/// digits cycled to the full forty, so the same label always names the same id.
+fn commitdiff_oid(label: &str) -> ObjectId {
+    let hex: String = label.chars().filter(char::is_ascii_hexdigit).collect();
+    let full: String = hex.chars().cycle().take(40).collect();
+    ObjectId::parse(&full).expect("a label yields a valid object id")
+}
+
+#[given("a commit with no parents")]
+fn given_commitdiff_no_parents(world: &mut DomainWorld) {
+    world.commitdiff_parents = Vec::new();
+}
+
+#[given(regex = r#"^a commit with parent "([^"]*)"$"#)]
+fn given_commitdiff_parent(world: &mut DomainWorld, label: String) {
+    world.commitdiff_parents = vec![commitdiff_oid(&label)];
+}
+
+#[given(regex = r#"^the commit also has parent "([^"]*)"$"#)]
+fn given_commitdiff_also_parent(world: &mut DomainWorld, label: String) {
+    world.commitdiff_parents.push(commitdiff_oid(&label));
+}
+
+#[given(regex = r#"^an explicit parent "([^"]*)" is given$"#)]
+fn given_commitdiff_explicit(world: &mut DomainWorld, label: String) {
+    world.commitdiff_explicit = Some(commitdiff_oid(&label));
+}
+
+#[when("I pick the commitdiff base")]
+fn pick_commitdiff_base(world: &mut DomainWorld) {
+    world.commitdiff_base = Some(diff_base(
+        &world.commitdiff_parents,
+        world.commitdiff_explicit.as_ref(),
+    ));
+}
+
+#[then("the commitdiff base is the empty tree")]
+fn then_commitdiff_base_empty(world: &mut DomainWorld) {
+    assert_eq!(
+        world.commitdiff_base.as_ref().expect("a base was picked"),
+        &DiffBase::EmptyTree
+    );
+}
+
+#[then(regex = r#"^the commitdiff base is commit "([^"]*)"$"#)]
+fn then_commitdiff_base_commit(world: &mut DomainWorld, label: String) {
+    assert_eq!(
+        world.commitdiff_base.as_ref().expect("a base was picked"),
+        &DiffBase::Commit(commitdiff_oid(&label))
+    );
 }
 
 #[then("the patch is empty")]
