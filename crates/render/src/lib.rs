@@ -13,6 +13,7 @@
 
 pub mod age;
 pub mod assets;
+pub mod blob;
 pub mod chrome;
 pub mod error;
 pub mod escape;

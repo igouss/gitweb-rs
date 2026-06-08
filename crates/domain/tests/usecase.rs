@@ -15,9 +15,10 @@ use cucumber::{World, given, then, when};
 
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::blame::Blame;
-use gitweb_domain::model::blob::Blob;
+use gitweb_domain::model::blob::{Blob, BlobDisplay};
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::diff::{CombinedDiff, Diff};
+use gitweb_domain::model::encoding::FallbackEncoding;
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::grep::GrepResults;
 use gitweb_domain::model::message_body::LogLine;
@@ -37,6 +38,7 @@ use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::{
     ArchiveFormat, Page, RenameDetection, Repository, SearchQuery,
 };
+use gitweb_domain::usecase::blob::{BlobView, assemble_blob};
 use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
 use gitweb_domain::usecase::history::{HistoryRow, HistoryView, assemble_history};
 use gitweb_domain::usecase::log::{LogRow, LogView, assemble_log};
@@ -119,6 +121,9 @@ struct UsecaseWorld {
     tree_nodes: Vec<FakeTreeNode>,
     tree_show_sizes: bool,
     tree_result: Option<Result<TreeView, DomainError>>,
+    blob_base_title: Option<String>,
+    blob_files: Vec<FakeBlobFile>,
+    blob_result: Option<Result<BlobView, DomainError>>,
 }
 
 /// One directory in the fake repository's tree, listed by the `tree` use case.
@@ -156,6 +161,34 @@ fn tree_node_oid(label: &str) -> ObjectId {
 /// The id of the entry named `name` within the node labelled `label`.
 fn tree_entry_oid(label: &str, name: &str) -> ObjectId {
     fake_oid(&format!("treeentry-{label}-{name}"))
+}
+
+/// One blob the `blob` use case can read, by its label (the id a by-hash request
+/// names) or by its `path` within the blob base (the path a by-name request
+/// resolves), holding the raw `content` the view classifies and decodes.
+#[derive(Debug, Clone)]
+struct FakeBlobFile {
+    label: String,
+    path: Option<String>,
+    content: Vec<u8>,
+}
+
+/// The id the blob base resolves to — a commit, so a by-name request peels it
+/// and `HEAD` resolves to it while blob fixtures are declared.
+fn blob_base_oid() -> ObjectId {
+    fake_oid("blob-base")
+}
+
+/// The id of the blob fixture labelled `label`.
+fn blob_file_oid(label: &str) -> ObjectId {
+    fake_oid(&format!("blobfile-{label}"))
+}
+
+/// Parses space-separated hex byte pairs into the raw bytes they name.
+fn parse_hex_bytes(text: &str) -> Vec<u8> {
+    text.split_whitespace()
+        .map(|byte: &str| u8::from_str_radix(byte, 16).expect("a valid hex byte"))
+        .collect()
 }
 
 /// One remote-tracking branch in the fake repository: which remote it belongs to,
@@ -248,12 +281,26 @@ struct FakeRepository {
     remote_branches: Vec<FakeRemoteBranch>,
     tree_commit_title: Option<String>,
     tree_nodes: Vec<FakeTreeNode>,
+    blob_base_title: Option<String>,
+    blob_files: Vec<FakeBlobFile>,
 }
 
 impl FakeRepository {
     /// Whether a tree is declared (so `HEAD` resolves to the tree's commit).
     fn has_tree(&self) -> bool {
         self.tree_commit_title.is_some()
+    }
+
+    /// Whether a blob base is declared (so `HEAD` resolves to the base commit).
+    fn has_blob_base(&self) -> bool {
+        self.blob_base_title.is_some()
+    }
+
+    /// The blob fixture whose id is `oid`, if any.
+    fn blob_file_by_oid(&self, oid: &ObjectId) -> Option<&FakeBlobFile> {
+        self.blob_files
+            .iter()
+            .find(|file: &&FakeBlobFile| &blob_file_oid(&file.label) == oid)
     }
 
     /// The node whose id is `oid`, if any.
@@ -359,6 +406,19 @@ impl Repository for FakeRepository {
     }
 
     fn find_commit(&self, oid: &ObjectId) -> Result<Commit, DomainError> {
+        if self.has_blob_base() && oid == &blob_base_oid() {
+            let title: &str = self.blob_base_title.as_deref().expect("a blob base title");
+            let who: Signature = Signature::parse("Tester <t@example.com> 1000 +0000")
+                .expect("a valid fixture signature");
+            return Ok(Commit::new(
+                oid.clone(),
+                fake_oid("blob-base-tree"),
+                Vec::new(),
+                who.clone(),
+                who,
+                format!("{title}\n"),
+            ));
+        }
         if self.has_tree() && oid == &tree_head_oid() {
             let title: &str = self
                 .tree_commit_title
@@ -394,6 +454,16 @@ impl Repository for FakeRepository {
         if rev == "HEAD" && self.has_tree() {
             return Ok(tree_head_oid());
         }
+        if rev == "HEAD" && self.has_blob_base() {
+            return Ok(blob_base_oid());
+        }
+        if let Some(file) = self
+            .blob_files
+            .iter()
+            .find(|file: &&FakeBlobFile| file.label == rev)
+        {
+            return Ok(blob_file_oid(&file.label));
+        }
         let full: String = format!("refs/tags/{rev}");
         if let Some(tag) = self
             .tags
@@ -415,6 +485,12 @@ impl Repository for FakeRepository {
     fn object_kind(&self, oid: &ObjectId) -> Result<ObjectKind, DomainError> {
         if self.has_tree() && oid == &tree_head_oid() {
             return Ok(ObjectKind::Commit);
+        }
+        if self.has_blob_base() && oid == &blob_base_oid() {
+            return Ok(ObjectKind::Commit);
+        }
+        if self.blob_file_by_oid(oid).is_some() {
+            return Ok(ObjectKind::Blob);
         }
         if self.tree_node_by_oid(oid).is_some() {
             return Ok(ObjectKind::Tree);
@@ -472,6 +548,9 @@ impl Repository for FakeRepository {
     }
 
     fn find_blob(&self, oid: &ObjectId) -> Result<Blob, DomainError> {
+        if let Some(file) = self.blob_file_by_oid(oid) {
+            return Ok(Blob::new(file.content.clone()));
+        }
         let entry: &FakeTreeEntry = self
             .tree_entry_by_oid(oid)
             .ok_or_else(|| DomainError::NotFound(oid.as_str().to_owned()))?;
@@ -545,6 +624,14 @@ impl Repository for FakeRepository {
     }
 
     fn path_id(&self, at: &ObjectId, path: &str) -> Result<Option<ObjectId>, DomainError> {
+        if self.has_blob_base() && at == &blob_base_oid() {
+            let found: Option<ObjectId> = self
+                .blob_files
+                .iter()
+                .find(|file: &&FakeBlobFile| file.path.as_deref() == Some(path))
+                .map(|file: &FakeBlobFile| blob_file_oid(&file.label));
+            return Ok(found);
+        }
         if self.has_tree() && at == &tree_head_oid() {
             if let Some(node) = self
                 .tree_nodes
@@ -1292,6 +1379,8 @@ fn fake_repo(world: &UsecaseWorld) -> FakeRepository {
         remote_branches: world.remote_branches.clone(),
         tree_commit_title: world.tree_commit_title.clone(),
         tree_nodes: world.tree_nodes.clone(),
+        blob_base_title: world.blob_base_title.clone(),
+        blob_files: world.blob_files.clone(),
     }
 }
 
@@ -2178,6 +2267,144 @@ fn tree_offers_no_parent(world: &mut UsecaseWorld) {
 #[then("assembling the tree fails as not found")]
 fn tree_fails_not_found(world: &mut UsecaseWorld) {
     assert!(matches!(tree_error(world), DomainError::NotFound(_)));
+}
+
+// --- blob: accessors ---------------------------------------------------------
+
+/// The assembled blob view, or a panic if the scenario produced an error.
+fn blob_view(world: &UsecaseWorld) -> &BlobView {
+    world
+        .blob_result
+        .as_ref()
+        .expect("assemble the blob first")
+        .as_ref()
+        .expect("assembly succeeded")
+}
+
+/// The blob failure, or a panic if the scenario produced a success.
+fn blob_error(world: &UsecaseWorld) -> &DomainError {
+    match world.blob_result.as_ref().expect("assemble the blob first") {
+        Ok(_) => panic!("expected assembling the blob to fail"),
+        Err(failure) => failure,
+    }
+}
+
+// --- blob: Givens ------------------------------------------------------------
+
+#[given(regex = r#"^the blob base is commit "(.*)"$"#)]
+fn given_blob_base(world: &mut UsecaseWorld, subject: String) {
+    world.blob_base_title = Some(subject);
+}
+
+#[given(regex = r#"^the blob "([^"]*)" at "([^"]*)" contains text "(.*)"$"#)]
+fn given_blob_text(world: &mut UsecaseWorld, label: String, path: String, text: String) {
+    // The feature writes a multi-line file as the two characters `\n`; expand
+    // them to real newlines so the use case sees the lines it must split.
+    let content: String = text.replace("\\n", "\n");
+    world.blob_files.push(FakeBlobFile {
+        label,
+        path: Some(path),
+        content: content.into_bytes(),
+    });
+}
+
+#[given(regex = r#"^the blob "([^"]*)" at "([^"]*)" contains bytes "([^"]*)"$"#)]
+fn given_blob_bytes(world: &mut UsecaseWorld, label: String, path: String, hex: String) {
+    world.blob_files.push(FakeBlobFile {
+        label,
+        path: Some(path),
+        content: parse_hex_bytes(&hex),
+    });
+}
+
+// --- blob: Whens -------------------------------------------------------------
+
+#[when(regex = r#"^I assemble the blob at path "([^"]*)"$"#)]
+fn assemble_blob_at_path(world: &mut UsecaseWorld, path: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.blob_result = Some(assemble_blob(
+        &repo,
+        Some("HEAD"),
+        None,
+        Some(&path),
+        FallbackEncoding::Latin1,
+    ));
+}
+
+#[when(regex = r#"^I assemble the blob of id "([^"]*)"$"#)]
+fn assemble_blob_of_id(world: &mut UsecaseWorld, id: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.blob_result = Some(assemble_blob(
+        &repo,
+        None,
+        Some(&id),
+        None,
+        FallbackEncoding::Latin1,
+    ));
+}
+
+#[when("I assemble the blob with neither id nor path")]
+fn assemble_blob_neither(world: &mut UsecaseWorld) {
+    let repo: FakeRepository = fake_repo(world);
+    world.blob_result = Some(assemble_blob(
+        &repo,
+        Some("HEAD"),
+        None,
+        None,
+        FallbackEncoding::Latin1,
+    ));
+}
+
+// --- blob: Thens -------------------------------------------------------------
+
+#[then("the blob displays as text")]
+fn blob_displays_text(world: &mut UsecaseWorld) {
+    assert_eq!(blob_view(world).display(), BlobDisplay::Text);
+}
+
+#[then("the blob displays as an image")]
+fn blob_displays_image(world: &mut UsecaseWorld) {
+    assert_eq!(blob_view(world).display(), BlobDisplay::Image);
+}
+
+#[then("the blob displays as binary")]
+fn blob_displays_binary(world: &mut UsecaseWorld) {
+    assert_eq!(blob_view(world).display(), BlobDisplay::Binary);
+}
+
+#[then(regex = r#"^the blob has (\d+) lines$"#)]
+fn blob_has_lines(world: &mut UsecaseWorld, count: usize) {
+    assert_eq!(blob_view(world).lines().len(), count);
+}
+
+#[then("the blob has no lines")]
+fn blob_has_no_lines(world: &mut UsecaseWorld) {
+    assert!(blob_view(world).lines().is_empty());
+}
+
+#[then(regex = r#"^blob line (\d+) is "(.*)"$"#)]
+fn blob_line_is(world: &mut UsecaseWorld, number: usize, expected: String) {
+    assert_eq!(blob_view(world).lines()[number - 1], expected);
+}
+
+#[then(regex = r#"^the blob shows the commit subject "(.*)"$"#)]
+fn blob_shows_subject(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(blob_view(world).commit_title(), Some(expected.as_str()));
+}
+
+#[then("the blob shows no commit subject")]
+fn blob_shows_no_subject(world: &mut UsecaseWorld) {
+    assert_eq!(blob_view(world).commit_title(), None);
+}
+
+#[then("assembling the blob fails as invalid")]
+fn blob_fails_invalid(world: &mut UsecaseWorld) {
+    assert!(matches!(blob_error(world), DomainError::Invalid(_)));
+}
+
+#[then("assembling the blob fails as not found")]
+fn blob_fails_not_found(world: &mut UsecaseWorld) {
+    assert!(matches!(blob_error(world), DomainError::NotFound(_)));
 }
 
 #[tokio::main]

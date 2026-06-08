@@ -209,6 +209,64 @@ impl ProjectRoot {
         builder.set_head("main");
     }
 
+    /// Lays down a bare repository at `name` whose `HEAD` commit holds one tree
+    /// of blobs exercising every display kind the blob view distinguishes: a
+    /// UTF-8 text file `readme.txt`, a non-UTF-8 (latin1) text file `latin1.txt`,
+    /// an empty file `empty.txt`, a NUL-bearing binary `data.bin`, and a
+    /// NUL-bearing `logo.png` whose extension makes it an inline image.
+    pub fn add_blob_repo(&self, name: &str) {
+        let full: PathBuf = self.dir.path().join(name);
+        let builder: RepoBuilder = RepoBuilder::init_at(&full);
+        let who: Identity = ada();
+
+        let readme: gix::ObjectId = builder.blob(b"hello world\nsecond line\n");
+        // "Hello" with an e-acute (0xe9) — valid latin1, invalid UTF-8, no NUL.
+        let latin1: gix::ObjectId = builder.blob(&[0x48, 0xe9, 0x6c, 0x6c, 0x6f]);
+        let empty: gix::ObjectId = builder.blob(b"");
+        let data: gix::ObjectId = builder.blob(&[0x00, 0x01, 0x02, 0x03, 0xff]);
+        // A PNG signature: it carries a NUL (binary) and its name an image
+        // extension, so the blob view shows it inline as an image.
+        let logo: gix::ObjectId =
+            builder.blob(&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]);
+
+        let root_tree: gix::ObjectId = builder.tree(&[
+            TreeEntry {
+                name: "readme.txt".to_owned(),
+                mode: Mode::File,
+                oid: readme,
+            },
+            TreeEntry {
+                name: "latin1.txt".to_owned(),
+                mode: Mode::File,
+                oid: latin1,
+            },
+            TreeEntry {
+                name: "empty.txt".to_owned(),
+                mode: Mode::File,
+                oid: empty,
+            },
+            TreeEntry {
+                name: "data.bin".to_owned(),
+                mode: Mode::File,
+                oid: data,
+            },
+            TreeEntry {
+                name: "logo.png".to_owned(),
+                mode: Mode::File,
+                oid: logo,
+            },
+        ]);
+        let commit: gix::ObjectId = builder.commit(&CommitSpec {
+            tree: root_tree,
+            parents: Vec::new(),
+            author: who.clone(),
+            committer: who,
+            message: "blob fixture\n".to_owned(),
+        });
+        builder.branch("main", commit);
+        builder.set_head("main");
+    }
+
     /// Creates a plain directory at the store-relative `name` with no git
     /// repository inside it, to be ignored by discovery.
     pub fn add_dir(&self, name: &str) {

@@ -285,3 +285,65 @@ main.error {
 .error-detail pre {
 	overflow-x: auto;
 }
+
+/* ---- blob view (git_blob) ------------------------------------------------- */
+
+/* The browsed path / loose-blob hash shown under the title. */
+.path {
+	font-family: var(--mono);
+	color: var(--fg-muted);
+	margin: 0.2rem 0 0.8rem;
+}
+
+/* Empty-file and binary-download notes. */
+.note {
+	color: var(--fg-muted);
+	font-style: italic;
+}
+
+/* A text blob: numbered, anchorable lines in a monospace table. */
+table.blob {
+	border: 1px solid var(--border);
+	font-family: var(--mono);
+	font-size: 0.85rem;
+}
+
+table.blob td {
+	border-bottom: none;
+	padding: 0 0.6rem;
+}
+
+table.blob .linenr {
+	width: 1%;
+	text-align: right;
+	white-space: nowrap;
+	color: var(--fg-muted);
+	user-select: none;
+	background: var(--surface);
+	border-right: 1px solid var(--border);
+}
+
+table.blob .linenr a {
+	color: var(--fg-muted);
+}
+
+/* Preserve source whitespace; render tabs as 8 columns like gitweb's untabify. */
+table.blob .line {
+	white-space: pre;
+	tab-size: 8;
+	width: 100%;
+}
+
+/* The current anchor target line, highlighted via :target on its row. */
+table.blob tr:target {
+	background: var(--surface-2);
+}
+
+/* An inline image blob. */
+.blob-image {
+	max-width: 100%;
+	height: auto;
+	border: 1px solid var(--border);
+	background: var(--surface);
+	padding: 0.5rem;
+}

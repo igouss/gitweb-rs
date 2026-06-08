@@ -10,6 +10,7 @@ use gitweb_domain::model::age::{Age, AgeClass};
 use gitweb_domain::model::message_body::LogLine;
 use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_render::age::age_class_name;
+use gitweb_render::blob::{BlobContent, BlobLine, blob_content};
 use gitweb_render::chrome::{
     Crumb, DocumentHead, FeedLink, FooterLink, HiddenField, Logo, MoreLink, NavItem, PageFooter,
     SearchForm, SearchOption, breadcrumbs, document, footer, page_header, page_nav, search_form,
@@ -67,6 +68,9 @@ struct RenderWorld {
     tree_rows: Vec<TreeRowView>,
     tree_parent: Option<TreeParentRow>,
     tree_size_off: bool,
+    blob_lines: Vec<BlobLine>,
+    blob_image: Option<(String, String)>,
+    blob_binary: Option<String>,
     domain_error: Option<DomainError>,
     status: Option<HttpStatus>,
     output: Option<String>,
@@ -1290,6 +1294,43 @@ fn then_result_excludes(world: &mut RenderWorld, unexpected: String) {
         !output.contains(&unexpected),
         "expected output NOT to contain {unexpected:?}\n  got: {output}"
     );
+}
+
+// ---- blob content -----------------------------------------------------------
+
+/// Builds the blob content the givens described: an image or binary if one was
+/// declared, otherwise the (possibly empty) text lines.
+fn built_blob_content(world: &mut RenderWorld) -> BlobContent {
+    if let Some((src, alt)) = world.blob_image.take() {
+        return BlobContent::Image { src, alt };
+    }
+    if let Some(raw_href) = world.blob_binary.take() {
+        return BlobContent::Binary { raw_href };
+    }
+    BlobContent::Text {
+        lines: std::mem::take(&mut world.blob_lines),
+    }
+}
+
+#[given(regex = r#"^a blob line (\d+) reading "(.*)"$"#)]
+fn given_blob_line(world: &mut RenderWorld, number: usize, text: String) {
+    world.blob_lines.push(BlobLine { number, text });
+}
+
+#[given(regex = r#"^the blob is an image at "([^"]*)" described as "([^"]*)"$"#)]
+fn given_blob_image(world: &mut RenderWorld, src: String, alt: String) {
+    world.blob_image = Some((src, alt));
+}
+
+#[given(regex = r#"^the blob is a binary download at "([^"]*)"$"#)]
+fn given_blob_binary(world: &mut RenderWorld, raw_href: String) {
+    world.blob_binary = Some(raw_href);
+}
+
+#[when("I render the blob content")]
+fn when_render_blob_content(world: &mut RenderWorld) {
+    let content: BlobContent = built_blob_content(world);
+    world.output = Some(blob_content(&content).into_string());
 }
 
 #[then("the result is:")]

@@ -12,6 +12,7 @@
 //! [`View`]: crate::response::View
 //! [`Dispatcher`]: crate::dispatch::Dispatcher
 
+pub mod blob;
 pub mod heads;
 pub mod history;
 pub mod log;
@@ -24,6 +25,7 @@ pub mod tag;
 pub mod tags;
 pub mod tree;
 
+pub use blob::BlobHandler;
 pub use heads::HeadsHandler;
 pub use history::HistoryHandler;
 pub use log::LogHandler;

@@ -9,6 +9,7 @@ use gitweb_domain::error::DomainError;
 use gitweb_domain::model::action::Action;
 use gitweb_domain::model::age::{Age, AgeClass};
 use gitweb_domain::model::binary::is_binary;
+use gitweb_domain::model::blob::{Blob, BlobDisplay};
 use gitweb_domain::model::change::ChangeStatus;
 use gitweb_domain::model::chop::{ChopMode, chop_str};
 use gitweb_domain::model::commit::Commit;
@@ -60,6 +61,7 @@ struct DomainWorld {
     bytes: Vec<u8>,
     decoded: Option<String>,
     binary: Option<bool>,
+    blob_display: Option<BlobDisplay>,
     commit: Option<Commit>,
     is_merge: Option<bool>,
     commit_title: Option<String>,
@@ -543,6 +545,33 @@ fn it_is_binary(world: &mut DomainWorld) {
 #[then("it is text")]
 fn it_is_text(world: &mut DomainWorld) {
     assert_eq!(world.binary, Some(false));
+}
+
+#[when(regex = r#"^I classify the blob as "([^"]*)"$"#)]
+fn classify_blob_named(world: &mut DomainWorld, file_name: String) {
+    let blob: Blob = Blob::new(world.bytes.clone());
+    world.blob_display = Some(blob.display_kind(Some(&file_name)));
+}
+
+#[when("I classify the blob with no file name")]
+fn classify_blob_unnamed(world: &mut DomainWorld) {
+    let blob: Blob = Blob::new(world.bytes.clone());
+    world.blob_display = Some(blob.display_kind(None));
+}
+
+#[then("the blob displays as text")]
+fn blob_displays_text(world: &mut DomainWorld) {
+    assert_eq!(world.blob_display, Some(BlobDisplay::Text));
+}
+
+#[then("the blob displays as an image")]
+fn blob_displays_image(world: &mut DomainWorld) {
+    assert_eq!(world.blob_display, Some(BlobDisplay::Image));
+}
+
+#[then("the blob displays as binary")]
+fn blob_displays_binary(world: &mut DomainWorld) {
+    assert_eq!(world.blob_display, Some(BlobDisplay::Binary));
 }
 
 #[given(regex = r"^a commit with (\d+) parents$")]

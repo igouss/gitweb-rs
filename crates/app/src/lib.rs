@@ -25,7 +25,7 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_git::GixProjectStore;
 use gitweb_web::{
-    Dispatcher, Handler, HeadsHandler, HistoryHandler, LogHandler, ProjectListHandler,
+    BlobHandler, Dispatcher, Handler, HeadsHandler, HistoryHandler, LogHandler, ProjectListHandler,
     RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler, router,
 };
 
@@ -93,6 +93,10 @@ fn build_dispatcher(
     let tree: Arc<dyn Handler> =
         Arc::new(TreeHandler::new(Arc::clone(&store), Arc::clone(&settings)));
     dispatcher.register(Action::Tree, tree);
+
+    let blob: Arc<dyn Handler> =
+        Arc::new(BlobHandler::new(Arc::clone(&store), Arc::clone(&settings)));
+    dispatcher.register(Action::Blob, blob);
 
     let remotes: Arc<dyn Handler> = Arc::new(RemotesHandler::new(store, settings));
     dispatcher.register(Action::Remotes, remotes);
