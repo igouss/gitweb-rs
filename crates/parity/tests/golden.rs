@@ -7,17 +7,27 @@
 //! any step body. cucumber supplies its own `main`, so this target sets
 //! `harness = false` in Cargo.toml.
 
+use std::path::PathBuf;
+
 use cucumber::{World, given, then, when};
 use tempfile::TempDir;
 
 use gitweb_domain::model::blob::Blob;
 use gitweb_domain::model::content_type::PlainHeaders;
+use gitweb_domain::model::feed::Feed;
 use gitweb_domain::model::object_id::ObjectId;
+use gitweb_domain::model::project_info::ProjectInfo;
+use gitweb_domain::model::settings::Settings;
+use gitweb_domain::model::timestamp::Timestamp;
+use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
+use gitweb_domain::usecase::feed::assemble_feed;
 use gitweb_fixtures::ObjectId as FixtureOid;
-use gitweb_git::GixRepository;
+use gitweb_git::{GixProjectStore, GixRepository};
 use gitweb_parity::corpus::{self, Corpus};
 use gitweb_parity::golden::Golden;
+use gitweb_render::feed::{atom, rss};
+use gitweb_web::handlers::feed::{FeedFormat, FeedRequest, assemble_feed_view};
 
 #[derive(Debug, Default, World)]
 struct GoldenWorld {
@@ -29,6 +39,11 @@ struct GoldenWorld {
     /// The Content-Type and Content-Disposition our `blob_plain` endpoint derives
     /// for the served blob — the exact headers the use case and handler emit.
     headers: Option<PlainHeaders>,
+    /// The serialized feed body, its media type, and its Last-Modified value —
+    /// the exact bytes and headers the feed handler emits over the corpus.
+    feed_body: Option<String>,
+    feed_media_type: Option<&'static str>,
+    feed_last_modified: Option<String>,
     golden: Option<Golden>,
 }
 
@@ -96,11 +111,98 @@ fn serve_blob_plain(world: &mut GoldenWorld, name: String) {
     world.golden = Some(Golden::load(&format!("blob_plain/{name}")));
 }
 
+/// The request-time clock the feed window is computed against. The corpus has a
+/// single commit (index 0), which the window always keeps regardless of `now`,
+/// and `now` appears nowhere in the body, so any value yields the same feed.
+const FEED_NOW: i64 = 1_700_000_000;
+
+#[when(regex = r#"^I serve the "(rss|atom)" feed$"#)]
+fn serve_feed(world: &mut GoldenWorld, format_name: String) {
+    let project_root: PathBuf = corpus(world).project_root.clone();
+    let store: GixProjectStore = GixProjectStore::new(project_root);
+    let repo: Box<dyn Repository> = store
+        .open(Corpus::PROJECT)
+        .expect("open the corpus repository");
+    let info: ProjectInfo = store
+        .info(Corpus::PROJECT)
+        .expect("read the corpus project info");
+    let feed: Feed =
+        assemble_feed(repo.as_ref(), None, None, FEED_NOW).expect("assemble the corpus feed");
+    let format: FeedFormat = match format_name.as_str() {
+        "atom" => FeedFormat::Atom,
+        _ => FeedFormat::Rss,
+    };
+    // gitweb's default config: the built-in settings, the captured generator
+    // composite, and the CGI default site URL (no SERVER_NAME -> http://localhost).
+    let settings: Settings = Settings::builtin();
+    let generator: String = read_generator();
+    let request: FeedRequest<'_> = FeedRequest {
+        format,
+        project: Corpus::PROJECT,
+        hash: None,
+        file_name: None,
+    };
+    let view = assemble_feed_view(
+        &feed,
+        &request,
+        &info,
+        &settings,
+        "http://localhost",
+        &generator,
+    );
+    let body: String = match format {
+        FeedFormat::Rss => rss(&view),
+        FeedFormat::Atom => atom(&view),
+    };
+    world.feed_body = Some(body);
+    world.feed_media_type = Some(format.content_type_header());
+    world.feed_last_modified = feed.latest().map(Timestamp::rfc2822);
+    world.golden = Some(Golden::load(&format!("feed/{format_name}")));
+}
+
+/// The generator version composite captured alongside the feed goldens — the
+/// `$version/$git_version` gitweb stamped the body with. Injecting it keeps the
+/// rest of the body a byte-exact comparison (git's version is not part of the
+/// feed format and is not byte-stable across machines).
+fn read_generator() -> String {
+    let path: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("goldens/feed/generator");
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|err: std::io::Error| panic!("read {}: {err}", path.display()))
+}
+
+/// The serialized feed body, or a panic if none was served.
+fn feed_body(world: &GoldenWorld) -> &str {
+    world.feed_body.as_deref().expect("serve a feed first")
+}
+
 // --- Then --------------------------------------------------------------------
 
 #[then("its body matches gitweb's reference output")]
 fn body_matches(world: &mut GoldenWorld) {
     assert_eq!(served(world).bytes(), golden(world).body());
+}
+
+#[then("the feed body matches gitweb's reference output")]
+fn feed_body_matches(world: &mut GoldenWorld) {
+    assert_eq!(feed_body(world).as_bytes(), golden(world).body());
+}
+
+#[then("the feed media type matches gitweb's")]
+fn feed_media_type_matches(world: &mut GoldenWorld) {
+    // gitweb sets `-charset => 'utf-8'` on the feed, so the whole Content-Type
+    // (with charset) is its own choice and matches ours exactly.
+    let theirs: &str = golden(world)
+        .header("Content-Type")
+        .expect("gitweb declares a Content-Type");
+    assert_eq!(world.feed_media_type, Some(theirs));
+}
+
+#[then("the feed last-modified matches gitweb's")]
+fn feed_last_modified_matches(world: &mut GoldenWorld) {
+    let theirs: &str = golden(world)
+        .header("Last-Modified")
+        .expect("gitweb declares a Last-Modified");
+    assert_eq!(world.feed_last_modified.as_deref(), Some(theirs));
 }
 
 #[then("its media type matches gitweb's")]

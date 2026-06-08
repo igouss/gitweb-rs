@@ -22,6 +22,8 @@ use crate::error::ConfigError;
 struct ConfigDoc {
     projectroot: Option<String>,
     site_name: Option<String>,
+    logo: Option<String>,
+    favicon: Option<String>,
     default_projects_order: Option<String>,
     projects_list_description_width: Option<usize>,
     omit_age_column: Option<bool>,
@@ -65,6 +67,8 @@ fn to_layer(path: &Path, doc: ConfigDoc) -> Result<SettingsLayer, ConfigError> {
     Ok(SettingsLayer {
         projectroot: doc.projectroot,
         site_name: doc.site_name,
+        logo: doc.logo,
+        favicon: doc.favicon,
         default_projects_order: doc.default_projects_order,
         projects_list_description_width: doc.projects_list_description_width,
         omit_age_column: doc.omit_age_column,

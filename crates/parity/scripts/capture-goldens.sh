@@ -115,4 +115,18 @@ while read -r name oid file; do
 	capture "blob_plain/$name" "p=repo.git;a=blob_plain;f=$file;hb=HEAD"
 done <"$manifest"
 
+# The RSS/Atom feeds are format-stable: capture both over the whole-branch log.
+echo ">> capturing feed goldens" >&2
+capture "feed/rss" "p=repo.git;a=rss"
+capture "feed/atom" "p=repo.git;a=atom"
+
+# The feed body carries a <generator> version composite ($version/$git_version).
+# $version is pinned via VERSION-FILE above; $git_version is the capturing git's
+# version, which is not byte-stable across machines and is not part of the feed
+# FORMAT. Record the exact composite so the golden test injects the same value
+# and the rest of the body is still compared to the byte.
+git_version=$("$GIT" --version | sed -e 's/^git version //')
+mkdir -p "$crate_dir/goldens/feed"
+printf '%s' "gitweb-parity-corpus/$git_version" >"$crate_dir/goldens/feed/generator"
+
 echo ">> done. goldens under $crate_dir/goldens" >&2

@@ -14,6 +14,8 @@ Feature: Global gitweb settings value precedence
     Given no config sources
     When I resolve the settings
     Then the site name is "Untitled Git"
+    And the logo is "static/git-logo.png"
+    And the favicon is "static/git-favicon.png"
     And the default projects order is "project"
     And the fallback encoding is "latin1"
     And the "grep" feature default is "1"
@@ -51,6 +53,14 @@ Feature: Global gitweb settings value precedence
     When I resolve the settings
     Then the projectroot is "/srv/git"
     And the site name is "Instance Git"
+
+  Scenario: A source overrides the logo and favicon
+    Given a config source
+    And it sets the logo to "static/our-logo.png"
+    And it sets the favicon to "static/our-favicon.ico"
+    When I resolve the settings
+    Then the logo is "static/our-logo.png"
+    And the favicon is "static/our-favicon.ico"
 
   # --- list: replace wholesale (never append) --------------------------------
 

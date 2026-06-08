@@ -20,6 +20,7 @@ use gitweb_domain::model::diff::{CombinedDiffEntry, CombinedParent};
 use gitweb_domain::model::email_privacy::redact;
 use gitweb_domain::model::encoding::{FallbackEncoding, to_utf8};
 use gitweb_domain::model::export::{ExportPolicy, RepoFacts};
+use gitweb_domain::model::feed::{comment_lines, feed_title, feed_window};
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::forks::{ProjectGroup, partition_forks};
 use gitweb_domain::model::grep::{GrepMatch, file_matches};
@@ -133,6 +134,11 @@ struct DomainWorld {
     section: Option<Section<String>>,
     remote: Option<Remote>,
     remote_url_lines: Option<Vec<RemoteUrl>>,
+    feed_now: i64,
+    feed_epochs: Vec<i64>,
+    feed_kept: Option<usize>,
+    feed_title: Option<String>,
+    feed_comment: Option<Vec<String>>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -2099,6 +2105,16 @@ fn set_site_name(world: &mut DomainWorld, value: String) {
     last_layer(world).site_name = Some(value);
 }
 
+#[given(regex = r#"^it sets the logo to "(.*)"$"#)]
+fn set_logo(world: &mut DomainWorld, value: String) {
+    last_layer(world).logo = Some(value);
+}
+
+#[given(regex = r#"^it sets the favicon to "(.*)"$"#)]
+fn set_favicon(world: &mut DomainWorld, value: String) {
+    last_layer(world).favicon = Some(value);
+}
+
 #[given(regex = r#"^it sets the clone base URLs to "(.*)"$"#)]
 fn set_clone_urls(world: &mut DomainWorld, value: String) {
     last_layer(world).git_base_url_list = Some(split_list(&value));
@@ -2137,6 +2153,114 @@ fn projectroot_is(world: &mut DomainWorld, expected: String) {
 #[then(regex = r#"^the site name is "(.*)"$"#)]
 fn site_name_is(world: &mut DomainWorld, expected: String) {
     assert_eq!(resolved(world).site_name(), expected);
+}
+
+#[then(regex = r#"^the logo is "(.*)"$"#)]
+fn logo_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(resolved(world).logo(), expected);
+}
+
+#[then(regex = r#"^the favicon is "(.*)"$"#)]
+fn favicon_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(resolved(world).favicon(), expected);
+}
+
+// --- feed: title, window, comment lines --------------------------------------
+
+#[when(regex = r#"^I build the feed title for action "([^"]*)" with no branch and no file$"#)]
+fn build_feed_title_plain(world: &mut DomainWorld, action: String) {
+    world.feed_title = Some(feed_title("Untitled Git", "repo.git", &action, None, None));
+}
+
+#[when(
+    regex = r#"^I build the feed title for action "([^"]*)" with branch "([^"]*)" and no file$"#
+)]
+fn build_feed_title_branch(world: &mut DomainWorld, action: String, branch: String) {
+    world.feed_title = Some(feed_title(
+        "Untitled Git",
+        "repo.git",
+        &action,
+        Some(&branch),
+        None,
+    ));
+}
+
+#[when(
+    regex = r#"^I build the feed title for action "([^"]*)" with no branch and file "([^"]*)"$"#
+)]
+fn build_feed_title_file(world: &mut DomainWorld, action: String, file: String) {
+    world.feed_title = Some(feed_title(
+        "Untitled Git",
+        "repo.git",
+        &action,
+        None,
+        Some(&file),
+    ));
+}
+
+#[when(
+    regex = r#"^I build the feed title for action "([^"]*)" with branch "([^"]*)" and file "([^"]*)"$"#
+)]
+fn build_feed_title_branch_file(
+    world: &mut DomainWorld,
+    action: String,
+    branch: String,
+    file: String,
+) {
+    world.feed_title = Some(feed_title(
+        "Untitled Git",
+        "repo.git",
+        &action,
+        Some(&branch),
+        Some(&file),
+    ));
+}
+
+#[then(regex = r#"^the feed title is "(.*)"$"#)]
+fn feed_title_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(world.feed_title.as_deref(), Some(expected.as_str()));
+}
+
+#[given(regex = r#"^the feed clock is (\d+)$"#)]
+fn feed_clock_is(world: &mut DomainWorld, now: i64) {
+    world.feed_now = now;
+}
+
+#[given(regex = r#"^(\d+) feed commits aged (\d+) hours$"#)]
+fn feed_commits_aged(world: &mut DomainWorld, count: usize, hours: i64) {
+    let epoch: i64 = world.feed_now - hours * 3600;
+    world.feed_epochs.extend(std::iter::repeat_n(epoch, count));
+}
+
+#[when("I window the feed")]
+fn window_the_feed(world: &mut DomainWorld) {
+    world.feed_kept = Some(feed_window(&world.feed_epochs, world.feed_now));
+}
+
+#[then(regex = r#"^the feed keeps (\d+) commits$"#)]
+fn feed_keeps(world: &mut DomainWorld, expected: usize) {
+    assert_eq!(world.feed_kept, Some(expected));
+}
+
+#[when(regex = r#"^I extract the feed comment from "(.*)"$"#)]
+fn extract_feed_comment(world: &mut DomainWorld, message: String) {
+    let decoded: String = message.replace("\\n", "\n");
+    world.feed_comment = Some(
+        comment_lines(&decoded)
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+    );
+}
+
+#[then(regex = r#"^the feed comment lines are "(.*)"$"#)]
+fn feed_comment_lines_are(world: &mut DomainWorld, expected: String) {
+    let joined: String = world
+        .feed_comment
+        .as_ref()
+        .expect("extract the feed comment first")
+        .join("|");
+    assert_eq!(joined, expected);
 }
 
 #[then(regex = r#"^the default projects order is "(.*)"$"#)]

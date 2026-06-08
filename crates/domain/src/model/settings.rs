@@ -195,6 +195,8 @@ impl FeatureName {
 pub struct SettingsLayer {
     pub projectroot: Option<String>,
     pub site_name: Option<String>,
+    pub logo: Option<String>,
+    pub favicon: Option<String>,
     pub default_projects_order: Option<String>,
     pub projects_list_description_width: Option<usize>,
     pub omit_age_column: Option<bool>,
@@ -220,6 +222,8 @@ pub struct FeatureLayer {
 pub struct Settings {
     projectroot: String,
     site_name: String,
+    logo: String,
+    favicon: String,
     default_projects_order: String,
     projects_list_description_width: usize,
     omit_age_column: bool,
@@ -243,6 +247,8 @@ impl Settings {
         Self {
             projectroot: String::new(),
             site_name: "Untitled Git".to_owned(),
+            logo: "static/git-logo.png".to_owned(),
+            favicon: "static/git-favicon.png".to_owned(),
             default_projects_order: "project".to_owned(),
             projects_list_description_width: 25,
             omit_age_column: false,
@@ -273,6 +279,8 @@ impl Settings {
     fn apply(&mut self, layer: &SettingsLayer) {
         replace(&mut self.projectroot, layer.projectroot.as_ref());
         replace(&mut self.site_name, layer.site_name.as_ref());
+        replace(&mut self.logo, layer.logo.as_ref());
+        replace(&mut self.favicon, layer.favicon.as_ref());
         replace(
             &mut self.default_projects_order,
             layer.default_projects_order.as_ref(),
@@ -311,6 +319,21 @@ impl Settings {
     #[must_use]
     pub fn site_name(&self) -> &str {
         &self.site_name
+    }
+
+    /// The site logo URL (`$logo`), gitweb's `static/git-logo.png` by default —
+    /// the RSS feed's `<image>` and the Atom feed's `<logo>`.
+    #[must_use]
+    pub fn logo(&self) -> &str {
+        &self.logo
+    }
+
+    /// The site favicon URL (`$favicon`), gitweb's `static/git-favicon.png` by
+    /// default — the Atom feed's `<icon>`, and the RSS `<image>` fallback when no
+    /// logo is set.
+    #[must_use]
+    pub fn favicon(&self) -> &str {
+        &self.favicon
     }
 
     /// Default ordering of the projects list (`$default_projects_order`).

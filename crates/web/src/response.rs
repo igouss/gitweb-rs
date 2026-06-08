@@ -44,6 +44,7 @@ enum ViewBody {
 pub struct View {
     content_type: Cow<'static, str>,
     content_disposition: Option<String>,
+    last_modified: Option<String>,
     body: ViewBody,
 }
 
@@ -56,6 +57,7 @@ impl View {
         Self {
             content_type: Cow::Borrowed(HTML_MIME),
             content_disposition: None,
+            last_modified: None,
             body: ViewBody::Text(markup.into_string()),
         }
     }
@@ -66,6 +68,7 @@ impl View {
         Self {
             content_type: Cow::Borrowed(TEXT_MIME),
             content_disposition: None,
+            last_modified: None,
             body: ViewBody::Text(text.into()),
         }
     }
@@ -77,6 +80,22 @@ impl View {
         Self {
             content_type: Cow::Borrowed(content_type),
             content_disposition: None,
+            last_modified: None,
+            body: ViewBody::Text(body),
+        }
+    }
+
+    /// A syndication feed (gitweb's `rss`/`atom`): an XML body under its feed
+    /// media type, carrying the `Last-Modified` value gitweb derives from the
+    /// newest commit (`None` for an empty feed, which has no commit to date it).
+    /// The conditional-GET `304` path that consumes this header lives with the
+    /// caching cross-cut, not here.
+    #[must_use]
+    pub fn feed(content_type: &'static str, body: String, last_modified: Option<String>) -> Self {
+        Self {
+            content_type: Cow::Borrowed(content_type),
+            content_disposition: None,
+            last_modified,
             body: ViewBody::Text(body),
         }
     }
@@ -88,6 +107,7 @@ impl View {
         Self {
             content_type: Cow::Borrowed(content_type),
             content_disposition: None,
+            last_modified: None,
             body: ViewBody::Bytes(bytes),
         }
     }
@@ -100,6 +120,7 @@ impl View {
         Self {
             content_type: Cow::Owned(content_type),
             content_disposition: Some(content_disposition),
+            last_modified: None,
             body: ViewBody::Bytes(bytes),
         }
     }
@@ -125,6 +146,12 @@ impl IntoResponse for View {
             response
                 .headers_mut()
                 .insert(header::CONTENT_DISPOSITION, value);
+        }
+        if let Some(value) = self
+            .last_modified
+            .and_then(|stamp: String| HeaderValue::from_str(&stamp).ok())
+        {
+            response.headers_mut().insert(header::LAST_MODIFIED, value);
         }
         response
     }

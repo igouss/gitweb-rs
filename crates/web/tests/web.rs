@@ -25,11 +25,13 @@ use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
-    BlobHandler, BlobPlainHandler, HeadsHandler, HistoryHandler, LogHandler, ProjectListHandler,
-    RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler,
+    BlobHandler, BlobPlainHandler, FeedHandler, HeadsHandler, HistoryHandler, LogHandler,
+    ProjectListHandler, RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler,
+    TreeHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
+use gitweb_web::url::{href_full, self_url};
 use gitweb_web::{Dispatcher, Handler, router};
 
 #[derive(Debug, Default, World)]
@@ -41,7 +43,9 @@ struct WebWorld {
     response_status: Option<u16>,
     response_content_type: Option<String>,
     response_content_disposition: Option<String>,
+    response_last_modified: Option<String>,
     response_body: Option<String>,
+    built_url: Option<String>,
 }
 
 // --- dispatch fixtures -------------------------------------------------------
@@ -193,6 +197,52 @@ fn resolve_path_with_query(world: &mut WebWorld, path: String, query: String) {
 fn resolve_query_only(world: &mut WebWorld, query: String) {
     let params: Vec<(String, String)> = parse_query(&query);
     world.resolved = Some(resolve(store(world), &params, ""));
+}
+
+// --- Whens: byte-faithful URL building (feeds) -------------------------------
+
+/// Splits a space-separated `"k=v k=v"` list into ordered pairs (empty for "").
+fn parse_pairs(pairs: &str) -> Vec<(String, String)> {
+    pairs
+        .split_whitespace()
+        .filter_map(|token: &str| token.split_once('='))
+        .map(|(key, value): (&str, &str)| (key.to_owned(), value.to_owned()))
+        .collect()
+}
+
+/// Borrows owned pairs as the `&[(&str, &str)]` the URL builders take.
+fn borrow_pairs(pairs: &[(String, String)]) -> Vec<(&str, &str)> {
+    pairs
+        .iter()
+        .map(|(key, value): &(String, String)| (key.as_str(), value.as_str()))
+        .collect()
+}
+
+#[when(regex = r#"^I build a full URL at "([^"]*)" with no params$"#)]
+fn build_full_url_empty(world: &mut WebWorld, base: String) {
+    world.built_url = Some(href_full(&base, &[]));
+}
+
+#[when(regex = r#"^I build a full URL at "([^"]*)" with params "([^"]*)"$"#)]
+fn build_full_url(world: &mut WebWorld, base: String, pairs: String) {
+    let owned: Vec<(String, String)> = parse_pairs(&pairs);
+    world.built_url = Some(href_full(&base, &borrow_pairs(&owned)));
+}
+
+#[when(regex = r#"^I build a full URL at "([^"]*)" with param "([^"]*)" set to "(.*)"$"#)]
+fn build_full_url_single(world: &mut WebWorld, base: String, key: String, value: String) {
+    world.built_url = Some(href_full(&base, &[(key.as_str(), value.as_str())]));
+}
+
+#[when(regex = r#"^I build a self URL at "([^"]*)" with params "([^"]*)"$"#)]
+fn build_self_url(world: &mut WebWorld, base: String, pairs: String) {
+    let owned: Vec<(String, String)> = parse_pairs(&pairs);
+    world.built_url = Some(self_url(&base, &borrow_pairs(&owned)));
+}
+
+#[then(regex = r#"^the URL is "([^"]*)"$"#)]
+fn then_url_is(world: &mut WebWorld, expected: String) {
+    assert_eq!(world.built_url.as_deref(), Some(expected.as_str()));
 }
 
 // --- Thens: resolved project / action ----------------------------------------
@@ -372,6 +422,28 @@ fn given_history_served(world: &mut WebWorld) {
     let settings: Arc<Settings> = Arc::new(Settings::builtin());
     let handler: Arc<dyn Handler> = Arc::new(HistoryHandler::new(store, settings));
     world.dispatcher.register(Action::History, handler);
+}
+
+#[given("the feed actions are served")]
+fn given_feed_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(Settings::builtin());
+    let rss: Arc<dyn Handler> = Arc::new(FeedHandler::new(
+        Arc::clone(&store),
+        Arc::clone(&settings),
+        "http://localhost".to_owned(),
+        "gitweb-test/1".to_owned(),
+    ));
+    let atom: Arc<dyn Handler> = Arc::new(FeedHandler::new(
+        store,
+        settings,
+        "http://localhost".to_owned(),
+        "gitweb-test/1".to_owned(),
+    ));
+    world.dispatcher.register(Action::Rss, rss);
+    world.dispatcher.register(Action::Atom, atom);
 }
 
 #[given(regex = r#"^a repository "([^"]*)" with a tree$"#)]
@@ -577,6 +649,11 @@ async fn when_get(world: &mut WebWorld, uri: String) {
         .get(header::CONTENT_DISPOSITION)
         .and_then(|value: &header::HeaderValue| value.to_str().ok())
         .map(str::to_owned);
+    let last_modified: Option<String> = response
+        .headers()
+        .get(header::LAST_MODIFIED)
+        .and_then(|value: &header::HeaderValue| value.to_str().ok())
+        .map(str::to_owned);
     let bytes: axum::body::Bytes = to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("the response body collects");
@@ -584,6 +661,7 @@ async fn when_get(world: &mut WebWorld, uri: String) {
     world.response_status = Some(status);
     world.response_content_type = content_type;
     world.response_content_disposition = content_disposition;
+    world.response_last_modified = last_modified;
     world.response_body = Some(String::from_utf8_lossy(&bytes).into_owned());
 }
 
@@ -602,6 +680,14 @@ fn then_response_content_type_is(world: &mut WebWorld, expected: String) {
     );
 }
 
+#[then(regex = r#"^the response last-modified is "([^"]*)"$"#)]
+fn then_response_last_modified_is(world: &mut WebWorld, expected: String) {
+    assert_eq!(
+        world.response_last_modified.as_deref(),
+        Some(expected.as_str())
+    );
+}
+
 #[then(regex = r#"^the response is offered inline as "([^"]*)"$"#)]
 fn then_response_offered_inline_as(world: &mut WebWorld, file_name: String) {
     assert_eq!(
@@ -610,7 +696,7 @@ fn then_response_offered_inline_as(world: &mut WebWorld, file_name: String) {
     );
 }
 
-#[then(regex = r#"^the response body contains "([^"]*)"$"#)]
+#[then(regex = r#"^the response body contains "(.*)"$"#)]
 fn then_response_body_contains(world: &mut WebWorld, needle: String) {
     let body: &str = world
         .response_body
@@ -622,7 +708,7 @@ fn then_response_body_contains(world: &mut WebWorld, needle: String) {
     );
 }
 
-#[then(regex = r#"^the response body does not contain "([^"]*)"$"#)]
+#[then(regex = r#"^the response body does not contain "(.*)"$"#)]
 fn then_response_body_excludes(world: &mut WebWorld, needle: String) {
     let body: &str = world
         .response_body

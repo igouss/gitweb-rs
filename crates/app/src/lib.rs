@@ -25,9 +25,9 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_git::GixProjectStore;
 use gitweb_web::{
-    BlobHandler, BlobPlainHandler, Dispatcher, Handler, HeadsHandler, HistoryHandler, LogHandler,
-    ProjectListHandler, RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler,
-    TreeHandler, router,
+    BlobHandler, BlobPlainHandler, Dispatcher, FeedHandler, Handler, HeadsHandler, HistoryHandler,
+    LogHandler, ProjectListHandler, RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler,
+    TagsHandler, TreeHandler, router,
 };
 
 /// Assembles the full gitweb-rs router: a gix project store rooted at
@@ -104,6 +104,28 @@ fn build_dispatcher(
         Arc::clone(&settings),
     ));
     dispatcher.register(Action::BlobPlain, blob_plain);
+
+    // The feeds are absolute against the site URL; gitweb derives it per-request
+    // (SERVER_NAME), but a standalone daemon takes a configured canonical base
+    // (GITWEB_BASE_URL), defaulting to the CGI default host. The generator stamps
+    // the feed with this build's version.
+    let base: String =
+        std::env::var("GITWEB_BASE_URL").unwrap_or_else(|_| "http://localhost".to_owned());
+    let generator: String = concat!("gitweb-rs/", env!("CARGO_PKG_VERSION")).to_owned();
+    let rss: Arc<dyn Handler> = Arc::new(FeedHandler::new(
+        Arc::clone(&store),
+        Arc::clone(&settings),
+        base.clone(),
+        generator.clone(),
+    ));
+    dispatcher.register(Action::Rss, rss);
+    let atom: Arc<dyn Handler> = Arc::new(FeedHandler::new(
+        Arc::clone(&store),
+        Arc::clone(&settings),
+        base,
+        generator,
+    ));
+    dispatcher.register(Action::Atom, atom);
 
     let remotes: Arc<dyn Handler> = Arc::new(RemotesHandler::new(store, settings));
     dispatcher.register(Action::Remotes, remotes);

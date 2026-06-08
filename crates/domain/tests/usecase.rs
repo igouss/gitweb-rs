@@ -16,9 +16,11 @@ use cucumber::{World, given, then, when};
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::blame::Blame;
 use gitweb_domain::model::blob::{Blob, BlobDisplay};
+use gitweb_domain::model::change::ChangeStatus;
 use gitweb_domain::model::commit::Commit;
-use gitweb_domain::model::diff::{CombinedDiff, Diff};
+use gitweb_domain::model::diff::{CombinedDiff, Diff, DiffEntry};
 use gitweb_domain::model::encoding::FallbackEncoding;
+use gitweb_domain::model::feed::{Feed, FeedEntry, FeedFile};
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::grep::GrepResults;
 use gitweb_domain::model::message_body::LogLine;
@@ -40,6 +42,7 @@ use gitweb_domain::port::repository::{
 };
 use gitweb_domain::usecase::blob::{BlobView, assemble_blob};
 use gitweb_domain::usecase::blob_plain::{BlobPlainView, assemble_blob_plain};
+use gitweb_domain::usecase::feed::assemble_feed;
 use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
 use gitweb_domain::usecase::history::{HistoryRow, HistoryView, assemble_history};
 use gitweb_domain::usecase::log::{LogRow, LogView, assemble_log};
@@ -126,6 +129,7 @@ struct UsecaseWorld {
     blob_files: Vec<FakeBlobFile>,
     blob_result: Option<Result<BlobView, DomainError>>,
     blob_plain_result: Option<Result<BlobPlainView, DomainError>>,
+    feed_result: Option<Result<Feed, DomainError>>,
 }
 
 /// One directory in the fake repository's tree, listed by the `tree` use case.
@@ -671,10 +675,43 @@ impl Repository for FakeRepository {
     fn diff(
         &self,
         _from: Option<&ObjectId>,
-        _to: &ObjectId,
+        to: &ObjectId,
         _detection: RenameDetection,
     ) -> Result<Diff, DomainError> {
-        unimplemented!("the heads use case never diffs")
+        // The feed use case diffs each commit against its parent; the fake's
+        // commits carry the paths they touch, so synthesize one added-file entry
+        // per touched path (the to-side id from the path's blob when present).
+        let file_mode: FileMode = FileMode::from_octal("100644").expect("a valid file mode");
+        let absent: FileMode = FileMode::from_octal("000000").expect("a valid absent mode");
+        let entries: Vec<DiffEntry> = self
+            .commits
+            .iter()
+            .find(|commit: &&FakeCommit| &commit.id == to)
+            .map(|commit: &FakeCommit| {
+                commit
+                    .touches
+                    .iter()
+                    .map(|path: &String| {
+                        let to_oid: ObjectId = commit
+                            .present
+                            .iter()
+                            .find(|entry: &&FakePathEntry| &entry.path == path)
+                            .map(|entry: &FakePathEntry| entry.oid.clone())
+                            .unwrap_or_else(|| fake_oid(&format!("gone-{path}")));
+                        DiffEntry::new(
+                            ChangeStatus::added(),
+                            absent,
+                            file_mode,
+                            to_oid.null_like(),
+                            to_oid,
+                            path.clone(),
+                            path.clone(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(Diff::new(entries))
     }
 
     fn patch(
@@ -2507,6 +2544,73 @@ fn raw_blob_fails_invalid(world: &mut UsecaseWorld) {
 #[then("serving the raw blob fails as not found")]
 fn raw_blob_fails_not_found(world: &mut UsecaseWorld) {
     assert!(matches!(raw_blob_error(world), DomainError::NotFound(_)));
+}
+
+// --- feed: Whens -------------------------------------------------------------
+
+#[when("I assemble the feed of the default branch")]
+fn assemble_default_feed(world: &mut UsecaseWorld) {
+    let repo: FakeRepository = fake_repo(world);
+    world.feed_result = Some(assemble_feed(&repo, None, None, world.now));
+}
+
+#[when(regex = r#"^I assemble the feed of the default branch narrowed to "([^"]*)"$"#)]
+fn assemble_narrowed_feed(world: &mut UsecaseWorld, path: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.feed_result = Some(assemble_feed(&repo, None, Some(&path), world.now));
+}
+
+// --- feed: Thens -------------------------------------------------------------
+
+/// The assembled feed, or a panic if assembly failed.
+fn feed_view(world: &UsecaseWorld) -> &Feed {
+    world
+        .feed_result
+        .as_ref()
+        .expect("assemble the feed first")
+        .as_ref()
+        .expect("feed assembly succeeded")
+}
+
+/// The feed entry for the commit named `name`, by its derived id.
+fn feed_entry<'a>(world: &'a UsecaseWorld, name: &str) -> &'a FeedEntry {
+    let id: ObjectId = fake_oid(name);
+    feed_view(world)
+        .entries()
+        .iter()
+        .find(|entry: &&FeedEntry| entry.id() == id.as_str())
+        .unwrap_or_else(|| panic!("no feed entry for {name}"))
+}
+
+#[then(regex = r#"^the feed has (\d+) entries$"#)]
+fn feed_has_entries(world: &mut UsecaseWorld, expected: usize) {
+    assert_eq!(feed_view(world).entries().len(), expected);
+}
+
+#[then("the feed has a latest timestamp")]
+fn feed_has_latest(world: &mut UsecaseWorld) {
+    assert!(feed_view(world).latest().is_some());
+}
+
+#[then("the feed has no latest timestamp")]
+fn feed_has_no_latest(world: &mut UsecaseWorld) {
+    assert!(feed_view(world).latest().is_none());
+}
+
+#[then(regex = r#"^the feed entry "([^"]*)" is titled "(.*)"$"#)]
+fn feed_entry_titled(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(feed_entry(world, &name).title(), expected);
+}
+
+#[then(regex = r#"^the feed entry "([^"]*)" lists files "([^"]*)"$"#)]
+fn feed_entry_lists_files(world: &mut UsecaseWorld, name: String, expected: String) {
+    let listed: String = feed_entry(world, &name)
+        .files()
+        .iter()
+        .map(FeedFile::to_path)
+        .collect::<Vec<&str>>()
+        .join(",");
+    assert_eq!(listed, expected);
 }
 
 #[tokio::main]

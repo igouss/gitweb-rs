@@ -17,6 +17,7 @@ pub mod blob;
 pub mod chrome;
 pub mod error;
 pub mod escape;
+pub mod feed;
 pub mod heads;
 pub mod history;
 pub mod log;

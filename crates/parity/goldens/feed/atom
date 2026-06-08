@@ -1,0 +1,45 @@
+Status: 200 OK
+Last-modified: Tue, 14 Nov 2023 22:13:20 +0000
+Content-Type: application/atom+xml; charset=utf-8
+
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<title>Untitled Git - repo.git/atom log</title>
+<subtitle>Deterministic gitweb-rs parity corpus.</subtitle>
+<link rel="alternate" type="text/html" href="http://localhost/?p=repo.git;a=summary" />
+<link rel="self" type="application/atom+xml" href="http://localhost?p=repo.git;a=atom" />
+<id>http://localhost/?p=repo.git</id>
+<author><name>Ada Lovelace</name></author>
+<icon>static/git-favicon.png</icon>
+<logo>static/git-logo.png</logo>
+<updated>2023-11-14T22:13:20Z</updated>
+<generator version='gitweb-parity-corpus/2.54.0'>gitweb</generator>
+<entry>
+<title type="html">corpus root</title>
+<updated>2023-11-14T22:13:20Z</updated>
+<author>
+  <name>Ada Lovelace</name>
+  <email>ada@example.com</email>
+</author>
+<contributor>
+  <name>Ada Lovelace</name>
+  <email>ada@example.com</email>
+</contributor>
+<published>2023-11-14T22:13:20Z</published>
+<link rel="alternate" type="text/html" href="http://localhost/?p=repo.git;a=commitdiff;h=331d8105735f3b7bd6256afbd609616b78475faa" />
+<id>http://localhost/?p=repo.git;a=commitdiff;h=331d8105735f3b7bd6256afbd609616b78475faa</id>
+<content type="xhtml" xml:base="http://localhost/">
+<div xmlns="http://www.w3.org/1999/xhtml">
+<pre>
+corpus root
+</pre><ul>
+<li>[<a href="http://localhost/?p=repo.git;a=blobdiff;f=binary.bin;fp=binary.bin;h=f971a5e28b6c4cb237ca3c7349e33bb600dbc907;hp=0000000000000000000000000000000000000000;hb=331d8105735f3b7bd6256afbd609616b78475faa" title="diff">D</a><a href="http://localhost/?p=repo.git;a=history;f=binary.bin;h=331d8105735f3b7bd6256afbd609616b78475faa" title="history">H</a>] binary.bin</li>
+<li>[<a href="http://localhost/?p=repo.git;a=blobdiff;f=empty.txt;fp=empty.txt;h=e69de29bb2d1d6434b8b29ae775ad8c2e48c5391;hp=0000000000000000000000000000000000000000;hb=331d8105735f3b7bd6256afbd609616b78475faa" title="diff">D</a><a href="http://localhost/?p=repo.git;a=history;f=empty.txt;h=331d8105735f3b7bd6256afbd609616b78475faa" title="history">H</a>] empty.txt</li>
+<li>[<a href="http://localhost/?p=repo.git;a=blobdiff;f=hello.txt;fp=hello.txt;h=e4354d619d9a79db8be98017f931c55211c73726;hp=0000000000000000000000000000000000000000;hb=331d8105735f3b7bd6256afbd609616b78475faa" title="diff">D</a><a href="http://localhost/?p=repo.git;a=history;f=hello.txt;h=331d8105735f3b7bd6256afbd609616b78475faa" title="history">H</a>] hello.txt</li>
+<li>[<a href="http://localhost/?p=repo.git;a=blobdiff;f=latin1.txt;fp=latin1.txt;h=6f83395d973c448cdb70a7b21f7fc8018797acf6;hp=0000000000000000000000000000000000000000;hb=331d8105735f3b7bd6256afbd609616b78475faa" title="diff">D</a><a href="http://localhost/?p=repo.git;a=history;f=latin1.txt;h=331d8105735f3b7bd6256afbd609616b78475faa" title="history">H</a>] latin1.txt</li>
+<li>[<a href="http://localhost/?p=repo.git;a=blobdiff;f=one.txt;fp=one.txt;h=c1b0730e0133447badcfd47fd144e254807b06e1;hp=0000000000000000000000000000000000000000;hb=331d8105735f3b7bd6256afbd609616b78475faa" title="diff">D</a><a href="http://localhost/?p=repo.git;a=history;f=one.txt;h=331d8105735f3b7bd6256afbd609616b78475faa" title="history">H</a>] one.txt</li>
+</ul>
+</div>
+</content>
+</entry>
+</feed>

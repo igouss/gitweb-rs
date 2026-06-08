@@ -19,6 +19,7 @@ use gitweb_render::error::{ErrorResponse, HttpStatus, error_page, error_response
 use gitweb_render::escape::{
     esc_attr, esc_html, esc_html_nbsp, esc_param, esc_path, esc_path_info, esc_url,
 };
+use gitweb_render::feed::{FeedEntryView, FeedFileView, FeedView, atom, rss};
 use gitweb_render::heads::{HeadEntryView, HeadsTable, heads_table};
 use gitweb_render::history::{HistoryEntryView, HistoryTable, history_table};
 use gitweb_render::log::{LogEntryView, log_entries};
@@ -74,6 +75,7 @@ struct RenderWorld {
     domain_error: Option<DomainError>,
     status: Option<HttpStatus>,
     output: Option<String>,
+    feed_view: Option<FeedView>,
 }
 
 // ---- Given: the text under escaping -----------------------------------------
@@ -1515,6 +1517,79 @@ fn when_render_remotes_page(world: &mut RenderWorld) {
         blocks: std::mem::take(&mut world.remote_blocks),
     };
     world.output = Some(remotes_body(&page).into_string());
+}
+
+// ---- feed: RSS / Atom serialization -----------------------------------------
+
+/// A canonical one-entry, one-file feed exercising the metadata, the date forms,
+/// per-site escaping (an author with `<>`, a path with `&`), and the optional
+/// `history` link. `latest` toggles the with-commits vs empty-feed shape.
+fn sample_feed(latest: bool) -> FeedView {
+    let stamp: Timestamp = Timestamp::from_epoch(1_700_000_000);
+    let entries: Vec<FeedEntryView> = if latest {
+        vec![FeedEntryView {
+            title: "fix <stuff>".to_owned(),
+            author_full: "Ada Lovelace <ada@example.com>".to_owned(),
+            author_name: "Ada Lovelace".to_owned(),
+            author_email: Some("ada@example.com".to_owned()),
+            committer_name: "Ada Lovelace".to_owned(),
+            committer_email: Some("ada@example.com".to_owned()),
+            timestamp: stamp.clone(),
+            commitdiff_url: "http://h/?p=repo;a=commitdiff;h=abc".to_owned(),
+            comment: vec!["fix <stuff>".to_owned(), "more".to_owned()],
+            files: vec![FeedFileView {
+                to_path: "a&b.txt".to_owned(),
+                blobdiff_url: "http://h/?p=repo;a=blobdiff;f=a%26b.txt".to_owned(),
+                blame_url: None,
+                history_url: Some("http://h/?p=repo;a=history;f=a%26b.txt".to_owned()),
+            }],
+        }]
+    } else {
+        Vec::new()
+    };
+    FeedView {
+        title: "Untitled - repo log".to_owned(),
+        description: "desc".to_owned(),
+        owner: "Ada Lovelace".to_owned(),
+        generator: "gitweb-x/2.0".to_owned(),
+        logo: "static/git-logo.png".to_owned(),
+        favicon: "static/git-favicon.png".to_owned(),
+        alt_url: "http://h/?p=repo;a=summary".to_owned(),
+        id_url: "http://h/?p=repo".to_owned(),
+        self_url: "http://h?p=repo;a=atom".to_owned(),
+        xml_base: "http://h/".to_owned(),
+        content_type: "application/atom+xml".to_owned(),
+        latest: latest.then_some(stamp),
+        entries,
+    }
+}
+
+#[given("a feed with one commit")]
+fn given_feed_one_commit(world: &mut RenderWorld) {
+    world.feed_view = Some(sample_feed(true));
+}
+
+#[given("an empty feed")]
+fn given_empty_feed(world: &mut RenderWorld) {
+    world.feed_view = Some(sample_feed(false));
+}
+
+#[when("I render the feed as RSS")]
+fn when_render_rss(world: &mut RenderWorld) {
+    let view: &FeedView = world
+        .feed_view
+        .as_ref()
+        .expect("a feed must be built first");
+    world.output = Some(rss(view));
+}
+
+#[when("I render the feed as Atom")]
+fn when_render_atom(world: &mut RenderWorld) {
+    let view: &FeedView = world
+        .feed_view
+        .as_ref()
+        .expect("a feed must be built first");
+    world.output = Some(atom(view));
 }
 
 #[tokio::main]

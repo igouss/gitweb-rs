@@ -65,7 +65,10 @@ pub(crate) fn walk_commits(
 /// Resolves the base revision the walk starts from: an explicit revision through
 /// the port's resolver, or HEAD's target. An unborn HEAD yields `None` (gitweb's
 /// empty `parse_commits` on an undefined base); any other failure propagates.
-fn resolve_start(
+///
+/// Shared with the feed use case, which reads a fixed window (no `+1` probe) and
+/// so calls the port's `history` directly after resolving the base here.
+pub(crate) fn resolve_start(
     repo: &dyn Repository,
     rev: Option<&str>,
 ) -> Result<Option<ObjectId>, DomainError> {

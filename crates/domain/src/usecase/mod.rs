@@ -10,6 +10,7 @@
 
 pub mod blob;
 pub mod blob_plain;
+pub mod feed;
 pub mod heads;
 pub mod history;
 pub mod log;

@@ -20,9 +20,13 @@ gitweb-fixtures = { path = "../fixtures" }
 [dev-dependencies]
 # The golden test reads our format-stable output through the real gix adapter
 # and compares it to the captured reference, so it needs the adapter and the
-# domain entities. cucumber supplies the BDD harness.
+# domain entities. The feed goldens additionally drive the use case, the web
+# boundary's feed view-model assembly (URL building), and the render serializers
+# — the exact path the handler runs — so they pull in web and render too.
 gitweb-domain = { path = "../domain" }
 gitweb-git = { path = "../git" }
+gitweb-render = { path = "../render" }
+gitweb-web = { path = "../web" }
 cucumber = { workspace = true }
 tokio = { workspace = true }
 # A throwaway project root to rebuild the corpus into at test time.
