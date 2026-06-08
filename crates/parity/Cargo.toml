@@ -1,0 +1,42 @@
+[package]
+name = "gitweb-parity"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Golden differential conformance: gitweb-rs format-stable output diffed against reference output captured once from the original gitweb.perl."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+# The corpus is built with gix so its object ids equal the ids the golden test
+# reads back through the adapter. `gitweb-fixtures` is the shared, deterministic
+# builder; the capture binary and the test both go through it. No git binary,
+# no production-adapter dependency here — only the fixture builder.
+gitweb-fixtures = { path = "../fixtures" }
+
+[dev-dependencies]
+# The golden test reads our format-stable output through the real gix adapter
+# and compares it to the captured reference, so it needs the adapter and the
+# domain entities. cucumber supplies the BDD harness.
+gitweb-domain = { path = "../domain" }
+gitweb-git = { path = "../git" }
+cucumber = { workspace = true }
+tokio = { workspace = true }
+# A throwaway project root to rebuild the corpus into at test time.
+tempfile = { workspace = true }
+
+# Builds the deterministic corpus on disk and prints its `name <oid>` manifest,
+# so `scripts/capture-goldens.sh` knows which object each golden addresses. The
+# binary and the test share `corpus::build`, pinning identical object ids.
+[[bin]]
+name = "build-corpus"
+path = "src/bin/build-corpus.rs"
+
+# Golden differential conformance over the captured corpus. cucumber supplies
+# its own main(), so the default libtest harness is disabled.
+[[test]]
+name = "golden"
+harness = false

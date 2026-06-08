@@ -1,0 +1,4 @@
+Content-disposition: inline; filename="hello.txt"
+Content-Type: text/plain; charset=ISO-8859-1
+
+hello gitweb

@@ -822,6 +822,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "gitweb-parity"
+version = "0.0.0"
+dependencies = [
+ "cucumber",
+ "gitweb-domain",
+ "gitweb-fixtures",
+ "gitweb-git",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "gitweb-render"
 version = "0.0.0"
 dependencies = [

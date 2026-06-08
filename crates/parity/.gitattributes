@@ -1,0 +1,5 @@
+# The goldens are exact, byte-for-byte captures of gitweb's CGI output: CRLF
+# header line endings and raw (possibly NUL / non-UTF-8) bodies. Mark them
+# binary so git never normalizes line endings, re-encodes, or tries to diff
+# them — any such munging would corrupt the reference and break conformance.
+goldens/** binary
