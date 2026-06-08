@@ -99,7 +99,7 @@ pub fn assemble_blob(
 /// request that names neither is `die_error(400, "No file name defined")`; a
 /// path that is absent, or that names something other than a blob, is
 /// `die_error(404, "Cannot find file")`.
-fn resolve_blob(
+pub(crate) fn resolve_blob(
     repo: &dyn Repository,
     base_rev: Option<&str>,
     hash: Option<&str>,

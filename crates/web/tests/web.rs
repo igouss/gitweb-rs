@@ -25,8 +25,8 @@ use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
-    BlobHandler, HeadsHandler, HistoryHandler, LogHandler, ProjectListHandler, RemotesHandler,
-    ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler,
+    BlobHandler, BlobPlainHandler, HeadsHandler, HistoryHandler, LogHandler, ProjectListHandler,
+    RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -40,6 +40,7 @@ struct WebWorld {
     dispatcher: Dispatcher,
     response_status: Option<u16>,
     response_content_type: Option<String>,
+    response_content_disposition: Option<String>,
     response_body: Option<String>,
 }
 
@@ -405,6 +406,16 @@ fn given_blob_served(world: &mut WebWorld) {
     world.dispatcher.register(Action::Blob, handler);
 }
 
+#[given("the blob_plain action is served")]
+fn given_blob_plain_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(Settings::builtin());
+    let handler: Arc<dyn Handler> = Arc::new(BlobPlainHandler::new(store, settings));
+    world.dispatcher.register(Action::BlobPlain, handler);
+}
+
 #[given("the tags action is served")]
 fn given_tags_served(world: &mut WebWorld) {
     ensure_root(world);
@@ -561,12 +572,18 @@ async fn when_get(world: &mut WebWorld, uri: String) {
         .get(header::CONTENT_TYPE)
         .and_then(|value: &header::HeaderValue| value.to_str().ok())
         .map(str::to_owned);
+    let content_disposition: Option<String> = response
+        .headers()
+        .get(header::CONTENT_DISPOSITION)
+        .and_then(|value: &header::HeaderValue| value.to_str().ok())
+        .map(str::to_owned);
     let bytes: axum::body::Bytes = to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("the response body collects");
 
     world.response_status = Some(status);
     world.response_content_type = content_type;
+    world.response_content_disposition = content_disposition;
     world.response_body = Some(String::from_utf8_lossy(&bytes).into_owned());
 }
 
@@ -582,6 +599,14 @@ fn then_response_content_type_is(world: &mut WebWorld, expected: String) {
     assert_eq!(
         world.response_content_type.as_deref(),
         Some(expected.as_str())
+    );
+}
+
+#[then(regex = r#"^the response is offered inline as "([^"]*)"$"#)]
+fn then_response_offered_inline_as(world: &mut WebWorld, file_name: String) {
+    assert_eq!(
+        world.response_content_disposition.as_deref(),
+        Some(format!(r#"inline; filename="{file_name}""#).as_str())
     );
 }
 

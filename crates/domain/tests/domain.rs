@@ -15,6 +15,7 @@ use gitweb_domain::model::chop::{ChopMode, chop_str};
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::commit_date::CommitDate;
 use gitweb_domain::model::config_chain::{ConfigChain, ConfigSlot};
+use gitweb_domain::model::content_type::PlainHeaders;
 use gitweb_domain::model::diff::{CombinedDiffEntry, CombinedParent};
 use gitweb_domain::model::email_privacy::redact;
 use gitweb_domain::model::encoding::{FallbackEncoding, to_utf8};
@@ -62,6 +63,7 @@ struct DomainWorld {
     decoded: Option<String>,
     binary: Option<bool>,
     blob_display: Option<BlobDisplay>,
+    plain_headers: Option<PlainHeaders>,
     commit: Option<Commit>,
     is_merge: Option<bool>,
     commit_title: Option<String>,
@@ -572,6 +574,76 @@ fn blob_displays_image(world: &mut DomainWorld) {
 #[then("the blob displays as binary")]
 fn blob_displays_binary(world: &mut DomainWorld) {
     assert_eq!(world.blob_display, Some(BlobDisplay::Binary));
+}
+
+/// The resolved blob id the blob_plain "save as" name falls back to when no file
+/// name is given — matches the id named in `content_type.feature`.
+const RAW_BLOB_ID: &str = "0a1b2c3";
+
+/// Resolves the raw-serve headers for the given bytes under the named file (or
+/// none), charset, and XSS-prevention flag, and stashes them for assertion.
+fn serve_raw(
+    world: &mut DomainWorld,
+    file_name: Option<&str>,
+    charset: Option<&str>,
+    prevent_xss: bool,
+) {
+    let is_binary: bool = Blob::new(world.bytes.clone()).is_binary();
+    world.plain_headers = Some(PlainHeaders::resolve(
+        file_name,
+        is_binary,
+        RAW_BLOB_ID,
+        charset,
+        prevent_xss,
+    ));
+}
+
+#[when(regex = r#"^I serve it raw as "([^"]*)"$"#)]
+fn serve_raw_named(world: &mut DomainWorld, file_name: String) {
+    serve_raw(world, Some(&file_name), None, false);
+}
+
+#[when("I serve it raw with no file name")]
+fn serve_raw_unnamed(world: &mut DomainWorld) {
+    serve_raw(world, None, None, false);
+}
+
+#[when(regex = r#"^I serve it raw as "([^"]*)" with charset "([^"]*)"$"#)]
+fn serve_raw_with_charset(world: &mut DomainWorld, file_name: String, charset: String) {
+    serve_raw(world, Some(&file_name), Some(&charset), false);
+}
+
+#[when(regex = r#"^I serve it raw as "([^"]*)" with XSS prevention$"#)]
+fn serve_raw_with_xss(world: &mut DomainWorld, file_name: String) {
+    serve_raw(world, Some(&file_name), None, true);
+}
+
+fn served_headers(world: &DomainWorld) -> &PlainHeaders {
+    world
+        .plain_headers
+        .as_ref()
+        .expect("serve the blob raw before asserting")
+}
+
+#[then(regex = r#"^it is served as "([^"]*)"$"#)]
+fn served_as(world: &mut DomainWorld, expected: String) {
+    assert_eq!(served_headers(world).content_type(), expected);
+}
+
+#[then(regex = r#"^it is offered inline as "([^"]*)"$"#)]
+fn offered_inline_as(world: &mut DomainWorld, file_name: String) {
+    assert_eq!(
+        served_headers(world).content_disposition(),
+        format!(r#"inline; filename="{file_name}""#)
+    );
+}
+
+#[then(regex = r#"^it is offered as an attachment named "([^"]*)"$"#)]
+fn offered_attachment_named(world: &mut DomainWorld, file_name: String) {
+    assert_eq!(
+        served_headers(world).content_disposition(),
+        format!(r#"attachment; filename="{file_name}""#)
+    );
 }
 
 #[given(regex = r"^a commit with (\d+) parents$")]

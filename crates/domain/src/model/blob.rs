@@ -49,6 +49,13 @@ impl Blob {
         self.content.len()
     }
 
+    /// Consumes the blob, returning its raw bytes — for a caller that streams the
+    /// content verbatim (gitweb's `blob_plain`) and need not keep the wrapper.
+    #[must_use]
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.content
+    }
+
     /// Whether the content looks binary (gitweb's NUL-byte heuristic).
     #[must_use]
     pub fn is_binary(&self) -> bool {
@@ -67,18 +74,29 @@ impl Blob {
             return BlobDisplay::Text;
         }
         match file_name {
-            Some(name) if has_image_extension(name) => BlobDisplay::Image,
+            Some(name) if image_media_type(name).is_some() => BlobDisplay::Image,
             _ => BlobDisplay::Binary,
         }
     }
 }
 
-/// Whether `file_name` carries an extension gitweb's built-in `blob_mimetype`
-/// fallback maps to an inline image: `.png`, `.gif`, `.jpg`, or `.jpeg`,
-/// case-insensitive (gitweb's `m/\.png$/i`, `m/\.gif$/i`, `m/\.jpe?g$/i`).
-fn has_image_extension(file_name: &str) -> bool {
+/// The inline-image media type gitweb's built-in `blob_mimetype` fallback maps a
+/// file name to from its extension — `image/png` for `.png`, `image/gif` for
+/// `.gif`, `image/jpeg` for `.jpg`/`.jpeg` — case-insensitive (gitweb's
+/// `m/\.png$/i`, `m/\.gif$/i`, `m/\.jpe?g$/i`), or `None` for any other name.
+///
+/// This is the single source of the extension-to-image map: [`Blob::display_kind`]
+/// asks only whether it is `Some`, while [`crate::model::content_type`] uses the
+/// type itself to serve the blob raw.
+#[must_use]
+pub(crate) fn image_media_type(file_name: &str) -> Option<&'static str> {
     let extension: Option<String> = file_name
         .rsplit_once('.')
         .map(|(_, ext): (&str, &str)| ext.to_ascii_lowercase());
-    matches!(extension.as_deref(), Some("png" | "gif" | "jpg" | "jpeg"))
+    match extension.as_deref() {
+        Some("png") => Some("image/png"),
+        Some("gif") => Some("image/gif"),
+        Some("jpg" | "jpeg") => Some("image/jpeg"),
+        _ => None,
+    }
 }

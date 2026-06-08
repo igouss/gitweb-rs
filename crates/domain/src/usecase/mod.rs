@@ -9,6 +9,7 @@
 //! without the domain knowing they exist.
 
 pub mod blob;
+pub mod blob_plain;
 pub mod heads;
 pub mod history;
 pub mod log;

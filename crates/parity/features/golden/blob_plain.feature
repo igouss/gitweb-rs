@@ -9,12 +9,18 @@ Feature: blob_plain serves a blob's raw bytes, byte-for-byte as gitweb
   exactly through the capture, the commit, and our read — proving the harness is
   binary-safe, not just UTF-8-safe.
 
+  The headers are differentially verified too: the media type our endpoint
+  serves must equal the type gitweb chose (ignoring the charset CGI.pm bolts onto
+  every type), and the Content-Disposition we emit must equal gitweb's verbatim.
+
   Background:
     Given the parity corpus
 
-  Scenario Outline: a served blob body is byte-identical to gitweb's
+  Scenario Outline: a served blob is byte- and header-identical to gitweb's
     When I serve the "<blob>" blob plain
     Then its body matches gitweb's reference output
+    And its media type matches gitweb's
+    And its content disposition matches gitweb's
 
     Examples:
       | blob   |

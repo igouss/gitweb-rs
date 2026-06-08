@@ -10,6 +10,7 @@ pub mod chop;
 pub mod commit;
 pub mod commit_date;
 pub mod config_chain;
+pub mod content_type;
 pub mod diff;
 pub mod email_privacy;
 pub mod encoding;

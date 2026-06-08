@@ -51,6 +51,20 @@ impl Corpus {
             .map(|fixture: &BlobFixture| fixture.oid)
             .unwrap_or_else(|| panic!("no corpus blob named {name}"))
     }
+
+    /// The tree path of the blob named `name` — how `gitweb.perl` addressed it at
+    /// capture time (`f=<file_name>`), and the name our headers are derived from.
+    ///
+    /// # Panics
+    /// Panics if no blob carries that name (see [`Corpus::blob`]).
+    #[must_use]
+    pub fn file_name(&self, name: &str) -> &str {
+        self.blobs
+            .iter()
+            .find(|fixture: &&BlobFixture| fixture.name == name)
+            .map(|fixture: &BlobFixture| fixture.file_name.as_str())
+            .unwrap_or_else(|| panic!("no corpus blob named {name}"))
+    }
 }
 
 /// One blob to seed: its logical name, the tree path it lives at, and its bytes.

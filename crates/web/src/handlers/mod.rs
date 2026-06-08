@@ -13,6 +13,7 @@
 //! [`Dispatcher`]: crate::dispatch::Dispatcher
 
 pub mod blob;
+pub mod blob_plain;
 pub mod heads;
 pub mod history;
 pub mod log;
@@ -26,6 +27,7 @@ pub mod tags;
 pub mod tree;
 
 pub use blob::BlobHandler;
+pub use blob_plain::BlobPlainHandler;
 pub use heads::HeadsHandler;
 pub use history::HistoryHandler;
 pub use log::LogHandler;

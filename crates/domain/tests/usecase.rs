@@ -39,6 +39,7 @@ use gitweb_domain::port::repository::{
     ArchiveFormat, Page, RenameDetection, Repository, SearchQuery,
 };
 use gitweb_domain::usecase::blob::{BlobView, assemble_blob};
+use gitweb_domain::usecase::blob_plain::{BlobPlainView, assemble_blob_plain};
 use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
 use gitweb_domain::usecase::history::{HistoryRow, HistoryView, assemble_history};
 use gitweb_domain::usecase::log::{LogRow, LogView, assemble_log};
@@ -124,6 +125,7 @@ struct UsecaseWorld {
     blob_base_title: Option<String>,
     blob_files: Vec<FakeBlobFile>,
     blob_result: Option<Result<BlobView, DomainError>>,
+    blob_plain_result: Option<Result<BlobPlainView, DomainError>>,
 }
 
 /// One directory in the fake repository's tree, listed by the `tree` use case.
@@ -2405,6 +2407,106 @@ fn blob_fails_invalid(world: &mut UsecaseWorld) {
 #[then("assembling the blob fails as not found")]
 fn blob_fails_not_found(world: &mut UsecaseWorld) {
     assert!(matches!(blob_error(world), DomainError::NotFound(_)));
+}
+
+// --- blob_plain --------------------------------------------------------------
+
+/// The assembled raw-blob view, or a panic if the scenario produced an error.
+fn raw_blob_view(world: &UsecaseWorld) -> &BlobPlainView {
+    world
+        .blob_plain_result
+        .as_ref()
+        .expect("serve the blob raw first")
+        .as_ref()
+        .expect("serving succeeded")
+}
+
+/// The raw-blob failure, or a panic if the scenario produced a success.
+fn raw_blob_error(world: &UsecaseWorld) -> &DomainError {
+    match world
+        .blob_plain_result
+        .as_ref()
+        .expect("serve the blob raw first")
+    {
+        Ok(_) => panic!("expected serving the blob raw to fail"),
+        Err(failure) => failure,
+    }
+}
+
+#[when(regex = r#"^I serve the blob raw at path "([^"]*)"$"#)]
+fn serve_raw_at_path(world: &mut UsecaseWorld, path: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.blob_plain_result = Some(assemble_blob_plain(
+        &repo,
+        Some("HEAD"),
+        None,
+        Some(&path),
+        None,
+        false,
+    ));
+}
+
+#[when(regex = r#"^I serve the blob raw of id "([^"]*)"$"#)]
+fn serve_raw_of_id(world: &mut UsecaseWorld, id: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.blob_plain_result = Some(assemble_blob_plain(
+        &repo,
+        None,
+        Some(&id),
+        None,
+        None,
+        false,
+    ));
+}
+
+#[when("I serve the blob raw with neither id nor path")]
+fn serve_raw_neither(world: &mut UsecaseWorld) {
+    let repo: FakeRepository = fake_repo(world);
+    world.blob_plain_result = Some(assemble_blob_plain(
+        &repo,
+        Some("HEAD"),
+        None,
+        None,
+        None,
+        false,
+    ));
+}
+
+#[then(regex = r#"^the raw blob is served as "([^"]*)"$"#)]
+fn raw_blob_served_as(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(raw_blob_view(world).content_type(), expected);
+}
+
+#[then(regex = r#"^the raw blob is offered inline as "([^"]*)"$"#)]
+fn raw_blob_offered_inline(world: &mut UsecaseWorld, file_name: String) {
+    assert_eq!(
+        raw_blob_view(world).content_disposition(),
+        format!(r#"inline; filename="{file_name}""#)
+    );
+}
+
+#[then(regex = r#"^the raw blob body is "(.*)"$"#)]
+fn raw_blob_body_is(world: &mut UsecaseWorld, text: String) {
+    let expected: Vec<u8> = text.replace("\\n", "\n").into_bytes();
+    assert_eq!(raw_blob_view(world).bytes(), expected.as_slice());
+}
+
+#[then(regex = r#"^the raw blob body has bytes "([^"]*)"$"#)]
+fn raw_blob_body_has_bytes(world: &mut UsecaseWorld, hex: String) {
+    assert_eq!(
+        raw_blob_view(world).bytes(),
+        parse_hex_bytes(&hex).as_slice()
+    );
+}
+
+#[then("serving the raw blob fails as invalid")]
+fn raw_blob_fails_invalid(world: &mut UsecaseWorld) {
+    assert!(matches!(raw_blob_error(world), DomainError::Invalid(_)));
+}
+
+#[then("serving the raw blob fails as not found")]
+fn raw_blob_fails_not_found(world: &mut UsecaseWorld) {
+    assert!(matches!(raw_blob_error(world), DomainError::NotFound(_)));
 }
 
 #[tokio::main]
