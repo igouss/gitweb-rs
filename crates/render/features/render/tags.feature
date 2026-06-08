@@ -70,6 +70,18 @@ Feature: Rendering the tags table
     Then the result contains ">v1.0<"
     And the result contains ">rc1<"
 
+  Scenario: a capped list gets a trailing "more" row linking to the full tags
+    Given a lightweight commit tag "rc1" at "/r/rc1" aged 600
+    And the tags offer more at "/r/tags" labelled "..."
+    When I render the tags table
+    Then the result contains "/r/tags"
+    And the result contains "..."
+
+  Scenario: an uncapped list has no "more" row
+    Given a lightweight commit tag "rc1" at "/r/rc1" aged 600
+    When I render the tags table
+    Then the result does not contain "more"
+
   Scenario: an empty tag list shows a note
     When I render the tags page with no tags
     Then the result contains "No tags."

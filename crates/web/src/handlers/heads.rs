@@ -63,8 +63,10 @@ fn render_page(settings: &Settings, project: &str, view: &HeadsView) -> Markup {
             rows: view
                 .rows()
                 .iter()
-                .map(|row| render_row(project, row))
+                .map(|row| head_entry(project, row))
                 .collect(),
+            // The standalone heads page lists every branch, so it never caps.
+            more: None,
         },
     };
     let head: DocumentHead = DocumentHead {
@@ -113,8 +115,9 @@ fn ref_views(project: &str) -> Vec<NavItem> {
 
 /// Maps a use-case head row to a render row, building the per-branch links.
 /// gitweb links the name and shortlog to the branch shortlog, log to its log,
-/// and tree to its tree (with the branch as both hash and hash-base).
-fn render_row(project: &str, row: &HeadRow) -> HeadEntryView {
+/// and tree to its tree (with the branch as both hash and hash-base). Shared
+/// with the summary page's heads section.
+pub(crate) fn head_entry(project: &str, row: &HeadRow) -> HeadEntryView {
     let full: &str = row.full_name();
     HeadEntryView {
         name: row.name().to_owned(),

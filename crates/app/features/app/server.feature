@@ -53,8 +53,18 @@ Feature: The composition root serves a wired gitweb-rs over a real project root
     And the response body contains "init"
     And the response body contains "Ada Lovelace"
 
-  Scenario: a project action with no handler yet takes the die_error path
+  Scenario: the composition root serves a project's summary
     Given a project root
     And the root contains repository "alpha.git"
     When I GET "/?p=alpha.git&a=summary"
+    Then the response status is 200
+    And the response content type is "text/html; charset=utf-8"
+    And the response body contains "shortlog"
+    And the response body contains "heads"
+    And the response body contains "init"
+
+  Scenario: a project action with no handler yet takes the die_error path
+    Given a project root
+    And the root contains repository "alpha.git"
+    When I GET "/?p=alpha.git&a=commit"
     Then the response status is 400

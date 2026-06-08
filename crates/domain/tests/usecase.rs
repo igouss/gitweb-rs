@@ -25,7 +25,7 @@ use gitweb_domain::model::project::Project;
 use gitweb_domain::model::project_info::ProjectInfo;
 use gitweb_domain::model::ref_name::RefName;
 use gitweb_domain::model::reference::Reference;
-use gitweb_domain::model::settings::Settings;
+use gitweb_domain::model::settings::{Settings, SettingsLayer};
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::tag::Tag;
 use gitweb_domain::model::tree::Tree;
@@ -39,6 +39,7 @@ use gitweb_domain::usecase::project_list::{
     ProjectListRow, ProjectListView, assemble_project_list,
 };
 use gitweb_domain::usecase::shortlog::{ShortlogRow, ShortlogView, assemble_shortlog};
+use gitweb_domain::usecase::summary::{SummaryView, assemble_summary};
 use gitweb_domain::usecase::tag::{TagView, show_tag};
 use gitweb_domain::usecase::tags::{TagRow, TagsView, assemble_tags};
 
@@ -93,6 +94,15 @@ struct UsecaseWorld {
     head_commit: Option<ObjectId>,
     shortlog_result: Option<Result<ShortlogView, DomainError>>,
     log_result: Option<Result<LogView, DomainError>>,
+    summary_name: Option<String>,
+    summary_description: Option<String>,
+    summary_owner: Option<String>,
+    summary_clone_urls: Vec<String>,
+    summary_readme: Option<String>,
+    summary_omit_owner: bool,
+    summary_prevent_xss: bool,
+    summary_base_urls: Vec<String>,
+    summary_result: Option<Result<SummaryView, DomainError>>,
 }
 
 /// One branch in the fake repository: its short name, the id of its tip commit,
@@ -170,8 +180,10 @@ impl FakeRepository {
         Reference::new(RefName::new(tag.full_name.clone()), tag.ref_target.clone())
     }
 
-    /// The committer epoch of whatever commit `oid` names — a branch tip or a
-    /// lightweight tag's commit.
+    /// The committer epoch of whatever commit `oid` names — a branch tip, a
+    /// lightweight tag's commit, or a commit declared in this fake's history (so
+    /// a HEAD pointed straight at such a commit resolves, as the summary's
+    /// last-change read needs).
     fn commit_epoch(&self, oid: &ObjectId) -> Option<i64> {
         self.branches
             .iter()
@@ -182,6 +194,12 @@ impl FakeRepository {
                     .iter()
                     .find(|tag: &&FakeTag| !tag.annotated && &tag.ref_target == oid)
                     .map(|tag: &FakeTag| tag.epoch)
+            })
+            .or_else(|| {
+                self.commits
+                    .iter()
+                    .find(|commit: &&FakeCommit| &commit.id == oid)
+                    .map(|commit: &FakeCommit| commit.epoch)
             })
     }
 }
@@ -1146,6 +1164,198 @@ fn log_entry_body_begins(world: &mut UsecaseWorld, name: String, expected: Strin
         .first()
         .expect("the log body has at least one line");
     assert_eq!(first, &LogLine::Text(expected));
+}
+
+// --- summary: accessors ------------------------------------------------------
+
+/// The assembled summary view, or a panic if the scenario produced an error.
+fn summary_view(world: &UsecaseWorld) -> &SummaryView {
+    world
+        .summary_result
+        .as_ref()
+        .expect("assemble the summary first")
+        .as_ref()
+        .expect("assembly succeeded")
+}
+
+// --- summary: Givens ---------------------------------------------------------
+
+#[given(regex = r#"^the project is named "([^"]*)"$"#)]
+fn summary_project_named(world: &mut UsecaseWorld, name: String) {
+    world.summary_name = Some(name);
+}
+
+#[given(regex = r#"^the project is described as "(.*)"$"#)]
+fn summary_project_described(world: &mut UsecaseWorld, text: String) {
+    world.summary_description = Some(text);
+}
+
+#[given(regex = r#"^the project is owned by "([^"]*)"$"#)]
+fn summary_project_owned_by(world: &mut UsecaseWorld, owner: String) {
+    world.summary_owner = Some(owner);
+}
+
+#[given(regex = r#"^the project has clone url "([^"]*)"$"#)]
+fn summary_project_clone_url(world: &mut UsecaseWorld, url: String) {
+    world.summary_clone_urls.push(url);
+}
+
+#[given(regex = r#"^the project README is "(.*)"$"#)]
+fn summary_project_readme(world: &mut UsecaseWorld, contents: String) {
+    world.summary_readme = Some(contents);
+}
+
+#[given("owner display is omitted")]
+fn summary_omit_owner(world: &mut UsecaseWorld) {
+    world.summary_omit_owner = true;
+}
+
+#[given("XSS prevention is on")]
+fn summary_prevent_xss(world: &mut UsecaseWorld) {
+    world.summary_prevent_xss = true;
+}
+
+#[given(regex = r#"^the git base URL is "([^"]*)"$"#)]
+fn summary_base_url(world: &mut UsecaseWorld, base: String) {
+    world.summary_base_urls.push(base);
+}
+
+// --- summary: When -----------------------------------------------------------
+
+#[when("I assemble the summary")]
+fn assemble_the_summary(world: &mut UsecaseWorld) {
+    let repo: FakeRepository = fake_repo(world);
+    let name: String = world
+        .summary_name
+        .clone()
+        .unwrap_or_else(|| "repo".to_owned());
+    let mut info: ProjectInfo = ProjectInfo::named(name);
+    if let Some(description) = &world.summary_description {
+        info = info.with_description(description.clone());
+    }
+    if let Some(owner) = &world.summary_owner {
+        info = info.with_owner(owner.clone());
+    }
+    for url in &world.summary_clone_urls {
+        info = info.with_clone_url(url.clone());
+    }
+    let layer: SettingsLayer = SettingsLayer {
+        omit_owner: Some(world.summary_omit_owner),
+        prevent_xss: Some(world.summary_prevent_xss),
+        git_base_url_list: Some(world.summary_base_urls.clone()),
+        ..SettingsLayer::default()
+    };
+    let settings: Settings = Settings::resolve(&[layer]);
+    world.summary_result = Some(assemble_summary(
+        &repo,
+        &info,
+        world.summary_readme.as_deref(),
+        &settings,
+        world.now,
+    ));
+}
+
+// --- summary: Thens ----------------------------------------------------------
+
+#[then(regex = r#"^the summary description is "(.*)"$"#)]
+fn summary_description_is(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(summary_view(world).description(), expected);
+}
+
+#[then(regex = r#"^the summary shows the owner "([^"]*)"$"#)]
+fn summary_shows_owner(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(summary_view(world).owner(), Some(expected.as_str()));
+}
+
+#[then("the summary shows no owner")]
+fn summary_shows_no_owner(world: &mut UsecaseWorld) {
+    assert_eq!(summary_view(world).owner(), None);
+}
+
+#[then(regex = r#"^the summary last change date is "([^"]*)"$"#)]
+fn summary_last_change_date(world: &mut UsecaseWorld, expected: String) {
+    let date: String = summary_view(world)
+        .last_change()
+        .expect("the summary has a last change")
+        .utc_date();
+    assert_eq!(date, expected);
+}
+
+#[then("the summary shows no last change")]
+fn summary_shows_no_last_change(world: &mut UsecaseWorld) {
+    assert_eq!(summary_view(world).last_change(), None);
+}
+
+#[then(regex = r#"^the summary clone urls are "(.*)"$"#)]
+fn summary_clone_urls_are(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(summary_view(world).clone_urls().join(", "), expected);
+}
+
+#[then("the summary advertises no clone urls")]
+fn summary_advertises_no_clone_urls(world: &mut UsecaseWorld) {
+    assert!(summary_view(world).clone_urls().is_empty());
+}
+
+#[then(regex = r#"^the summary README is "(.*)"$"#)]
+fn summary_readme_is(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(summary_view(world).readme(), Some(expected.as_str()));
+}
+
+#[then("the summary includes no README")]
+fn summary_includes_no_readme(world: &mut UsecaseWorld) {
+    assert_eq!(summary_view(world).readme(), None);
+}
+
+#[then(regex = r#"^the summary shortlog lists "(.*)"$"#)]
+fn summary_shortlog_lists(world: &mut UsecaseWorld, expected: String) {
+    let actual: Vec<String> = summary_view(world)
+        .shortlog()
+        .rows()
+        .iter()
+        .map(|row: &ShortlogRow| row.id().to_owned())
+        .collect();
+    let wanted: Vec<String> = expected
+        .split(", ")
+        .map(|name: &str| fake_oid(name).as_str().to_owned())
+        .collect();
+    assert_eq!(actual, wanted);
+}
+
+#[then("the summary shortlog is empty")]
+fn summary_shortlog_is_empty(world: &mut UsecaseWorld) {
+    assert!(summary_view(world).shortlog().rows().is_empty());
+}
+
+#[then(regex = r#"^the summary lists tags "(.*)"$"#)]
+fn summary_lists_tags(world: &mut UsecaseWorld, expected: String) {
+    let names: Vec<&str> = summary_view(world)
+        .tags()
+        .shown()
+        .iter()
+        .map(|row: &TagRow| row.name())
+        .collect();
+    assert_eq!(names.join(", "), expected);
+}
+
+#[then("the summary tags section is not truncated")]
+fn summary_tags_not_truncated(world: &mut UsecaseWorld) {
+    assert!(!summary_view(world).tags().is_truncated());
+}
+
+#[then(regex = r#"^the summary lists heads "(.*)"$"#)]
+fn summary_lists_heads(world: &mut UsecaseWorld, expected: String) {
+    let names: Vec<&str> = summary_view(world)
+        .heads()
+        .shown()
+        .iter()
+        .map(|row: &HeadRow| row.name())
+        .collect();
+    assert_eq!(names.join(", "), expected);
+}
+
+#[then("the summary heads section is not truncated")]
+fn summary_heads_not_truncated(world: &mut UsecaseWorld) {
+    assert!(!summary_view(world).heads().is_truncated());
 }
 
 #[tokio::main]

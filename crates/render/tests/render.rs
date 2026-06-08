@@ -25,6 +25,9 @@ use gitweb_render::project_list::{
     ProjectLinks, ProjectList, ProjectRow, SortHeader, project_list,
 };
 use gitweb_render::shortlog::{ShortlogEntryView, ShortlogTable, shortlog_table};
+use gitweb_render::summary::{
+    HeadsSection, ShortlogSection, SummaryMetadata, SummaryPage, TagsSection, summary_body,
+};
 use gitweb_render::tag::{TagAuthorView, TagPage, TaggedObjectView, tag_body};
 use gitweb_render::tags::{TagEntryView, TagReftype, TagsPage, TagsTable, tags_body, tags_table};
 
@@ -37,12 +40,22 @@ struct RenderWorld {
     footer_links: Vec<FooterLink>,
     project_rows: Vec<ProjectRow>,
     head_entries: Vec<HeadEntryView>,
+    heads_more: Option<MoreLink>,
+    tags_more: Option<MoreLink>,
     shortlog_entries: Vec<ShortlogEntryView>,
     shortlog_more: Option<MoreLink>,
     log_entries: Vec<LogEntryView>,
     log_more: Option<MoreLink>,
     tag_entries: Vec<TagEntryView>,
     tag_page: Option<TagPage>,
+    summary_description: Option<String>,
+    summary_owner: Option<String>,
+    summary_has_last_change: bool,
+    summary_clone_urls: Vec<String>,
+    summary_readme: Option<String>,
+    summary_shortlog_href: Option<String>,
+    summary_tags_href: Option<String>,
+    summary_heads_href: Option<String>,
     domain_error: Option<DomainError>,
     status: Option<HttpStatus>,
     output: Option<String>,
@@ -476,6 +489,7 @@ fn given_head_unknown_age(world: &mut RenderWorld, name: String, base: String) {
 fn when_render_heads_table(world: &mut RenderWorld) {
     let table: HeadsTable = HeadsTable {
         rows: std::mem::take(&mut world.head_entries),
+        more: world.heads_more.take(),
     };
     world.output = Some(heads_table(&table).into_string());
 }
@@ -574,6 +588,16 @@ fn given_shortlog_chopped_subject(
 #[given(regex = r#"^the shortlog offers more at "([^"]*)" labelled "([^"]*)"$"#)]
 fn given_shortlog_more(world: &mut RenderWorld, href: String, label: String) {
     world.shortlog_more = Some(MoreLink { href, label });
+}
+
+#[given(regex = r#"^the heads offer more at "([^"]*)" labelled "([^"]*)"$"#)]
+fn given_heads_more(world: &mut RenderWorld, href: String, label: String) {
+    world.heads_more = Some(MoreLink { href, label });
+}
+
+#[given(regex = r#"^the tags offer more at "([^"]*)" labelled "([^"]*)"$"#)]
+fn given_tags_more(world: &mut RenderWorld, href: String, label: String) {
+    world.tags_more = Some(MoreLink { href, label });
 }
 
 #[when("I render the shortlog table")]
@@ -769,6 +793,7 @@ fn given_annotated_tree_tag(
 fn when_render_tags_table(world: &mut RenderWorld) {
     let table: TagsTable = TagsTable {
         rows: std::mem::take(&mut world.tag_entries),
+        more: world.tags_more.take(),
     };
     world.output = Some(tags_table(&table).into_string());
 }
@@ -778,7 +803,10 @@ fn when_render_tags_page_empty(world: &mut RenderWorld) {
     let page: TagsPage = TagsPage {
         crumbs: Vec::new(),
         ref_views: Vec::new(),
-        table: TagsTable { rows: Vec::new() },
+        table: TagsTable {
+            rows: Vec::new(),
+            more: None,
+        },
     };
     world.output = Some(tags_body(&page).into_string());
 }
@@ -1015,6 +1043,101 @@ fn then_result_is_docstring(world: &mut RenderWorld, step: &Step) {
         .expect("scenario must supply a docstring")
         .trim_matches('\n');
     assert_eq!(world.output.as_deref(), Some(expected));
+}
+
+// ---- Summary page -----------------------------------------------------------
+
+#[given(regex = r#"^a summary described as "([^"]*)"$"#)]
+fn given_summary_described(world: &mut RenderWorld, description: String) {
+    world.summary_description = Some(description);
+}
+
+#[given(regex = r#"^a summary described as "([^"]*)" owned by "([^"]*)"$"#)]
+fn given_summary_described_owned(world: &mut RenderWorld, description: String, owner: String) {
+    world.summary_description = Some(description);
+    world.summary_owner = Some(owner);
+}
+
+#[given("a summary with a last change")]
+fn given_summary_last_change(world: &mut RenderWorld) {
+    world.summary_has_last_change = true;
+}
+
+#[given(regex = r#"^a summary with clone url "([^"]*)"$"#)]
+fn given_summary_clone_url(world: &mut RenderWorld, url: String) {
+    world.summary_clone_urls.push(url);
+}
+
+#[given(regex = r#"^a summary with README "([^"]*)"$"#)]
+fn given_summary_readme(world: &mut RenderWorld, readme: String) {
+    world.summary_readme = Some(readme);
+}
+
+#[given(regex = r#"^a summary with a shortlog section at "([^"]*)"$"#)]
+fn given_summary_shortlog(world: &mut RenderWorld, href: String) {
+    world.summary_shortlog_href = Some(href);
+}
+
+#[given(regex = r#"^a summary with a tags section at "([^"]*)"$"#)]
+fn given_summary_tags(world: &mut RenderWorld, href: String) {
+    world.summary_tags_href = Some(href);
+}
+
+#[given(regex = r#"^a summary with a heads section at "([^"]*)"$"#)]
+fn given_summary_heads(world: &mut RenderWorld, href: String) {
+    world.summary_heads_href = Some(href);
+}
+
+#[when("I render the summary")]
+fn when_render_summary(world: &mut RenderWorld) {
+    let metadata: SummaryMetadata = SummaryMetadata {
+        description: world
+            .summary_description
+            .clone()
+            .unwrap_or_else(|| "none".to_owned()),
+        owner: world.summary_owner.clone(),
+        last_change: world
+            .summary_has_last_change
+            .then(|| Timestamp::from_epoch(1_577_880_000)),
+        clone_urls: std::mem::take(&mut world.summary_clone_urls),
+    };
+    let page: SummaryPage = SummaryPage {
+        crumbs: Vec::new(),
+        nav: Vec::new(),
+        metadata,
+        readme: world.summary_readme.take(),
+        shortlog: world
+            .summary_shortlog_href
+            .take()
+            .map(|href: String| ShortlogSection {
+                href,
+                table: ShortlogTable {
+                    rows: Vec::new(),
+                    more: None,
+                },
+            }),
+        tags: world
+            .summary_tags_href
+            .take()
+            .map(|href: String| TagsSection {
+                href,
+                table: TagsTable {
+                    rows: Vec::new(),
+                    more: None,
+                },
+            }),
+        heads: world
+            .summary_heads_href
+            .take()
+            .map(|href: String| HeadsSection {
+                href,
+                table: HeadsTable {
+                    rows: Vec::new(),
+                    more: None,
+                },
+            }),
+    };
+    world.output = Some(summary_body(&page).into_string());
 }
 
 #[tokio::main]

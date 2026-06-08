@@ -64,8 +64,10 @@ fn render_page(settings: &Settings, project: &str, view: &TagsView) -> Markup {
             rows: view
                 .rows()
                 .iter()
-                .map(|row: &TagRow| render_row(project, row))
+                .map(|row: &TagRow| tag_entry(project, row))
                 .collect(),
+            // The standalone tags page lists every tag, so it never caps.
+            more: None,
         },
     };
     let head: DocumentHead = DocumentHead {
@@ -116,7 +118,8 @@ fn ref_views(project: &str) -> Vec<NavItem> {
 /// the name and the reftype label to the tagged object (via its kind's action,
 /// keyed by `refid`), the subject and the `tag` selflink to the single tag view
 /// (keyed by the tag's own id), and the reftype-dependent links off the ref.
-fn render_row(project: &str, row: &TagRow) -> TagEntryView {
+/// Shared with the summary page's tags section.
+pub(crate) fn tag_entry(project: &str, row: &TagRow) -> TagEntryView {
     TagEntryView {
         age: row.age(),
         name: row.name().to_owned(),

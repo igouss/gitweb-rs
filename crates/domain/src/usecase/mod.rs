@@ -13,5 +13,6 @@ pub mod log;
 pub mod log_generic;
 pub mod project_list;
 pub mod shortlog;
+pub mod summary;
 pub mod tag;
 pub mod tags;

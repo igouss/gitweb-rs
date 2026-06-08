@@ -41,3 +41,15 @@ Feature: Rendering the heads table
     When I render the heads table
     Then the result contains ">main<"
     And the result contains ">topic<"
+
+  Scenario: a capped list gets a trailing "more" row linking to the full heads
+    Given a head "main" at "/main" aged 600
+    And the heads offer more at "/r/heads" labelled "..."
+    When I render the heads table
+    Then the result contains "/r/heads"
+    And the result contains "..."
+
+  Scenario: an uncapped list has no "more" row
+    Given a head "main" at "/main" aged 600
+    When I render the heads table
+    Then the result does not contain "more"

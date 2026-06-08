@@ -21,6 +21,7 @@ pub mod log;
 pub mod markup;
 pub mod project_list;
 pub mod shortlog;
+pub mod summary;
 pub mod tag;
 pub mod tags;
 pub mod timestamp;

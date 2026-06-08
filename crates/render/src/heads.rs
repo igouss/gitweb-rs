@@ -11,7 +11,7 @@
 use gitweb_domain::model::age::Age;
 
 use crate::age::age_class_name;
-use crate::chrome::{Crumb, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, MoreLink, NavItem, PageFooter, footer, page_header, page_nav};
 use crate::markup::{Markup, html};
 
 /// One branch row: its name (linking to the branch shortlog), the per-branch
@@ -32,11 +32,16 @@ pub struct HeadEntryView {
     pub current: bool,
 }
 
-/// The heads table: the branch rows in display order.
+/// The heads table: the branch rows in display order, with an optional trailing
+/// "more" row (gitweb's `$extra` — the summary page's "..." link to the full
+/// heads action; absent on the standalone heads page, which lists every branch).
 #[derive(Debug, Clone)]
 pub struct HeadsTable {
     /// The branch rows, already ordered by the use case.
     pub rows: Vec<HeadEntryView>,
+    /// The "more" affordance, present only when the list was capped (the summary
+    /// page past 16 branches).
+    pub more: Option<MoreLink>,
 }
 
 /// The whole heads page body: the breadcrumb trail, the refs sub-navigation
@@ -72,7 +77,7 @@ pub fn heads_body(page: &HeadsPage) -> Markup {
     }
 }
 
-/// Renders the heads table.
+/// Renders the heads table: a row per branch, then the optional "more" row.
 #[must_use]
 pub fn heads_table(table: &HeadsTable) -> Markup {
     html! {
@@ -80,6 +85,11 @@ pub fn heads_table(table: &HeadsTable) -> Markup {
             tbody {
                 @for row in &table.rows {
                     (head_row(row))
+                }
+                @if let Some(more) = &table.more {
+                    tr class="more" {
+                        td colspan="3" { a href=(more.href) { (more.label) } }
+                    }
                 }
             }
         }

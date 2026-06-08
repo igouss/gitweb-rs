@@ -19,12 +19,13 @@ use gitweb_domain::error::DomainError;
 use gitweb_domain::model::action::Action;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
-use gitweb_domain::model::settings::Settings;
+use gitweb_domain::model::settings::{Settings, SettingsLayer};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
-    HeadsHandler, LogHandler, ProjectListHandler, ShortlogHandler, TagHandler, TagsHandler,
+    HeadsHandler, LogHandler, ProjectListHandler, ShortlogHandler, SummaryHandler, TagHandler,
+    TagsHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -375,6 +376,58 @@ fn given_tag_served(world: &mut WebWorld) {
     world.dispatcher.register(Action::Tag, handler);
 }
 
+// --- summary: fixture metadata and the served handler ------------------------
+
+#[given(regex = r#"^"([^"]*)" has the description file "(.*)"$"#)]
+fn given_summary_description(world: &mut WebWorld, name: String, text: String) {
+    root(world).set_description(&name, &text);
+}
+
+#[given(regex = r#"^"([^"]*)" has a README of "(.*)"$"#)]
+fn given_summary_readme(world: &mut WebWorld, name: String, contents: String) {
+    root(world).set_readme_html(&name, &contents);
+}
+
+#[given(regex = r#"^"([^"]*)" has an empty README$"#)]
+fn given_summary_empty_readme(world: &mut WebWorld, name: String) {
+    root(world).set_readme_html(&name, "");
+}
+
+#[given(regex = r#"^the repository "([^"]*)" has 17 branches$"#)]
+fn given_seventeen_branches(world: &mut WebWorld, name: String) {
+    // Fixture construction (not assertion logic): 17 distinct branches puts the
+    // heads section one past gitweb's cap of 16, so its "..." link must appear.
+    for index in 0..17 {
+        let branch: String = format!("b{index:02}");
+        let epoch: i64 = 1000 + i64::from(index);
+        root(world).add_branch_at(&name, &branch, epoch);
+    }
+}
+
+#[given("the summary action is served")]
+fn given_summary_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(Settings::builtin());
+    let handler: Arc<dyn Handler> = Arc::new(SummaryHandler::new(store, settings));
+    world.dispatcher.register(Action::Summary, handler);
+}
+
+#[given("the summary action is served with XSS prevention")]
+fn given_summary_served_xss(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let layer: SettingsLayer = SettingsLayer {
+        prevent_xss: Some(true),
+        ..SettingsLayer::default()
+    };
+    let settings: Arc<Settings> = Arc::new(Settings::resolve(&[layer]));
+    let handler: Arc<dyn Handler> = Arc::new(SummaryHandler::new(store, settings));
+    world.dispatcher.register(Action::Summary, handler);
+}
+
 // --- When: drive the assembled router with one in-process request ------------
 
 #[when(regex = r#"^I GET "([^"]*)"$"#)]
@@ -429,6 +482,18 @@ fn then_response_body_contains(world: &mut WebWorld, needle: String) {
     assert!(
         body.contains(&needle),
         "body did not contain {needle:?}: {body}"
+    );
+}
+
+#[then(regex = r#"^the response body does not contain "([^"]*)"$"#)]
+fn then_response_body_excludes(world: &mut WebWorld, needle: String) {
+    let body: &str = world
+        .response_body
+        .as_deref()
+        .expect("a response body must have been captured");
+    assert!(
+        !body.contains(&needle),
+        "body unexpectedly contained {needle:?}: {body}"
     );
 }
 

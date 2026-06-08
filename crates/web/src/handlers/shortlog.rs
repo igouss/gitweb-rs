@@ -83,7 +83,7 @@ fn render_page(
             rows: view
                 .rows()
                 .iter()
-                .map(|row: &ShortlogRow| render_row(project, row))
+                .map(|row: &ShortlogRow| shortlog_entry(project, row))
                 .collect(),
             more: view.has_more().then(|| more_link(project, rev, page_num)),
         },
@@ -151,8 +151,8 @@ fn scoped_href(project: &str, action: &str, param: &str, rev: Option<&str>) -> S
 
 /// Maps a use-case shortlog row to a render row, building the per-commit links.
 /// The date strings are already resolved by the domain; only the URLs are built
-/// here, keyed on the commit id.
-fn render_row(project: &str, row: &ShortlogRow) -> ShortlogEntryView {
+/// here, keyed on the commit id. Shared with the summary page's shortlog section.
+pub(crate) fn shortlog_entry(project: &str, row: &ShortlogRow) -> ShortlogEntryView {
     let id: &str = row.id();
     ShortlogEntryView {
         date_displayed: row.date().displayed().to_owned(),

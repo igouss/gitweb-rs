@@ -24,7 +24,8 @@ pub mod url;
 
 pub use dispatch::{Dispatcher, Handler};
 pub use handlers::{
-    HeadsHandler, LogHandler, ProjectListHandler, ShortlogHandler, TagHandler, TagsHandler,
+    HeadsHandler, LogHandler, ProjectListHandler, ShortlogHandler, SummaryHandler, TagHandler,
+    TagsHandler,
 };
 pub use response::View;
 pub use server::router;

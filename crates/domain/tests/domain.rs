@@ -33,6 +33,7 @@ use gitweb_domain::model::ref_name::RefName;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::routing::{Dispatch, route};
 use gitweb_domain::model::safety::{SafePath, SafeRef};
+use gitweb_domain::model::section::Section;
 use gitweb_domain::model::settings::{FeatureName, Settings, SettingsLayer};
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::timestamp::Timestamp;
@@ -122,6 +123,9 @@ struct DomainWorld {
     commit_date: Option<CommitDate>,
     log_message: String,
     log_body: Option<Vec<LogLine>>,
+    section_cap: usize,
+    section_items: Vec<String>,
+    section: Option<Section<String>>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -2101,6 +2105,63 @@ fn then_routing_fails_project_needed(world: &mut DomainWorld) {
         Err(error) => error,
     };
     assert_eq!(error, DomainError::Invalid("Project needed".to_owned()));
+}
+
+// --- section: the summary-section cap rule -----------------------------------
+
+/// Splits a comma-separated list step argument into items, treating the empty
+/// string as no items.
+fn split_items(text: &str) -> Vec<String> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    text.split(", ").map(str::to_owned).collect()
+}
+
+#[given(regex = r"^a section cap of (\d+)$")]
+fn given_section_cap(world: &mut DomainWorld, cap: usize) {
+    world.section_cap = cap;
+}
+
+#[given(regex = r#"^the section items "(.*)"$"#)]
+fn given_section_items(world: &mut DomainWorld, items: String) {
+    world.section_items = split_items(&items);
+}
+
+#[when("I limit the section")]
+fn when_limit_section(world: &mut DomainWorld) {
+    world.section = Some(Section::limited(
+        world.section_items.clone(),
+        world.section_cap,
+    ));
+}
+
+#[then(regex = r#"^the shown section items are "(.*)"$"#)]
+fn then_shown_section_items(world: &mut DomainWorld, expected: String) {
+    let section: &Section<String> = world.section.as_ref().expect("limit the section first");
+    assert_eq!(section.shown().join(", "), expected);
+}
+
+#[then("the section is truncated")]
+fn then_section_truncated(world: &mut DomainWorld) {
+    assert!(
+        world
+            .section
+            .as_ref()
+            .expect("limit the section first")
+            .is_truncated()
+    );
+}
+
+#[then("the section is not truncated")]
+fn then_section_not_truncated(world: &mut DomainWorld) {
+    assert!(
+        !world
+            .section
+            .as_ref()
+            .expect("limit the section first")
+            .is_truncated()
+    );
 }
 
 #[tokio::main]

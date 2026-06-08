@@ -13,7 +13,7 @@ use gitweb_domain::model::age::Age;
 use gitweb_domain::model::chop::{ChopMode, chop_str};
 
 use crate::age::age_class_name;
-use crate::chrome::{Crumb, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, MoreLink, NavItem, PageFooter, footer, page_header, page_nav};
 use crate::markup::{Markup, html};
 
 /// gitweb chops a tag's subject to 30 characters with 5 of slack (`chop_str
@@ -78,11 +78,16 @@ pub struct TagEntryView {
     pub reftype: TagReftype,
 }
 
-/// The tags table: the tag rows in display order.
+/// The tags table: the tag rows in display order, with an optional trailing
+/// "more" row (gitweb's `$extra` — the summary page's "..." link to the full
+/// tags action; absent on the standalone tags page, which lists every tag).
 #[derive(Debug, Clone)]
 pub struct TagsTable {
     /// The tag rows, already ordered by the use case.
     pub rows: Vec<TagEntryView>,
+    /// The "more" affordance, present only when the list was capped (the summary
+    /// page past 16 tags).
+    pub more: Option<MoreLink>,
 }
 
 /// The whole tags page body: the breadcrumb trail, the refs sub-navigation
@@ -117,7 +122,7 @@ pub fn tags_body(page: &TagsPage) -> Markup {
     }
 }
 
-/// Renders the tags table.
+/// Renders the tags table: a row per tag, then the optional "more" row.
 #[must_use]
 pub fn tags_table(table: &TagsTable) -> Markup {
     html! {
@@ -125,6 +130,11 @@ pub fn tags_table(table: &TagsTable) -> Markup {
             tbody {
                 @for row in &table.rows {
                     (tag_row(row))
+                }
+                @if let Some(more) = &table.more {
+                    tr class="more" {
+                        td colspan="5" { a href=(more.href) { (more.label) } }
+                    }
                 }
             }
         }

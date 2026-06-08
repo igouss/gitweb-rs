@@ -31,6 +31,7 @@ pub mod reference;
 pub mod request;
 pub mod routing;
 pub mod safety;
+pub mod section;
 pub mod settings;
 pub mod signature;
 pub mod tag;
