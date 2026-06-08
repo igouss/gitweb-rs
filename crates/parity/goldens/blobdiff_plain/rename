@@ -1,0 +1,11 @@
+Expires: Tue, 09 Jun 2026 20:53:07 GMT
+Date: Mon, 08 Jun 2026 20:53:07 GMT
+Content-disposition: inline; filename="new.txt.patch"
+Content-Type: text/plain; charset=utf-8
+
+X-Git-Url: http://localhost?p=repo.git;a=blobdiff_plain;f=new.txt;fp=old.txt;hb=0445dec572a112eff12e2ac6570de3c2db455c2c;hpb=ea98e88ce0947404f20d1b090d6c21f8284606c1
+
+diff --git a/old.txt b/new.txt
+similarity index 100%
+rename from old.txt
+rename to new.txt

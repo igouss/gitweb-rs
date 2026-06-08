@@ -13,6 +13,7 @@ use cucumber::{World, given, then, when};
 use tempfile::TempDir;
 
 use gitweb_domain::model::blob::Blob;
+use gitweb_domain::model::blobdiff_plain::BlobdiffPlain;
 use gitweb_domain::model::commitdiff_plain::CommitdiffPlain;
 use gitweb_domain::model::content_type::PlainHeaders;
 use gitweb_domain::model::feed::Feed;
@@ -22,6 +23,7 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
+use gitweb_domain::usecase::blobdiff_plain::assemble_blobdiff_plain;
 use gitweb_domain::usecase::commitdiff_plain::assemble_commitdiff_plain;
 use gitweb_domain::usecase::feed::assemble_feed;
 use gitweb_domain::usecase::opml::{Opml, assemble_opml};
@@ -66,6 +68,11 @@ struct GoldenWorld {
     /// corpus root commit.
     commitdiff_plain_body: Option<String>,
     commitdiff_plain_disposition: Option<String>,
+    /// The serialized blobdiff_plain body and the Content-Disposition our
+    /// endpoint derives — the exact bytes and header the handler emits over the
+    /// corpus `diffs` branch for one single-file surface.
+    blobdiff_plain_body: Option<String>,
+    blobdiff_plain_disposition: Option<String>,
     golden: Option<Golden>,
 }
 
@@ -270,6 +277,50 @@ fn commitdiff_plain_body(world: &GoldenWorld) -> &str {
         .expect("serve the commitdiff_plain first")
 }
 
+/// The single-file surface a blobdiff_plain scenario diffs: the new-side path,
+/// and the from-path the link carries for a rename (`None` otherwise).
+fn diff_surface(name: &str) -> (&'static str, Option<&'static str>) {
+    match name {
+        "text" => (Corpus::DIFF_TEXT, None),
+        "mode" => (Corpus::DIFF_MODE, None),
+        "binary" => (Corpus::DIFF_BINARY, None),
+        "rename" => (Corpus::DIFF_RENAME_TO, Some(Corpus::DIFF_RENAME_FROM)),
+        other => panic!("unknown blobdiff_plain surface {other:?}"),
+    }
+}
+
+#[when(regex = r#"^I serve the "([^"]*)" blobdiff_plain of the corpus diffs branch$"#)]
+fn serve_blobdiff_plain(world: &mut GoldenWorld, name: String) {
+    // Exactly what the handler emits over the by-hash request gitweb was captured
+    // with: the use case over the adapter for the corpus `diffs` head/parent, the
+    // body rendered with the request's own self URL, and the inline filename
+    // stamped with the file path.
+    let head: String = corpus(world).diff_head.to_string();
+    let parent: String = corpus(world).diff_parent.to_string();
+    let (file, file_parent): (&str, Option<&str>) = diff_surface(&name);
+    let plain: BlobdiffPlain = assemble_blobdiff_plain(repo(world), &head, &parent, file)
+        .expect("assemble the corpus blobdiff_plain");
+    let mut params: Vec<(&str, &str)> =
+        vec![("p", Corpus::PROJECT), ("a", "blobdiff_plain"), ("f", file)];
+    if let Some(from) = file_parent {
+        params.push(("fp", from));
+    }
+    params.push(("hb", &head));
+    params.push(("hpb", &parent));
+    let link: String = self_url("http://localhost", &params);
+    world.blobdiff_plain_body = Some(plain.render(&link));
+    world.blobdiff_plain_disposition = Some(format!("inline; filename=\"{file}.patch\""));
+    world.golden = Some(Golden::load(&format!("blobdiff_plain/{name}")));
+}
+
+/// The serialized blobdiff_plain body, or a panic if none was served.
+fn blobdiff_plain_body(world: &GoldenWorld) -> &str {
+    world
+        .blobdiff_plain_body
+        .as_deref()
+        .expect("serve the blobdiff_plain first")
+}
+
 // --- Then --------------------------------------------------------------------
 
 #[then("its body matches gitweb's reference output")]
@@ -397,6 +448,29 @@ fn commitdiff_plain_disposition_matches(world: &mut GoldenWorld) {
         .header("Content-Disposition")
         .expect("gitweb declares a Content-Disposition");
     assert_eq!(world.commitdiff_plain_disposition.as_deref(), Some(theirs));
+}
+
+#[then("the blobdiff_plain body matches gitweb's reference output")]
+fn blobdiff_plain_body_matches(world: &mut GoldenWorld) {
+    assert_eq!(blobdiff_plain_body(world).as_bytes(), golden(world).body());
+}
+
+#[then("the blobdiff_plain content type matches gitweb's")]
+fn blobdiff_plain_content_type_matches(world: &mut GoldenWorld) {
+    // gitweb sets `-type => 'text/plain', -charset => 'utf-8'`; our endpoint
+    // serves the same fixed type, so the whole Content-Type matches exactly.
+    let theirs: &str = golden(world)
+        .header("Content-Type")
+        .expect("gitweb declares a Content-Type");
+    assert_eq!("text/plain; charset=utf-8", theirs);
+}
+
+#[then("the blobdiff_plain content disposition matches gitweb's")]
+fn blobdiff_plain_disposition_matches(world: &mut GoldenWorld) {
+    let theirs: &str = golden(world)
+        .header("Content-Disposition")
+        .expect("gitweb declares a Content-Disposition");
+    assert_eq!(world.blobdiff_plain_disposition.as_deref(), Some(theirs));
 }
 
 #[tokio::main]

@@ -10,6 +10,7 @@ use gitweb_domain::model::action::Action;
 use gitweb_domain::model::age::{Age, AgeClass};
 use gitweb_domain::model::binary::is_binary;
 use gitweb_domain::model::blob::{Blob, BlobDisplay};
+use gitweb_domain::model::blobdiff_plain::BlobdiffPlain;
 use gitweb_domain::model::change::ChangeStatus;
 use gitweb_domain::model::chop::{ChopMode, chop_str};
 use gitweb_domain::model::commit::Commit;
@@ -98,6 +99,11 @@ struct DomainWorld {
     visible: Option<bool>,
     patch_under_test: Option<Patch>,
     rendered: Option<String>,
+    /// The single-file selection result: `None` until the When runs, then the
+    /// inner `Option` distinguishes a found file's text from no match.
+    selected_file: Option<Option<String>>,
+    bdp_patch_body: Option<String>,
+    bdp_rendered: Option<String>,
     cdp_author: Option<String>,
     cdp_subject: Option<String>,
     cdp_tag: Option<String>,
@@ -1583,6 +1589,63 @@ fn rendered(world: &DomainWorld) -> &str {
         .expect("the patch must be rendered before asserting on it")
 }
 
+#[when(regex = r#"^I select the file "([^"]+)" abbreviated to (\d+)$"#)]
+fn select_file_abbreviated(world: &mut DomainWorld, path: String, len: usize) {
+    let patch: &Patch = world
+        .patch_under_test
+        .as_ref()
+        .expect("a patch must be built before selecting");
+    world.selected_file = Some(patch.render_file_abbreviated(&path, len));
+}
+
+/// The text of the selected file patch, asserting one was found.
+fn selected(world: &DomainWorld) -> &str {
+    world
+        .selected_file
+        .as_ref()
+        .expect("a file must be selected before asserting on it")
+        .as_deref()
+        .expect("expected a file patch to be selected, found none")
+}
+
+#[then(regex = r#"^the selected patch contains "(.*)"$"#)]
+fn then_selected_contains(world: &mut DomainWorld, fragment: String) {
+    assert!(
+        selected(world).contains(&fragment),
+        "expected selection to contain {fragment:?}, got:\n{}",
+        selected(world)
+    );
+}
+
+#[then(regex = r#"^the selected patch does not contain "(.*)"$"#)]
+fn then_selected_not_contains(world: &mut DomainWorld, fragment: String) {
+    assert!(
+        !selected(world).contains(&fragment),
+        "expected selection not to contain {fragment:?}, got:\n{}",
+        selected(world)
+    );
+}
+
+#[then(regex = r#"^the selected patch has a line "(.*)"$"#)]
+fn then_selected_has_line(world: &mut DomainWorld, expected: String) {
+    assert!(
+        selected(world).lines().any(|line: &str| line == expected),
+        "expected selection to have the exact line {expected:?}, got:\n{}",
+        selected(world)
+    );
+}
+
+#[then("no file patch is selected")]
+fn then_no_file_selected(world: &mut DomainWorld) {
+    assert_eq!(
+        world
+            .selected_file
+            .as_ref()
+            .expect("the selection must have run"),
+        &None
+    );
+}
+
 #[then(regex = r#"^the patch contains "(.*)"$"#)]
 fn then_patch_contains(world: &mut DomainWorld, fragment: String) {
     assert!(
@@ -1736,6 +1799,43 @@ fn then_commitdiff_plain_body(world: &mut DomainWorld, step: &Step) {
         .cdp_rendered
         .as_deref()
         .expect("render the commitdiff_plain first");
+    assert_eq!(actual.trim_end_matches('\n'), expected);
+}
+
+// --- blobdiff_plain body format ----------------------------------------------
+
+#[given(regex = r#"^a blobdiff_plain whose patch body is "([^"]*)"$"#)]
+fn given_blobdiff_plain_body_inline(world: &mut DomainWorld, body: String) {
+    world.bdp_patch_body = Some(format!("{body}\n"));
+}
+
+#[given("a blobdiff_plain whose patch body is:")]
+fn given_blobdiff_plain_body_block(world: &mut DomainWorld, step: &Step) {
+    let body: &str = step
+        .docstring
+        .as_deref()
+        .expect("scenario must supply a docstring")
+        .trim_matches('\n');
+    world.bdp_patch_body = Some(format!("{body}\n"));
+}
+
+#[when(regex = r#"^I render the blobdiff_plain at "([^"]*)"$"#)]
+fn render_blobdiff_plain(world: &mut DomainWorld, self_url: String) {
+    let plain: BlobdiffPlain = BlobdiffPlain::new(world.bdp_patch_body.clone().unwrap_or_default());
+    world.bdp_rendered = Some(plain.render(&self_url));
+}
+
+#[then("the blobdiff_plain body is:")]
+fn then_blobdiff_plain_body(world: &mut DomainWorld, step: &Step) {
+    let expected: &str = step
+        .docstring
+        .as_deref()
+        .expect("scenario must supply a docstring")
+        .trim_matches('\n');
+    let actual: &str = world
+        .bdp_rendered
+        .as_deref()
+        .expect("render the blobdiff_plain first");
     assert_eq!(actual.trim_end_matches('\n'), expected);
 }
 

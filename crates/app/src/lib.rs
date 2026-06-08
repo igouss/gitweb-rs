@@ -25,10 +25,10 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_git::GixProjectStore;
 use gitweb_web::{
-    BlobHandler, BlobPlainHandler, CommitHandler, CommitdiffHandler, CommitdiffPlainHandler,
-    Dispatcher, FeedHandler, Handler, HeadsHandler, HistoryHandler, LogHandler, ObjectHandler,
-    OpmlHandler, ProjectIndexHandler, ProjectListHandler, RemotesHandler, ShortlogHandler,
-    SummaryHandler, TagHandler, TagsHandler, TreeHandler, router,
+    BlobHandler, BlobPlainHandler, BlobdiffPlainHandler, CommitHandler, CommitdiffHandler,
+    CommitdiffPlainHandler, Dispatcher, FeedHandler, Handler, HeadsHandler, HistoryHandler,
+    LogHandler, ObjectHandler, OpmlHandler, ProjectIndexHandler, ProjectListHandler,
+    RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler, router,
 };
 use tower_http::services::ServeDir;
 
@@ -160,6 +160,11 @@ fn build_dispatcher(
         base.clone(),
     ));
     dispatcher.register(Action::CommitdiffPlain, commitdiff_plain);
+
+    // blobdiff_plain's `X-Git-Url` line is the request's absolute self URL too.
+    let blobdiff_plain: Arc<dyn Handler> =
+        Arc::new(BlobdiffPlainHandler::new(Arc::clone(&store), base.clone()));
+    dispatcher.register(Action::BlobdiffPlain, blobdiff_plain);
 
     // The object action redirects (gitweb's `href(-full => 1, …)`), absolute
     // against the same site URL.

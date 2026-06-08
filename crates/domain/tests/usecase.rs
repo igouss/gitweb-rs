@@ -17,6 +17,7 @@ use gitweb_domain::error::DomainError;
 use gitweb_domain::model::action::Action;
 use gitweb_domain::model::blame::Blame;
 use gitweb_domain::model::blob::{Blob, BlobDisplay};
+use gitweb_domain::model::blobdiff_plain::BlobdiffPlain;
 use gitweb_domain::model::change::{ChangeKind, ChangeStatus};
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::commitdiff_plain::CommitdiffPlain;
@@ -46,6 +47,7 @@ use gitweb_domain::port::repository::{
 };
 use gitweb_domain::usecase::blob::{BlobView, assemble_blob};
 use gitweb_domain::usecase::blob_plain::{BlobPlainView, assemble_blob_plain};
+use gitweb_domain::usecase::blobdiff_plain::assemble_blobdiff_plain;
 use gitweb_domain::usecase::commit::{ChangedFiles, CommitView, assemble_commit};
 use gitweb_domain::usecase::commitdiff::assemble_commit_diff;
 use gitweb_domain::usecase::commitdiff_plain::assemble_commitdiff_plain;
@@ -189,6 +191,10 @@ struct UsecaseWorld {
     commit_result: Option<Result<CommitView, DomainError>>,
     commitdiff_result: Option<Result<String, DomainError>>,
     commitdiff_plain_result: Option<Result<CommitdiffPlain, DomainError>>,
+    /// The file patches accumulated by the blobdiff_plain scenarios; the When
+    /// folds them into the fixture's whole-tree patch before assembling.
+    blobdiff_files: Vec<FilePatch>,
+    blobdiff_plain_result: Option<Result<BlobdiffPlain, DomainError>>,
     object_result: Option<Result<ObjectRedirect, DomainError>>,
 }
 
@@ -3236,6 +3242,91 @@ fn then_commitdiff_plain_no_id_line(world: &mut UsecaseWorld) {
         !body.lines().any(|line: &str| line == id),
         "expected commitdiff_plain body to have no bare commit-id line {id:?}, got:\n{body}"
     );
+}
+
+// --- blobdiff_plain ----------------------------------------------------------
+
+/// The self link the blobdiff_plain scenarios render against; its exact bytes do
+/// not matter to these structural assertions, only that the body carries it.
+const BLOBDIFF_SELF_URL: &str = "http://localhost?p=r.git;a=blobdiff_plain;hb=HEAD;hpb=base;f=x";
+
+/// A modified file patch for `path` with no hunks — enough to carry the
+/// `diff --git` and `index` headers the selection asserts on, without a diff
+/// algorithm.
+fn modified_file_patch(path: &str) -> FilePatch {
+    let from_oid: ObjectId = fake_oid(&format!("from-{path}"));
+    let to_oid: ObjectId = fake_oid(&format!("to-{path}"));
+    let mode: FileMode = FileMode::from_octal("100644").expect("a valid file mode");
+    FilePatch::new(
+        ChangeStatus::from_modification(mode, mode),
+        mode,
+        mode,
+        from_oid,
+        to_oid,
+        path.to_owned(),
+        path.to_owned(),
+        FileContent::Text(Vec::new()),
+    )
+}
+
+#[given(regex = r#"^the diff modifies "([^"]*)"$"#)]
+fn given_diff_modifies(world: &mut UsecaseWorld, path: String) {
+    world.blobdiff_files.push(modified_file_patch(&path));
+}
+
+#[when(
+    regex = r#"^I assemble the blobdiff_plain of "([^"]*)" with base "([^"]*)" and parent base "([^"]*)"$"#
+)]
+fn assemble_blobdiff_plain_step(world: &mut UsecaseWorld, file: String, hb: String, hpb: String) {
+    let files: Vec<FilePatch> = world.blobdiff_files.clone();
+    commit_fixture_mut(world).patch = Patch::new(files);
+    let repo: FakeRepository = fake_repo(world);
+    world.blobdiff_plain_result = Some(assemble_blobdiff_plain(&repo, &hb, &hpb, &file));
+}
+
+/// Renders the assembled blobdiff_plain body (asserting the use case succeeded).
+fn blobdiff_plain_body(world: &UsecaseWorld) -> String {
+    match world
+        .blobdiff_plain_result
+        .as_ref()
+        .expect("assemble the blobdiff_plain first")
+    {
+        Ok(plain) => plain.render(BLOBDIFF_SELF_URL),
+        Err(error) => panic!("expected a blobdiff_plain, got error: {error:?}"),
+    }
+}
+
+#[then(regex = r#"^the blobdiff_plain body contains "(.*)"$"#)]
+fn then_blobdiff_plain_contains(world: &mut UsecaseWorld, expected: String) {
+    let body: String = blobdiff_plain_body(world);
+    assert!(
+        body.contains(&expected),
+        "expected blobdiff_plain body to contain {expected:?}, got:\n{body}"
+    );
+}
+
+#[then(regex = r#"^the blobdiff_plain body does not contain "(.*)"$"#)]
+fn then_blobdiff_plain_not_contains(world: &mut UsecaseWorld, unexpected: String) {
+    let body: String = blobdiff_plain_body(world);
+    assert!(
+        !body.contains(&unexpected),
+        "expected blobdiff_plain body not to contain {unexpected:?}, got:\n{body}"
+    );
+}
+
+#[then(regex = r#"^assembling the blobdiff_plain fails with "(.*)"$"#)]
+fn then_blobdiff_plain_fails(world: &mut UsecaseWorld, expected: String) {
+    match world
+        .blobdiff_plain_result
+        .as_ref()
+        .expect("assemble the blobdiff_plain first")
+    {
+        Ok(plain) => panic!(
+            "expected a failure, got body:\n{}",
+            plain.render(BLOBDIFF_SELF_URL)
+        ),
+        Err(error) => assert_eq!(error.message(), expected),
+    }
 }
 
 /// The assembled commit view (asserting the use case succeeded).

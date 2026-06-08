@@ -1,0 +1,16 @@
+Expires: Tue, 09 Jun 2026 20:53:06 GMT
+Date: Mon, 08 Jun 2026 20:53:06 GMT
+Content-disposition: inline; filename="a.txt.patch"
+Content-Type: text/plain; charset=utf-8
+
+X-Git-Url: http://localhost?p=repo.git;a=blobdiff_plain;f=a.txt;hb=0445dec572a112eff12e2ac6570de3c2db455c2c;hpb=ea98e88ce0947404f20d1b090d6c21f8284606c1
+
+diff --git a/a.txt b/a.txt
+index 85c3040..e50310a 100644
+--- a/a.txt
++++ b/a.txt
+@@ -1,3 +1,3 @@
+ alpha
+-beta
++BETA
+ gamma

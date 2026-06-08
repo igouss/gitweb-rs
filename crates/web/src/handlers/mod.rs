@@ -14,6 +14,7 @@
 
 pub mod blob;
 pub mod blob_plain;
+pub mod blobdiff_plain;
 mod changed_files;
 pub mod commit;
 pub mod commitdiff;
@@ -36,6 +37,7 @@ pub mod tree;
 
 pub use blob::BlobHandler;
 pub use blob_plain::BlobPlainHandler;
+pub use blobdiff_plain::BlobdiffPlainHandler;
 pub use commit::CommitHandler;
 pub use commitdiff::CommitdiffHandler;
 pub use commitdiff_plain::CommitdiffPlainHandler;

@@ -144,3 +144,23 @@ Feature: Unified diff (patch) text formatting
     Then the patch has a line "index 0000000..2222222"
     And the patch contains "--- /dev/null"
     And the patch contains "+++ b/new.txt"
+
+  # gitweb's `blobdiff_plain` is the single-file slice of a tree diff: it asks
+  # git for the patch of one path. The format rule that backs it picks the file
+  # patch by its new-side path out of a whole diff and renders just that one,
+  # abbreviated the same way `blobdiff_plain` streams it.
+  Scenario: Selecting a file by its new-side path renders just that file
+    Given a patch over a created file and a deleted file
+    When I select the file "added.txt" abbreviated to 7
+    Then the selected patch contains "diff --git a/added.txt b/added.txt"
+    And the selected patch does not contain "gone.txt"
+
+  Scenario: The selected file's index ids are abbreviated to the given width
+    Given a modified file patch for "a.txt"
+    When I select the file "a.txt" abbreviated to 7
+    Then the selected patch has a line "index 1111111..2222222 100644"
+
+  Scenario: Selecting a path the diff does not touch selects nothing
+    Given a patch over a created file and a deleted file
+    When I select the file "absent.txt" abbreviated to 7
+    Then no file patch is selected

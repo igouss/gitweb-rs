@@ -18,17 +18,20 @@ use tower::ServiceExt;
 
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::action::Action;
+use gitweb_domain::model::commit::Commit;
+use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::settings::{FeatureLayer, FeatureName, Settings, SettingsLayer};
 use gitweb_domain::port::project_store::ProjectStore;
+use gitweb_domain::port::repository::Repository;
 use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
-    BlobHandler, BlobPlainHandler, CommitHandler, CommitdiffHandler, CommitdiffPlainHandler,
-    FeedHandler, HeadsHandler, HistoryHandler, LogHandler, ObjectHandler, OpmlHandler,
-    ProjectIndexHandler, ProjectListHandler, RemotesHandler, ShortlogHandler, SummaryHandler,
-    TagHandler, TagsHandler, TreeHandler,
+    BlobHandler, BlobPlainHandler, BlobdiffPlainHandler, CommitHandler, CommitdiffHandler,
+    CommitdiffPlainHandler, FeedHandler, HeadsHandler, HistoryHandler, LogHandler, ObjectHandler,
+    OpmlHandler, ProjectIndexHandler, ProjectListHandler, RemotesHandler, ShortlogHandler,
+    SummaryHandler, TagHandler, TagsHandler, TreeHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -567,6 +570,18 @@ fn given_commitdiff_plain_served(world: &mut WebWorld) {
     world.dispatcher.register(Action::CommitdiffPlain, handler);
 }
 
+#[given("the blobdiff_plain action is served")]
+fn given_blobdiff_plain_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let handler: Arc<dyn Handler> = Arc::new(BlobdiffPlainHandler::new(
+        store,
+        "http://localhost".to_owned(),
+    ));
+    world.dispatcher.register(Action::BlobdiffPlain, handler);
+}
+
 #[given("the tags action is served")]
 fn given_tags_served(world: &mut WebWorld) {
     ensure_root(world);
@@ -706,6 +721,49 @@ fn given_summary_served_xss(world: &mut WebWorld) {
 
 #[when(regex = r#"^I GET "([^"]*)"$"#)]
 async fn when_get(world: &mut WebWorld, uri: String) {
+    dispatch_capture(world, uri).await;
+}
+
+/// Resolves the parent base for a blobdiff request: the project's HEAD commit and
+/// its first parent, so a single-file diff between them is addressable by hash.
+/// gitweb's blobdiff links carry the actual commit ids; `^`/`~` rev syntax is
+/// rejected by `is_valid_refname`, so the test resolves the ids the same way.
+fn head_and_parent(world: &WebWorld, project: &str) -> (String, String) {
+    let store: GixProjectStore = GixProjectStore::new(root(world).path().to_path_buf());
+    let repository: Box<dyn Repository> = store.open(project).expect("open the project");
+    let head: ObjectId = repository.resolve("HEAD").expect("resolve HEAD");
+    let commit: Commit = repository.find_commit(&head).expect("read the HEAD commit");
+    let parent: &ObjectId = commit
+        .parents()
+        .first()
+        .expect("the HEAD commit has a parent to diff against");
+    (head.as_str().to_owned(), parent.as_str().to_owned())
+}
+
+#[when(regex = r#"^I GET the blobdiff_plain of "([^"]*)" in "([^"]*)"$"#)]
+async fn when_get_blobdiff_plain(world: &mut WebWorld, file: String, project: String) {
+    let (head, parent): (String, String) = head_and_parent(world, &project);
+    let uri: String = format!("/?p={project}&a=blobdiff_plain&hb={head}&hpb={parent}&f={file}");
+    dispatch_capture(world, uri).await;
+}
+
+#[when(regex = r#"^I GET the blobdiff_plain of "([^"]*)" renamed from "([^"]*)" in "([^"]*)"$"#)]
+async fn when_get_blobdiff_plain_renamed(
+    world: &mut WebWorld,
+    file: String,
+    file_parent: String,
+    project: String,
+) {
+    let (head, parent): (String, String) = head_and_parent(world, &project);
+    let uri: String =
+        format!("/?p={project}&a=blobdiff_plain&hb={head}&hpb={parent}&f={file}&fp={file_parent}");
+    dispatch_capture(world, uri).await;
+}
+
+/// Drives the router with `uri` over the wired dispatcher and captures the
+/// response status, headers, and body into the world — the shared core of every
+/// GET step.
+async fn dispatch_capture(world: &mut WebWorld, uri: String) {
     let store: Arc<dyn ProjectStore + Send + Sync> =
         Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
     let dispatcher: Arc<Dispatcher> = Arc::new(world.dispatcher.clone());

@@ -374,6 +374,27 @@ impl Patch {
         self.render_with(Some(abbrev_len))
     }
 
+    /// Renders just the file patch whose new-side path is `to_path`, with the
+    /// `index` ids abbreviated to `abbrev` hex characters — the single-file form
+    /// gitweb's `blobdiff_plain` streams (`git diff-tree -p -- <path>`, no
+    /// `--full-index`). Returns `None` when the diff touches no such path, which
+    /// the use case maps to gitweb's 404 "Blob diff not found".
+    ///
+    /// The new-side path is the right match for every status `blobdiff_plain`
+    /// addresses: a modify, an addition and a deletion all name the file on both
+    /// sides, and a rename's new path is exactly the `f=` the link carries (its
+    /// `fp=` old path is the from-side, paired by rename detection upstream).
+    #[must_use]
+    pub fn render_file_abbreviated(&self, to_path: &str, abbrev: usize) -> Option<String> {
+        let file: &FilePatch = self
+            .files
+            .iter()
+            .find(|file: &&FilePatch| file.to_path == to_path)?;
+        let mut out: String = String::new();
+        file.write_to(&mut out, Some(abbrev));
+        Some(out)
+    }
+
     /// Concatenates every file patch, optionally abbreviating the `index` ids.
     fn render_with(&self, abbrev: Option<usize>) -> String {
         let mut out: String = String::new();

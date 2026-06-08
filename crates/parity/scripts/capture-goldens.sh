@@ -140,6 +140,24 @@ echo ">> capturing commitdiff_plain golden" >&2
 head_hash=$("$GIT" --git-dir="$project_root/repo.git" rev-parse HEAD)
 capture "commitdiff_plain/root" "p=repo.git;a=commitdiff_plain;h=$head_hash"
 
+# blobdiff_plain is format-stable: the bare `git diff-tree -r -p` of ONE path
+# (abbreviated index, no mailbox header), prefixed by an X-Git-Url self-link
+# line. It is captured over the two-commit `diffs` branch (NOT HEAD, so the
+# single-commit goldens above are untouched), one golden per single-file diff
+# surface: a text modification, a pure mode change, a binary modification, and an
+# exact rename. The query params are in @cgi_param_mapping order (p, a, f, fp, hb,
+# hpb) so the X-Git-Url our endpoint emits matches byte for byte. The file paths
+# mirror Corpus::DIFF_* in ../src/corpus.rs. Like commitdiff_plain it is by-hash,
+# so only the Expires/Date cache headers are volatile; the golden compares body.
+echo ">> capturing blobdiff_plain goldens" >&2
+diff_head=$("$GIT" --git-dir="$project_root/repo.git" rev-parse diffs)
+diff_parent=$("$GIT" --git-dir="$project_root/repo.git" rev-parse diffs^)
+bases="hb=$diff_head;hpb=$diff_parent"
+capture "blobdiff_plain/text"   "p=repo.git;a=blobdiff_plain;f=a.txt;$bases"
+capture "blobdiff_plain/mode"   "p=repo.git;a=blobdiff_plain;f=mode.sh;$bases"
+capture "blobdiff_plain/binary" "p=repo.git;a=blobdiff_plain;f=bin.dat;$bases"
+capture "blobdiff_plain/rename" "p=repo.git;a=blobdiff_plain;f=new.txt;fp=old.txt;$bases"
+
 # The feed body carries a <generator> version composite ($version/$git_version).
 # $version is pinned via VERSION-FILE above; $git_version is the capturing git's
 # version, which is not byte-stable across machines and is not part of the feed

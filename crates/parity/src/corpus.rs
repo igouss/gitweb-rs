@@ -32,6 +32,12 @@ pub struct Corpus {
     pub repo_path: PathBuf,
     /// Each named blob, in capture order.
     pub blobs: Vec<BlobFixture>,
+    /// The parent commit of the two-commit `diffs` branch — the `blobdiff_plain`
+    /// goldens' `hpb`. It lives off a branch that is *not* `HEAD`, so the
+    /// single-commit goldens (blob_plain, feed, commitdiff_plain) are untouched.
+    pub diff_parent: ObjectId,
+    /// The head commit of the `diffs` branch — the `blobdiff_plain` goldens' `hb`.
+    pub diff_head: ObjectId,
 }
 
 impl Corpus {
@@ -48,6 +54,19 @@ impl Corpus {
     /// The pinned project description (the `description` file's first line) —
     /// the feed's `<description>` / `<subtitle>` — for the same reason.
     pub const DESCRIPTION: &'static str = "Deterministic gitweb-rs parity corpus.";
+
+    /// The `diffs` branch's file paths, shared by the corpus builder, the
+    /// `blobdiff_plain` golden test, and the capture script's query strings.
+    /// The text file modified between the two commits.
+    pub const DIFF_TEXT: &'static str = "a.txt";
+    /// The file whose mode changes (100644 → 100755) with no content change.
+    pub const DIFF_MODE: &'static str = "mode.sh";
+    /// The binary file modified between the two commits.
+    pub const DIFF_BINARY: &'static str = "bin.dat";
+    /// The rename's from-path (the `fp=` of the rename golden).
+    pub const DIFF_RENAME_FROM: &'static str = "old.txt";
+    /// The rename's to-path (the `f=` of the rename golden).
+    pub const DIFF_RENAME_TO: &'static str = "new.txt";
 
     /// The object id of the blob named `name`.
     ///
@@ -116,6 +135,85 @@ const SEEDS: &[Seed] = &[
     },
 ];
 
+/// The two-commit `diffs` branch the `blobdiff_plain` goldens are captured over,
+/// spanning the single-file diff surface that endpoint must reproduce: a text
+/// modification (hunk + abbreviated index), a pure file-mode change (no index, no
+/// hunk), a binary modification (the `Binary files … differ` notice — bare
+/// `diff-tree -p` emits no base85 patch), and an exact rename (`similarity index
+/// 100%`, no hunk). It hangs off a branch other than `HEAD` so the single-commit
+/// goldens stay byte-identical.
+///
+/// Returns the parent and head commit ids — the goldens' `hpb` and `hb`.
+fn build_diffs_branch(builder: &RepoBuilder, who: &Identity) -> (ObjectId, ObjectId) {
+    // The mode-change file shares one blob across both commits (only the tree
+    // mode differs), and the rename's two paths share one blob (an exact rename).
+    let mode_blob: ObjectId = builder.blob(b"#!/bin/sh\necho hi\n");
+    let moved_blob: ObjectId = builder.blob(b"to be moved\n");
+
+    let parent_tree: ObjectId = builder.tree(&[
+        TreeEntry {
+            name: Corpus::DIFF_TEXT.to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(b"alpha\nbeta\ngamma\n"),
+        },
+        TreeEntry {
+            name: Corpus::DIFF_MODE.to_owned(),
+            mode: Mode::File,
+            oid: mode_blob,
+        },
+        TreeEntry {
+            name: Corpus::DIFF_BINARY.to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(&[0x00, 0x01, 0x02, 0xFF]),
+        },
+        TreeEntry {
+            name: Corpus::DIFF_RENAME_FROM.to_owned(),
+            mode: Mode::File,
+            oid: moved_blob,
+        },
+    ]);
+    let parent: ObjectId = builder.commit(&CommitSpec {
+        tree: parent_tree,
+        parents: Vec::new(),
+        author: who.clone(),
+        committer: who.clone(),
+        message: "diffs base\n".to_owned(),
+    });
+
+    let head_tree: ObjectId = builder.tree(&[
+        TreeEntry {
+            name: Corpus::DIFF_TEXT.to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(b"alpha\nBETA\ngamma\n"),
+        },
+        TreeEntry {
+            name: Corpus::DIFF_MODE.to_owned(),
+            mode: Mode::Executable,
+            oid: mode_blob,
+        },
+        TreeEntry {
+            name: Corpus::DIFF_BINARY.to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(&[0x00, 0x01, 0x02, 0x03, 0xFF]),
+        },
+        TreeEntry {
+            name: Corpus::DIFF_RENAME_TO.to_owned(),
+            mode: Mode::File,
+            oid: moved_blob,
+        },
+    ]);
+    let head: ObjectId = builder.commit(&CommitSpec {
+        tree: head_tree,
+        parents: vec![parent],
+        author: who.clone(),
+        committer: who.clone(),
+        message: "diffs head\n".to_owned(),
+    });
+
+    builder.branch("diffs", head);
+    (parent, head)
+}
+
 /// Pins the project's `gitweb.owner` config and `description` file, so the feed
 /// metadata is reproducible across machines. Both gitweb (at capture) and the
 /// gix adapter (at test time) read these back; written to the files directly,
@@ -173,11 +271,16 @@ pub fn build(project_root: &Path) -> Corpus {
         tree,
         parents: Vec::new(),
         author: who.clone(),
-        committer: who,
+        committer: who.clone(),
         message: "corpus root\n".to_owned(),
     });
     builder.branch("main", root);
     builder.set_head("main");
+
+    // The two-commit `diffs` branch the blobdiff_plain goldens diff across. It
+    // is built after HEAD is set to `main`, so HEAD stays on the root commit and
+    // the single-commit goldens are unaffected.
+    let (diff_parent, diff_head): (ObjectId, ObjectId) = build_diffs_branch(&builder, &who);
 
     pin_metadata(&repo_path);
 
@@ -185,5 +288,7 @@ pub fn build(project_root: &Path) -> Corpus {
         project_root: project_root.to_path_buf(),
         repo_path,
         blobs,
+        diff_parent,
+        diff_head,
     }
 }
