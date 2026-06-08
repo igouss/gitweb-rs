@@ -18,6 +18,17 @@ pub struct NavItem {
     pub href: Option<String>,
 }
 
+/// A "show more" / pager affordance — gitweb's `$extra` next-page link. The data
+/// is shared (a target URL and a label), but each view places it differently: the
+/// shortlog as a trailing table row, the verbose log as a trailing nav link.
+#[derive(Debug, Clone)]
+pub struct MoreLink {
+    /// Target URL of the further page.
+    pub href: String,
+    /// Visible label (`...` or `next`).
+    pub label: String,
+}
+
 /// Renders the action bar: each item is a link, except the current view (no
 /// `href`), which is plain text. A `|` separator sits between items, and any
 /// pre-rendered `extra` (pager, formats) is appended.

@@ -43,6 +43,16 @@ Feature: The composition root serves a wired gitweb-rs over a real project root
     And the response body contains "Shortlog"
     And the response body contains "init"
 
+  Scenario: the composition root serves a project's verbose log
+    Given a project root
+    And the root contains repository "alpha.git"
+    When I GET "/?p=alpha.git&a=log"
+    Then the response status is 200
+    And the response content type is "text/html; charset=utf-8"
+    And the response body contains "Log"
+    And the response body contains "init"
+    And the response body contains "Ada Lovelace"
+
   Scenario: a project action with no handler yet takes the die_error path
     Given a project root
     And the root contains repository "alpha.git"

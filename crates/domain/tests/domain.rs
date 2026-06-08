@@ -21,6 +21,7 @@ use gitweb_domain::model::export::{ExportPolicy, RepoFacts};
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::forks::{ProjectGroup, partition_forks};
 use gitweb_domain::model::grep::{GrepMatch, file_matches};
+use gitweb_domain::model::message_body::{LogLine, log_lines};
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::patch::{FileContent, FilePatch, Hunk, HunkLine, Patch};
@@ -119,6 +120,8 @@ struct DomainWorld {
     at_night: Option<bool>,
     commit_date_input: Option<(i64, i64)>,
     commit_date: Option<CommitDate>,
+    log_message: String,
+    log_body: Option<Vec<LogLine>>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -266,6 +269,71 @@ fn date_cell_shows(world: &mut DomainWorld, expected: String) {
 fn date_cell_tooltip_is(world: &mut DomainWorld, expected: String) {
     let date: &CommitDate = world.commit_date.as_ref().expect("a formed date cell");
     assert_eq!(date.tooltip(), expected);
+}
+
+// --- Log comment body (git_print_log) ----------------------------------------
+
+/// The processed log body, or a panic if it was not split yet.
+fn log_body(world: &DomainWorld) -> &[LogLine] {
+    world.log_body.as_deref().expect("split the log body first")
+}
+
+/// One processed log line by its 1-based position, or a panic if absent.
+fn log_body_line(world: &DomainWorld, number: usize) -> &LogLine {
+    log_body(world)
+        .get(number - 1)
+        .unwrap_or_else(|| panic!("no log line {number}"))
+}
+
+#[given("an empty commit message")]
+fn given_empty_commit_message(world: &mut DomainWorld) {
+    world.log_message = String::new();
+}
+
+#[given(regex = r#"^the commit message "(.*)"$"#)]
+fn given_inline_commit_message(world: &mut DomainWorld, message: String) {
+    world.log_message = message;
+}
+
+#[given("the commit message:")]
+fn given_block_commit_message(world: &mut DomainWorld, step: &Step) {
+    world.log_message = step
+        .docstring
+        .clone()
+        .expect("scenario must supply a docstring");
+}
+
+#[when("I split the log body")]
+fn split_the_log_body(world: &mut DomainWorld) {
+    world.log_body = Some(log_lines(&world.log_message));
+}
+
+#[then(regex = r"^the log body has (\d+) lines?$")]
+fn log_body_has_lines(world: &mut DomainWorld, count: usize) {
+    assert_eq!(log_body(world).len(), count);
+}
+
+#[then(regex = r#"^log line (\d+) is text "(.*)"$"#)]
+fn log_line_is_text(world: &mut DomainWorld, number: usize, expected: String) {
+    assert_eq!(log_body_line(world, number), &LogLine::Text(expected));
+}
+
+#[then(regex = r"^log line (\d+) is blank$")]
+fn log_line_is_blank(world: &mut DomainWorld, number: usize) {
+    assert_eq!(log_body_line(world, number), &LogLine::Text(String::new()));
+}
+
+#[then(regex = r#"^log line (\d+) is a sign-off "(.*)"$"#)]
+fn log_line_is_signoff(world: &mut DomainWorld, number: usize, expected: String) {
+    assert_eq!(log_body_line(world, number), &LogLine::Signoff(expected));
+}
+
+#[then(regex = r#"^log line (\d+) is an autolink labelled "(.*)" to "(.*)"$"#)]
+fn log_line_is_autolink(world: &mut DomainWorld, number: usize, label: String, url: String) {
+    assert_eq!(
+        log_body_line(world, number),
+        &LogLine::Autolink { label, url }
+    );
 }
 
 #[given(regex = r#"^a file mode "(.*)"$"#)]

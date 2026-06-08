@@ -17,7 +17,7 @@
 //! job, so every link arrives finished. The avatar, the search-author link, and
 //! the ref markers gitweb adds are their own features and are not wired here.
 
-use crate::chrome::{Crumb, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, MoreLink, NavItem, PageFooter, footer, page_header, page_nav};
 use crate::markup::{Markup, html};
 
 /// One shortlog row: its date cell (the swap already resolved by the domain into
@@ -44,16 +44,6 @@ pub struct ShortlogEntryView {
     pub commitdiff: String,
     /// `tree` URL for this commit.
     pub tree: String,
-}
-
-/// A "show more" affordance appended as a final table row: gitweb's `$extra`
-/// (the `...` link on the summary, the `next` link on the paged action).
-#[derive(Debug, Clone)]
-pub struct MoreLink {
-    /// Target URL of the further page.
-    pub href: String,
-    /// Visible label (`...` or `next`).
-    pub label: String,
 }
 
 /// The shortlog table: the commit rows and an optional trailing "more" row.

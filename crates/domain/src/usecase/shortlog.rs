@@ -3,12 +3,13 @@
 //!
 //! gitweb's `git_log_generic` walks history from a base revision (HEAD by
 //! default) a page at a time, asking `parse_commits` for one commit more than the
-//! page holds so it can tell whether to offer a "next"/"..." link. This use case
-//! does the same over the [`Repository`] port: it resolves the base revision,
-//! reads `limit + 1` commits at the requested `skip`, keeps `limit` of them as
-//! rows, and reports the surplus as [`ShortlogView::has_more`]. Each row carries
-//! the date cell (the two-week age/date swap, [`CommitDate`]), the author name
-//! chopped to gitweb's 10 characters for the row, and the commit subject.
+//! page holds so it can tell whether to offer a "next"/"..." link. That walk is
+//! shared with the verbose `log` action, so it lives in
+//! [`walk_commits`](crate::usecase::log_generic::walk_commits); this use case
+//! drives it and maps each commit into a shortlog row carrying the date cell (the
+//! two-week age/date swap, [`CommitDate`]), the author name chopped to gitweb's
+//! 10 characters for the row, and the commit subject. The surplus the walk
+//! reports becomes [`ShortlogView::has_more`].
 //!
 //! The clock is injected (`now`) so the date cells are computed here, once, and
 //! the view-model stays free of any time dependency — the same discipline as the
@@ -19,8 +20,8 @@ use crate::error::DomainError;
 use crate::model::chop::{ChopMode, chop_str};
 use crate::model::commit::Commit;
 use crate::model::commit_date::CommitDate;
-use crate::model::object_id::ObjectId;
 use crate::port::repository::{Page, Repository};
+use crate::usecase::log_generic::{CommitWindow, walk_commits};
 
 /// gitweb's `chop_str($author_name, 10)` — the row author bound.
 const AUTHOR_LEN: usize = 10;
@@ -112,45 +113,16 @@ pub fn assemble_shortlog(
     now: i64,
     page: Page,
 ) -> Result<ShortlogView, DomainError> {
-    let start: ObjectId = match resolve_start(repo, rev)? {
-        Some(oid) => oid,
-        None => {
-            return Ok(ShortlogView {
-                rows: Vec::new(),
-                has_more: false,
-            });
-        }
-    };
-
-    // Ask for one more than the page holds, the way gitweb does, so the surplus
-    // tells us a further page exists without a second round trip.
-    let probe: Page = Page::new(page.skip, page.limit + 1);
-    let commits: Vec<Commit> = repo.history(&start, None, probe)?;
-    let has_more: bool = commits.len() > page.limit;
-    let rows: Vec<ShortlogRow> = commits
+    let window: CommitWindow = walk_commits(repo, rev, page)?;
+    let rows: Vec<ShortlogRow> = window
+        .commits
         .into_iter()
-        .take(page.limit)
         .map(|commit: Commit| row_of(&commit, now))
         .collect();
-    Ok(ShortlogView { rows, has_more })
-}
-
-/// Resolves the base revision to the commit history walks from: an explicit
-/// revision through the port's resolver, or HEAD's target. An unborn HEAD yields
-/// `None` (gitweb's empty `parse_commits` on an undefined base); any other
-/// failure propagates.
-fn resolve_start(
-    repo: &dyn Repository,
-    rev: Option<&str>,
-) -> Result<Option<ObjectId>, DomainError> {
-    match rev {
-        Some(revision) => repo.resolve(revision).map(Some),
-        None => match repo.head() {
-            Ok(reference) => Ok(Some(reference.target().clone())),
-            Err(DomainError::NotFound(_)) => Ok(None),
-            Err(other) => Err(other),
-        },
-    }
+    Ok(ShortlogView {
+        rows,
+        has_more: window.has_more,
+    })
 }
 
 /// Turns one commit into a shortlog row: its id, the date cell, the author name

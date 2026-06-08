@@ -9,6 +9,8 @@
 //! without the domain knowing they exist.
 
 pub mod heads;
+pub mod log;
+pub mod log_generic;
 pub mod project_list;
 pub mod shortlog;
 pub mod tag;

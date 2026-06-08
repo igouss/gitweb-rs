@@ -12,6 +12,7 @@ use gitweb_domain::model::timestamp::Timestamp;
 
 use crate::chrome::{Crumb, PageFooter, footer, page_header};
 use crate::markup::{Markup, html};
+use crate::timestamp::timestamp_badge;
 
 /// The tagged object as the object row presents it: the object's id (the link
 /// text), the kind label gitweb prints (`commit` / `blob` / `tree` / `tag`), and
@@ -110,29 +111,6 @@ fn tagger_row(tagger: Option<&TagAuthorView>) -> Markup {
                 td class="link" {}
             }
         }
-    }
-}
-
-/// The tagger's absolute date — gitweb's `format_timestamp_html`, modernized:
-/// the UTC date as the visible text inside a machine-readable `<time datetime>`
-/// (so the `javascript-timezone` feature, gitweb_in_rust-h2t, can rewrite it to
-/// the viewer's zone), followed by gitweb's `(HH:MM tz)` hint in the commit's own
-/// zone. The hint carries the `atnight` class when the local hour is before
-/// 06:00, the recency highlight gitweb attaches to wee-hours timestamps.
-fn timestamp_badge(timestamp: &Timestamp) -> Markup {
-    let local_class: &str = if timestamp.is_at_night() {
-        "local-time atnight"
-    } else {
-        "local-time"
-    };
-    let local_time: String = format!(
-        "{:02}:{:02}",
-        timestamp.local_hour(),
-        timestamp.local_minute()
-    );
-    html! {
-        time class="commit-date" datetime=(timestamp.iso8601()) { (timestamp.rfc2822()) }
-        " (" span class=(local_class) { (local_time) } " " (timestamp.timezone()) ")"
     }
 }
 

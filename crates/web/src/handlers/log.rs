@@ -1,13 +1,13 @@
-//! The `shortlog` handler: gitweb's `git_shortlog` page.
+//! The `log` handler: gitweb's `git_log` page.
 //!
 //! Glue only. It opens the requested project through the wired [`ProjectStore`],
-//! runs the [`assemble_shortlog`] use case over it from the requested revision
-//! (HEAD by default) and page, maps the resulting view-model to the render
-//! layer's table — building every link with [`href`], since URLs are the
-//! boundary's job — wraps it in the document chrome, and returns the page as a
-//! [`View`]. The clock lives here, at the boundary: the request time is read once
-//! and handed to the use case so the date cells are computed against a real `now`
-//! while the domain stays clock-free.
+//! runs the [`assemble_log`] use case over it from the requested revision (HEAD by
+//! default) and page, maps the resulting view-model to the render layer's verbose
+//! blocks — building every link with [`href`], since URLs are the boundary's job —
+//! wraps it in the document chrome, and returns the page as a [`View`]. The clock
+//! lives here, at the boundary: the request time is read once and handed to the
+//! use case so the header ages are computed against a real `now` while the domain
+//! stays clock-free.
 
 use std::sync::Arc;
 
@@ -17,10 +17,10 @@ use gitweb_domain::model::safety::SafeRef;
 use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::{Page, Repository};
-use gitweb_domain::usecase::shortlog::{ShortlogRow, ShortlogView, assemble_shortlog};
+use gitweb_domain::usecase::log::{LogRow, LogView, assemble_log};
 use gitweb_render::chrome::{Crumb, DocumentHead, MoreLink, NavItem, document};
+use gitweb_render::log::{LogEntryView, LogPage, log_body};
 use gitweb_render::markup::Markup;
-use gitweb_render::shortlog::{ShortlogEntryView, ShortlogPage, ShortlogTable, shortlog_body};
 
 use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::clock::now_epoch;
@@ -31,13 +31,14 @@ use crate::url::href;
 /// gitweb's `git_log_generic` page size (`parse_commits($base, 101, 100*$page)`).
 const PAGE_SIZE: usize = 100;
 
-/// Serves the shortlog page over a wired project store and the resolved settings.
-pub struct ShortlogHandler {
+/// Serves the verbose log page over a wired project store and the resolved
+/// settings.
+pub struct LogHandler {
     store: Arc<dyn ProjectStore + Send + Sync>,
     settings: Arc<Settings>,
 }
 
-impl ShortlogHandler {
+impl LogHandler {
     /// Wires the handler with the store it opens projects from and the settings
     /// it reads the site name and chrome from.
     #[must_use]
@@ -46,7 +47,7 @@ impl ShortlogHandler {
     }
 }
 
-impl Handler for ShortlogHandler {
+impl Handler for LogHandler {
     fn handle(&self, request: &Request) -> Result<View, DomainError> {
         let project: &str = request
             .project
@@ -56,7 +57,7 @@ impl Handler for ShortlogHandler {
         let rev: Option<&str> = request.hash.as_ref().map(SafeRef::as_str);
         let page_num: usize = request.page.unwrap_or(0) as usize;
         let page: Page = Page::from_page(page_num, PAGE_SIZE);
-        let view: ShortlogView = assemble_shortlog(repository.as_ref(), rev, now_epoch(), page)?;
+        let view: LogView = assemble_log(repository.as_ref(), rev, now_epoch(), page)?;
         Ok(View::html(render_page(
             &self.settings,
             project,
@@ -67,38 +68,36 @@ impl Handler for ShortlogHandler {
     }
 }
 
-/// Maps the use-case view to the render view-model and wraps the assembled body
-/// in the document chrome — the boundary owns the asset URLs and every link.
+/// Maps the use-case view to the render view-model and wraps the assembled body in
+/// the document chrome — the boundary owns the asset URLs and every link.
 fn render_page(
     settings: &Settings,
     project: &str,
     rev: Option<&str>,
     page_num: usize,
-    view: &ShortlogView,
+    view: &LogView,
 ) -> Markup {
-    let page: ShortlogPage = ShortlogPage {
+    let page: LogPage = LogPage {
         crumbs: crumbs(settings.site_name(), project),
         nav: nav(project, rev),
-        table: ShortlogTable {
-            rows: view
-                .rows()
-                .iter()
-                .map(|row: &ShortlogRow| render_row(project, row))
-                .collect(),
-            more: view.has_more().then(|| more_link(project, rev, page_num)),
-        },
+        entries: view
+            .rows()
+            .iter()
+            .map(|row: &LogRow| render_row(project, row))
+            .collect(),
+        more: view.has_more().then(|| more_link(project, rev, page_num)),
     };
     let head: DocumentHead = DocumentHead {
-        title: format!("{project} / shortlog"),
+        title: format!("{project} / log"),
         stylesheet_href: STYLESHEET_PATH.to_owned(),
         favicon_href: Some(FAVICON_PATH.to_owned()),
         feeds: Vec::new(),
     };
-    document(&head, shortlog_body(&page))
+    document(&head, log_body(&page))
 }
 
 /// The breadcrumb trail: home, the project (linking to its summary), then the
-/// current shortlog view.
+/// current log view.
 fn crumbs(site_name: &str, project: &str) -> Vec<Crumb> {
     vec![
         Crumb {
@@ -110,15 +109,15 @@ fn crumbs(site_name: &str, project: &str) -> Vec<Crumb> {
             href: Some(href(&[("p", project), ("a", "summary")])),
         },
         Crumb {
-            label: "shortlog".to_owned(),
+            label: "log".to_owned(),
             href: None,
         },
     ]
 }
 
 /// The per-project action bar (gitweb's `git_print_page_nav`): summary, the
-/// current shortlog view as plain text, then the verbose log and the tree, all
-/// scoped to the same revision when one was named.
+/// shortlog, the current log view as plain text, then the tree, all scoped to the
+/// same revision when one was named.
 fn nav(project: &str, rev: Option<&str>) -> Vec<NavItem> {
     vec![
         NavItem {
@@ -127,11 +126,11 @@ fn nav(project: &str, rev: Option<&str>) -> Vec<NavItem> {
         },
         NavItem {
             label: "shortlog".to_owned(),
-            href: None,
+            href: Some(scoped_href(project, "shortlog", "h", rev)),
         },
         NavItem {
             label: "log".to_owned(),
-            href: Some(scoped_href(project, "log", "h", rev)),
+            href: None,
         },
         NavItem {
             label: "tree".to_owned(),
@@ -149,18 +148,17 @@ fn scoped_href(project: &str, action: &str, param: &str, rev: Option<&str>) -> S
     }
 }
 
-/// Maps a use-case shortlog row to a render row, building the per-commit links.
-/// The date strings are already resolved by the domain; only the URLs are built
-/// here, keyed on the commit id.
-fn render_row(project: &str, row: &ShortlogRow) -> ShortlogEntryView {
+/// Maps a use-case log row to a render entry, building the per-commit links. The
+/// age, timestamp, and message body are already resolved by the domain; only the
+/// URLs are built here, keyed on the commit id.
+fn render_row(project: &str, row: &LogRow) -> LogEntryView {
     let id: &str = row.id();
-    ShortlogEntryView {
-        date_displayed: row.date().displayed().to_owned(),
-        date_tooltip: row.date().tooltip().to_owned(),
-        author: row.author().to_owned(),
-        author_short: row.author_short().to_owned(),
+    LogEntryView {
+        age: row.age().to_owned(),
         title: row.title().to_owned(),
-        title_short: row.title_short().to_owned(),
+        author: row.author().to_owned(),
+        timestamp: row.timestamp().clone(),
+        comment: row.comment().to_vec(),
         commit: href(&[("p", project), ("a", "commit"), ("h", id)]),
         commitdiff: href(&[("p", project), ("a", "commitdiff"), ("h", id)]),
         tree: href(&[("p", project), ("a", "tree"), ("h", id), ("hb", id)]),
@@ -171,13 +169,8 @@ fn render_row(project: &str, row: &ShortlogRow) -> ShortlogEntryView {
 fn more_link(project: &str, rev: Option<&str>, page_num: usize) -> MoreLink {
     let next: String = (page_num + 1).to_string();
     let href: String = match rev {
-        Some(revision) => href(&[
-            ("p", project),
-            ("a", "shortlog"),
-            ("h", revision),
-            ("pg", &next),
-        ]),
-        None => href(&[("p", project), ("a", "shortlog"), ("pg", &next)]),
+        Some(revision) => href(&[("p", project), ("a", "log"), ("h", revision), ("pg", &next)]),
+        None => href(&[("p", project), ("a", "log"), ("pg", &next)]),
     };
     MoreLink {
         href,

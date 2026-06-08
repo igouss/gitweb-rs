@@ -16,5 +16,5 @@ pub mod search;
 pub use document::{DocumentHead, FeedLink, document};
 pub use footer::{FooterLink, PageFooter, footer};
 pub use header::{Crumb, Logo, breadcrumbs, page_header};
-pub use nav::{NavItem, page_nav};
+pub use nav::{MoreLink, NavItem, page_nav};
 pub use search::{HiddenField, SearchForm, SearchOption, search_form};

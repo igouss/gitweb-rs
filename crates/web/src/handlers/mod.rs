@@ -13,12 +13,14 @@
 //! [`Dispatcher`]: crate::dispatch::Dispatcher
 
 pub mod heads;
+pub mod log;
 pub mod project_list;
 pub mod shortlog;
 pub mod tag;
 pub mod tags;
 
 pub use heads::HeadsHandler;
+pub use log::LogHandler;
 pub use project_list::ProjectListHandler;
 pub use shortlog::ShortlogHandler;
 pub use tag::TagHandler;

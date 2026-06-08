@@ -17,6 +17,7 @@ use gitweb_domain::model::blob::Blob;
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::diff::{CombinedDiff, Diff};
 use gitweb_domain::model::grep::GrepResults;
+use gitweb_domain::model::message_body::LogLine;
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::patch::Patch;
@@ -33,6 +34,7 @@ use gitweb_domain::port::repository::{
     ArchiveFormat, Page, RenameDetection, Repository, SearchQuery,
 };
 use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
+use gitweb_domain::usecase::log::{LogRow, LogView, assemble_log};
 use gitweb_domain::usecase::project_list::{
     ProjectListRow, ProjectListView, assemble_project_list,
 };
@@ -84,6 +86,7 @@ struct UsecaseWorld {
     commits: Vec<FakeCommit>,
     head_commit: Option<ObjectId>,
     shortlog_result: Option<Result<ShortlogView, DomainError>>,
+    log_result: Option<Result<LogView, DomainError>>,
 }
 
 /// One branch in the fake repository: its short name, the id of its tip commit,
@@ -1024,6 +1027,119 @@ fn commit_shows_subject(world: &mut UsecaseWorld, name: String, expected: String
 #[then(regex = r#"^the commit "([^"]*)" date cell shows "(.*)"$"#)]
 fn commit_date_cell_shows(world: &mut UsecaseWorld, name: String, expected: String) {
     assert_eq!(shortlog_row(world, &name).date().displayed(), expected);
+}
+
+// --- log: accessors ----------------------------------------------------------
+
+/// The assembled log view, or a panic if the scenario produced an error.
+fn log_view(world: &UsecaseWorld) -> &LogView {
+    world
+        .log_result
+        .as_ref()
+        .expect("assemble the log first")
+        .as_ref()
+        .expect("assembly succeeded")
+}
+
+/// The assembled log row for the commit declared as `name`, or a panic if it is
+/// absent. The fake derives each commit id from its declared name.
+fn log_row<'a>(world: &'a UsecaseWorld, name: &str) -> &'a LogRow {
+    let id: ObjectId = fake_oid(name);
+    log_view(world)
+        .rows()
+        .iter()
+        .find(|row: &&LogRow| row.id() == id.as_str())
+        .unwrap_or_else(|| panic!("no log row for {name}"))
+}
+
+/// Builds the fake repository from the world's declared refs and commits.
+fn fake_repo(world: &UsecaseWorld) -> FakeRepository {
+    FakeRepository {
+        head: world.head.clone(),
+        head_commit: world.head_commit.clone(),
+        branches: world.branches.clone(),
+        tags: world.tags.clone(),
+        commits: world.commits.clone(),
+    }
+}
+
+// --- log: Whens --------------------------------------------------------------
+
+#[when(regex = r"^I assemble the log of the default branch with page size (\d+)$")]
+fn assemble_default_log(world: &mut UsecaseWorld, size: usize) {
+    let repo: FakeRepository = fake_repo(world);
+    world.log_result = Some(assemble_log(&repo, None, world.now, Page::new(0, size)));
+}
+
+#[when(regex = r#"^I assemble the log of "([^"]*)" with page size (\d+)$"#)]
+fn assemble_rev_log(world: &mut UsecaseWorld, rev: String, size: usize) {
+    let repo: FakeRepository = fake_repo(world);
+    world.log_result = Some(assemble_log(
+        &repo,
+        Some(&rev),
+        world.now,
+        Page::new(0, size),
+    ));
+}
+
+// --- log: Thens --------------------------------------------------------------
+
+#[then("no log entries are listed")]
+fn no_log_entries(world: &mut UsecaseWorld) {
+    assert!(log_view(world).rows().is_empty());
+}
+
+#[then(regex = r#"^the logged commits are "(.*)"$"#)]
+fn logged_commits_are(world: &mut UsecaseWorld, expected: String) {
+    let actual: Vec<String> = log_view(world)
+        .rows()
+        .iter()
+        .map(|row: &LogRow| row.id().to_owned())
+        .collect();
+    let wanted: Vec<String> = expected
+        .split(", ")
+        .map(|name: &str| fake_oid(name).as_str().to_owned())
+        .collect();
+    assert_eq!(actual, wanted);
+}
+
+#[then("the log has a further page")]
+fn log_has_further_page(world: &mut UsecaseWorld) {
+    assert!(log_view(world).has_more());
+}
+
+#[then("the log has no further page")]
+fn log_has_no_further_page(world: &mut UsecaseWorld) {
+    assert!(!log_view(world).has_more());
+}
+
+#[then(regex = r#"^the log entry "([^"]*)" is by "([^"]*)"$"#)]
+fn log_entry_is_by(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(log_row(world, &name).author(), expected);
+}
+
+#[then(regex = r#"^the log entry "([^"]*)" shows the title "(.*)"$"#)]
+fn log_entry_shows_title(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(log_row(world, &name).title(), expected);
+}
+
+#[then(regex = r#"^the log entry "([^"]*)" shows the age "(.*)"$"#)]
+fn log_entry_shows_age(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(log_row(world, &name).age(), expected);
+}
+
+#[then(regex = r#"^the log entry "([^"]*)" was authored on "([^"]*)"$"#)]
+fn log_entry_authored_on(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(log_row(world, &name).timestamp().utc_date(), expected);
+}
+
+#[then(regex = r#"^the log entry "([^"]*)" body begins "(.*)"$"#)]
+fn log_entry_body_begins(world: &mut UsecaseWorld, name: String, expected: String) {
+    let first: &LogLine = log_row(world, &name)
+        .comment()
+        .first()
+        .expect("the log body has at least one line");
+    assert_eq!(first, &LogLine::Text(expected));
 }
 
 #[tokio::main]

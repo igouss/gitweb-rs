@@ -24,7 +24,7 @@ use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
-    HeadsHandler, ProjectListHandler, ShortlogHandler, TagHandler, TagsHandler,
+    HeadsHandler, LogHandler, ProjectListHandler, ShortlogHandler, TagHandler, TagsHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -343,6 +343,16 @@ fn given_shortlog_served(world: &mut WebWorld) {
     let settings: Arc<Settings> = Arc::new(Settings::builtin());
     let handler: Arc<dyn Handler> = Arc::new(ShortlogHandler::new(store, settings));
     world.dispatcher.register(Action::Shortlog, handler);
+}
+
+#[given("the log action is served")]
+fn given_log_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(Settings::builtin());
+    let handler: Arc<dyn Handler> = Arc::new(LogHandler::new(store, settings));
+    world.dispatcher.register(Action::Log, handler);
 }
 
 #[given("the tags action is served")]

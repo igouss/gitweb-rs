@@ -7,22 +7,24 @@ use cucumber::gherkin::Step;
 use cucumber::{World, given, then, when};
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::age::{Age, AgeClass};
+use gitweb_domain::model::message_body::LogLine;
 use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_render::age::age_class_name;
 use gitweb_render::chrome::{
-    Crumb, DocumentHead, FeedLink, FooterLink, HiddenField, Logo, NavItem, PageFooter, SearchForm,
-    SearchOption, breadcrumbs, document, footer, page_header, page_nav, search_form,
+    Crumb, DocumentHead, FeedLink, FooterLink, HiddenField, Logo, MoreLink, NavItem, PageFooter,
+    SearchForm, SearchOption, breadcrumbs, document, footer, page_header, page_nav, search_form,
 };
 use gitweb_render::error::{ErrorResponse, HttpStatus, error_page, error_response};
 use gitweb_render::escape::{
     esc_attr, esc_html, esc_html_nbsp, esc_param, esc_path, esc_path_info, esc_url,
 };
 use gitweb_render::heads::{HeadEntryView, HeadsTable, heads_table};
+use gitweb_render::log::{LogEntryView, log_entries};
 use gitweb_render::markup::{Markup, html, raw};
 use gitweb_render::project_list::{
     ProjectLinks, ProjectList, ProjectRow, SortHeader, project_list,
 };
-use gitweb_render::shortlog::{MoreLink, ShortlogEntryView, ShortlogTable, shortlog_table};
+use gitweb_render::shortlog::{ShortlogEntryView, ShortlogTable, shortlog_table};
 use gitweb_render::tag::{TagAuthorView, TagPage, TaggedObjectView, tag_body};
 use gitweb_render::tags::{TagEntryView, TagReftype, TagsPage, TagsTable, tags_body, tags_table};
 
@@ -37,6 +39,8 @@ struct RenderWorld {
     head_entries: Vec<HeadEntryView>,
     shortlog_entries: Vec<ShortlogEntryView>,
     shortlog_more: Option<MoreLink>,
+    log_entries: Vec<LogEntryView>,
+    log_more: Option<MoreLink>,
     tag_entries: Vec<TagEntryView>,
     tag_page: Option<TagPage>,
     domain_error: Option<DomainError>,
@@ -579,6 +583,66 @@ fn when_render_shortlog_table(world: &mut RenderWorld) {
         more: world.shortlog_more.take(),
     };
     world.output = Some(shortlog_table(&table).into_string());
+}
+
+// ---- Verbose log ------------------------------------------------------------
+
+/// Builds a log entry from its display fields and a base href. The timestamp is a
+/// fixed instant (`1780842645 +0200`, a Sunday afternoon UTC) so the badge
+/// scenario can assert on it; the body defaults to the subject as its one line.
+fn log_entry(author: &str, title: &str, age: &str, base: &str) -> LogEntryView {
+    LogEntryView {
+        age: age.to_owned(),
+        title: title.to_owned(),
+        author: author.to_owned(),
+        timestamp: Timestamp::new(1_780_842_645, "+0200"),
+        comment: vec![LogLine::Text(title.to_owned())],
+        commit: base.to_owned(),
+        commitdiff: format!("{base}/diff"),
+        tree: format!("{base}/tree"),
+    }
+}
+
+/// The most recently declared log entry, for a follow-up step that sets its body.
+fn last_log_entry(world: &mut RenderWorld) -> &mut LogEntryView {
+    world
+        .log_entries
+        .last_mut()
+        .expect("declare a log entry first")
+}
+
+#[given(regex = r#"^a log entry by "([^"]*)" titled "([^"]*)" aged "([^"]*)" at "([^"]*)"$"#)]
+fn given_log_entry(
+    world: &mut RenderWorld,
+    author: String,
+    title: String,
+    age: String,
+    base: String,
+) {
+    world
+        .log_entries
+        .push(log_entry(&author, &title, &age, &base));
+}
+
+#[given(regex = r#"^its body is the sign-off "(.*)"$"#)]
+fn given_log_body_signoff(world: &mut RenderWorld, line: String) {
+    last_log_entry(world).comment = vec![LogLine::Signoff(line)];
+}
+
+#[given(regex = r#"^its body links "([^"]*)" to "([^"]*)"$"#)]
+fn given_log_body_autolink(world: &mut RenderWorld, label: String, url: String) {
+    last_log_entry(world).comment = vec![LogLine::Autolink { label, url }];
+}
+
+#[given(regex = r#"^the log offers more at "([^"]*)" labelled "([^"]*)"$"#)]
+fn given_log_more(world: &mut RenderWorld, href: String, label: String) {
+    world.log_more = Some(MoreLink { href, label });
+}
+
+#[when("I render the log entries")]
+fn when_render_log_entries(world: &mut RenderWorld) {
+    let entries: Vec<LogEntryView> = std::mem::take(&mut world.log_entries);
+    world.output = Some(log_entries(&entries, world.log_more.as_ref()).into_string());
 }
 
 // ---- Tags table -------------------------------------------------------------
