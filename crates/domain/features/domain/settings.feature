@@ -98,3 +98,24 @@ Feature: Global gitweb settings value precedence
     And it sets the "snapshot" feature default to "tgz, zip"
     When I resolve the settings
     Then the "snapshot" feature default is "tgz, zip"
+
+  # --- feature: boolean reading (gitweb feature_bool / gitweb_check_feature) --
+  # A boolean feature is on when its first default option is Perl-truthy, the way
+  # gitweb_check_feature reads it: "1" is on, "0" is off, and a feature with no
+  # options at all (a list feature read in boolean context) is off.
+
+  Scenario: A feature defaulting to "0" is disabled
+    Given no config sources
+    When I resolve the settings
+    Then the "remote_heads" feature is disabled
+
+  Scenario: A source switching a feature default to "1" enables it
+    Given a config source
+    And it sets the "remote_heads" feature default to "1"
+    When I resolve the settings
+    Then the "remote_heads" feature is enabled
+
+  Scenario: A feature with no default options is disabled
+    Given no config sources
+    When I resolve the settings
+    Then the "actions" feature is disabled

@@ -25,6 +25,7 @@ use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::patch::{FilePatch, Patch};
 use gitweb_domain::model::ref_name::RefName;
 use gitweb_domain::model::reference::Reference;
+use gitweb_domain::model::remote::Remote;
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::tag::Tag;
 use gitweb_domain::model::tree::{Tree, TreeEntry};
@@ -422,6 +423,31 @@ impl Repository for GixRepository {
                 None => to_domain_oid(reference.into_fully_peeled_id().map_err(backend)?.detach()),
             };
             out.push(Reference::new(RefName::new(full), target));
+        }
+        Ok(out)
+    }
+
+    fn remotes(&self) -> Result<Vec<Remote>, DomainError> {
+        // gitweb parses `git remote -v`; gix reads the same `[remote "<name>"]`
+        // config. `remote_names()` is a BTreeSet, so the remotes come out in name
+        // order. The URLs are read WITHOUT insteadOf rewriting, to mirror what
+        // `git remote -v` shows; gix's push URL falls back to the fetch url, the
+        // same fallback git's push line uses, so a url-only remote reports an equal
+        // fetch and push (gitweb collapses it to one "URL" row).
+        let mut out: Vec<Remote> = Vec::new();
+        for name in self.repo.remote_names() {
+            let remote: gix::Remote<'_> =
+                match self.repo.try_find_remote_without_url_rewrite(name.as_ref()) {
+                    Some(result) => result.map_err(backend)?,
+                    None => continue,
+                };
+            let fetch: Option<String> = remote
+                .url(gix::remote::Direction::Fetch)
+                .map(|url: &gix::Url| url.to_bstring().to_string());
+            let push: Option<String> = remote
+                .url(gix::remote::Direction::Push)
+                .map(|url: &gix::Url| url.to_bstring().to_string());
+            out.push(Remote::new(name.to_string(), fetch, push));
         }
         Ok(out)
     }

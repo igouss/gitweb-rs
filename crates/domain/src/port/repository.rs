@@ -20,6 +20,7 @@ use crate::model::object_id::ObjectId;
 use crate::model::object_kind::ObjectKind;
 use crate::model::patch::Patch;
 use crate::model::reference::Reference;
+use crate::model::remote::Remote;
 use crate::model::tag::Tag;
 use crate::model::tree::Tree;
 
@@ -145,6 +146,12 @@ pub trait Repository {
     /// All references whose full name starts with `prefix`
     /// (e.g. `"refs/heads/"`).
     fn references(&self, prefix: &str) -> Result<Vec<Reference>, DomainError>;
+
+    /// The configured remotes, each with the fetch and push URLs `git remote -v`
+    /// reports (gitweb's `git_get_remotes_list`), in name order. The
+    /// remote-tracking branches are read separately via [`Self::references`] under
+    /// `refs/remotes/<name>/`, the way gitweb's `fill_remote_heads` enriches them.
+    fn remotes(&self) -> Result<Vec<Remote>, DomainError>;
 
     /// Resolves a revision (ref name, full or abbreviated id, …) to an id.
     fn resolve(&self, rev: &str) -> Result<ObjectId, DomainError>;

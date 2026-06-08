@@ -9,6 +9,8 @@
 //! the two together end-to-end. cucumber supplies its own `main`, so this target
 //! sets `harness = false`.
 
+use std::collections::BTreeMap;
+
 use cucumber::{World, given, then, when};
 
 use gitweb_domain::error::DomainError;
@@ -25,7 +27,8 @@ use gitweb_domain::model::project::Project;
 use gitweb_domain::model::project_info::ProjectInfo;
 use gitweb_domain::model::ref_name::RefName;
 use gitweb_domain::model::reference::Reference;
-use gitweb_domain::model::settings::{Settings, SettingsLayer};
+use gitweb_domain::model::remote::{Remote, RemoteUrl};
+use gitweb_domain::model::settings::{FeatureLayer, FeatureName, Settings, SettingsLayer};
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::tag::Tag;
 use gitweb_domain::model::tree::Tree;
@@ -38,6 +41,7 @@ use gitweb_domain::usecase::log::{LogRow, LogView, assemble_log};
 use gitweb_domain::usecase::project_list::{
     ProjectListRow, ProjectListView, assemble_project_list,
 };
+use gitweb_domain::usecase::remotes::{RemoteBlock, RemotesView, assemble_remotes};
 use gitweb_domain::usecase::shortlog::{ShortlogRow, ShortlogView, assemble_shortlog};
 use gitweb_domain::usecase::summary::{SummaryView, assemble_summary};
 use gitweb_domain::usecase::tag::{TagView, show_tag};
@@ -103,6 +107,21 @@ struct UsecaseWorld {
     summary_prevent_xss: bool,
     summary_base_urls: Vec<String>,
     summary_result: Option<Result<SummaryView, DomainError>>,
+    remotes: Vec<Remote>,
+    remote_branches: Vec<FakeRemoteBranch>,
+    remote_heads_enabled: bool,
+    remotes_result: Option<Result<RemotesView, DomainError>>,
+}
+
+/// One remote-tracking branch in the fake repository: which remote it belongs to,
+/// its branch name (without the remote prefix), the id of its tip commit, and
+/// that commit's committer epoch. Listed under `refs/remotes/<remote>/<name>`.
+#[derive(Debug, Clone)]
+struct FakeRemoteBranch {
+    remote: String,
+    name: String,
+    tip: ObjectId,
+    epoch: i64,
 }
 
 /// One branch in the fake repository: its short name, the id of its tip commit,
@@ -166,12 +185,21 @@ struct FakeRepository {
     branches: Vec<FakeBranch>,
     tags: Vec<FakeTag>,
     commits: Vec<FakeCommit>,
+    remotes: Vec<Remote>,
+    remote_branches: Vec<FakeRemoteBranch>,
 }
 
 impl FakeRepository {
     fn branch_ref(branch: &FakeBranch) -> Reference {
         Reference::new(
             RefName::new(format!("refs/heads/{}", branch.name)),
+            branch.tip.clone(),
+        )
+    }
+
+    fn remote_branch_ref(branch: &FakeRemoteBranch) -> Reference {
+        Reference::new(
+            RefName::new(format!("refs/remotes/{}/{}", branch.remote, branch.name)),
             branch.tip.clone(),
         )
     }
@@ -189,6 +217,12 @@ impl FakeRepository {
             .iter()
             .find(|branch: &&FakeBranch| &branch.tip == oid)
             .map(|branch: &FakeBranch| branch.epoch)
+            .or_else(|| {
+                self.remote_branches
+                    .iter()
+                    .find(|branch: &&FakeRemoteBranch| &branch.tip == oid)
+                    .map(|branch: &FakeRemoteBranch| branch.epoch)
+            })
             .or_else(|| {
                 self.tags
                     .iter()
@@ -224,11 +258,21 @@ impl Repository for FakeRepository {
     fn references(&self, prefix: &str) -> Result<Vec<Reference>, DomainError> {
         let branches: Vec<Reference> = self.branches.iter().map(Self::branch_ref).collect();
         let tags: Vec<Reference> = self.tags.iter().map(Self::tag_ref).collect();
+        let remote_branches: Vec<Reference> = self
+            .remote_branches
+            .iter()
+            .map(Self::remote_branch_ref)
+            .collect();
         Ok(branches
             .into_iter()
             .chain(tags)
+            .chain(remote_branches)
             .filter(|reference: &Reference| reference.name().full().starts_with(prefix))
             .collect())
+    }
+
+    fn remotes(&self) -> Result<Vec<Remote>, DomainError> {
+        Ok(self.remotes.clone())
     }
 
     fn find_commit(&self, oid: &ObjectId) -> Result<Commit, DomainError> {
@@ -586,13 +630,7 @@ fn repo_has_aliased_branch(world: &mut UsecaseWorld, name: String, other: String
 
 #[when("I assemble the heads")]
 fn assemble_the_heads(world: &mut UsecaseWorld) {
-    let repo: FakeRepository = FakeRepository {
-        head: world.head.clone(),
-        head_commit: world.head_commit.clone(),
-        branches: world.branches.clone(),
-        tags: world.tags.clone(),
-        commits: world.commits.clone(),
-    };
+    let repo: FakeRepository = fake_repo(world);
     world.heads_result = Some(assemble_heads(&repo, world.now));
 }
 
@@ -758,13 +796,7 @@ fn repo_has_lightweight_object_tag(world: &mut UsecaseWorld, name: String, kind:
 
 #[when("I assemble the tags")]
 fn assemble_the_tags(world: &mut UsecaseWorld) {
-    let repo: FakeRepository = FakeRepository {
-        head: world.head.clone(),
-        head_commit: world.head_commit.clone(),
-        branches: world.branches.clone(),
-        tags: world.tags.clone(),
-        commits: world.commits.clone(),
-    };
+    let repo: FakeRepository = fake_repo(world);
     world.tags_result = Some(assemble_tags(&repo, world.now));
 }
 
@@ -848,13 +880,7 @@ fn tag_show_error(world: &UsecaseWorld) -> &DomainError {
 
 #[when(regex = r#"^I show the tag "([^"]*)"$"#)]
 fn show_the_single_tag(world: &mut UsecaseWorld, hash: String) {
-    let repo: FakeRepository = FakeRepository {
-        head: world.head.clone(),
-        head_commit: world.head_commit.clone(),
-        branches: world.branches.clone(),
-        tags: world.tags.clone(),
-        commits: world.commits.clone(),
-    };
+    let repo: FakeRepository = fake_repo(world);
     world.tag_result = Some(show_tag(&repo, &hash));
 }
 
@@ -970,13 +996,7 @@ fn repo_has_commit(
 
 #[when(regex = r"^I assemble the shortlog of the default branch with page size (\d+)$")]
 fn assemble_default_shortlog(world: &mut UsecaseWorld, size: usize) {
-    let repo: FakeRepository = FakeRepository {
-        head: world.head.clone(),
-        head_commit: world.head_commit.clone(),
-        branches: world.branches.clone(),
-        tags: world.tags.clone(),
-        commits: world.commits.clone(),
-    };
+    let repo: FakeRepository = fake_repo(world);
     world.shortlog_result = Some(assemble_shortlog(
         &repo,
         None,
@@ -987,13 +1007,7 @@ fn assemble_default_shortlog(world: &mut UsecaseWorld, size: usize) {
 
 #[when(regex = r#"^I assemble the shortlog of "([^"]*)" with page size (\d+)$"#)]
 fn assemble_rev_shortlog(world: &mut UsecaseWorld, rev: String, size: usize) {
-    let repo: FakeRepository = FakeRepository {
-        head: world.head.clone(),
-        head_commit: world.head_commit.clone(),
-        branches: world.branches.clone(),
-        tags: world.tags.clone(),
-        commits: world.commits.clone(),
-    };
+    let repo: FakeRepository = fake_repo(world);
     world.shortlog_result = Some(assemble_shortlog(
         &repo,
         Some(&rev),
@@ -1084,6 +1098,8 @@ fn fake_repo(world: &UsecaseWorld) -> FakeRepository {
         branches: world.branches.clone(),
         tags: world.tags.clone(),
         commits: world.commits.clone(),
+        remotes: world.remotes.clone(),
+        remote_branches: world.remote_branches.clone(),
     }
 }
 
@@ -1356,6 +1372,219 @@ fn summary_lists_heads(world: &mut UsecaseWorld, expected: String) {
 #[then("the summary heads section is not truncated")]
 fn summary_heads_not_truncated(world: &mut UsecaseWorld) {
     assert!(!summary_view(world).heads().is_truncated());
+}
+
+// --- remotes: accessors ------------------------------------------------------
+
+/// The assembled remotes view, or a panic if the scenario produced an error.
+fn remotes_view(world: &UsecaseWorld) -> &RemotesView {
+    world
+        .remotes_result
+        .as_ref()
+        .expect("assemble the remotes first")
+        .as_ref()
+        .expect("assembly succeeded")
+}
+
+/// The remotes failure, or a panic if the scenario produced a success.
+fn remotes_error(world: &UsecaseWorld) -> &DomainError {
+    match world
+        .remotes_result
+        .as_ref()
+        .expect("assemble the remotes first")
+    {
+        Ok(_) => panic!("expected assembling the remotes to fail"),
+        Err(failure) => failure,
+    }
+}
+
+/// The assembled block for remote `name`, or a panic if it is absent.
+fn remote_block<'a>(world: &'a UsecaseWorld, name: &str) -> &'a RemoteBlock {
+    remotes_view(world)
+        .blocks()
+        .iter()
+        .find(|block: &&RemoteBlock| block.name() == name)
+        .unwrap_or_else(|| panic!("no remote block for {name}"))
+}
+
+/// The tracking-branch row named `branch` in remote `remote`, or a panic.
+fn tracking_row<'a>(world: &'a UsecaseWorld, remote: &str, branch: &str) -> &'a HeadRow {
+    remote_block(world, remote)
+        .heads()
+        .iter()
+        .find(|row: &&HeadRow| row.name() == branch)
+        .unwrap_or_else(|| panic!("no tracking branch {branch} on remote {remote}"))
+}
+
+/// Serializes one URL line to its `role value` form (`missing` for the
+/// placeholder), so a scenario asserts a block's whole URL set with one string.
+fn url_line_string(line: &RemoteUrl) -> String {
+    match line {
+        RemoteUrl::Combined(url) => format!("combined {url}"),
+        RemoteUrl::Fetch(url) => format!("fetch {url}"),
+        RemoteUrl::Push(url) => format!("push {url}"),
+        RemoteUrl::Missing => "missing".to_owned(),
+    }
+}
+
+/// The settings the remotes use case reads: the `remote_heads` feature on or off,
+/// matching gitweb's `gitweb_check_feature('remote_heads')` gate.
+fn remotes_settings(world: &UsecaseWorld) -> Settings {
+    if !world.remote_heads_enabled {
+        return Settings::builtin();
+    }
+    let mut features: BTreeMap<FeatureName, FeatureLayer> = BTreeMap::new();
+    features.insert(
+        FeatureName::RemoteHeads,
+        FeatureLayer {
+            default: Some(vec!["1".to_owned()]),
+            overridable: None,
+        },
+    );
+    let layer: SettingsLayer = SettingsLayer {
+        features,
+        ..SettingsLayer::default()
+    };
+    Settings::resolve(&[layer])
+}
+
+// --- remotes: Givens ---------------------------------------------------------
+
+#[given("the remote_heads feature is enabled")]
+fn remote_heads_enabled(world: &mut UsecaseWorld) {
+    world.remote_heads_enabled = true;
+}
+
+#[given("the remote_heads feature is disabled")]
+fn remote_heads_disabled(world: &mut UsecaseWorld) {
+    world.remote_heads_enabled = false;
+}
+
+#[given(regex = r#"^a remote "([^"]*)" fetching from "([^"]*)" pushing to "([^"]*)"$"#)]
+fn given_usecase_remote_fetch_push(
+    world: &mut UsecaseWorld,
+    name: String,
+    fetch: String,
+    push: String,
+) {
+    world
+        .remotes
+        .push(Remote::new(name, Some(fetch), Some(push)));
+}
+
+#[given(regex = r#"^a remote "([^"]*)" fetching from "([^"]*)"$"#)]
+fn given_usecase_remote_fetch(world: &mut UsecaseWorld, name: String, fetch: String) {
+    world.remotes.push(Remote::new(name, Some(fetch), None));
+}
+
+#[given(regex = r#"^the remote "([^"]*)" tracks branch "([^"]*)" committed at (\d+)$"#)]
+fn remote_tracks_branch(world: &mut UsecaseWorld, remote: String, branch: String, epoch: i64) {
+    let tip: ObjectId = fake_oid(&format!("{remote}/{branch}"));
+    world.remote_branches.push(FakeRemoteBranch {
+        remote,
+        name: branch,
+        tip,
+        epoch,
+    });
+}
+
+#[given(regex = r#"^the remote "([^"]*)" tracks branch "([^"]*)" at commit "([^"]*)"$"#)]
+fn remote_tracks_branch_at_commit(
+    world: &mut UsecaseWorld,
+    remote: String,
+    branch: String,
+    commit: String,
+) {
+    let tip: ObjectId = fake_oid(&commit);
+    world.remote_branches.push(FakeRemoteBranch {
+        remote,
+        name: branch,
+        tip,
+        epoch: 500_000,
+    });
+}
+
+// --- remotes: Whens ----------------------------------------------------------
+
+#[when("I assemble the remotes")]
+fn assemble_the_remotes(world: &mut UsecaseWorld) {
+    let repo: FakeRepository = fake_repo(world);
+    let settings: Settings = remotes_settings(world);
+    world.remotes_result = Some(assemble_remotes(&repo, &settings, None, world.now));
+}
+
+#[when(regex = r#"^I assemble the remote "([^"]*)"$"#)]
+fn assemble_one_remote(world: &mut UsecaseWorld, name: String) {
+    let repo: FakeRepository = fake_repo(world);
+    let settings: Settings = remotes_settings(world);
+    world.remotes_result = Some(assemble_remotes(&repo, &settings, Some(&name), world.now));
+}
+
+// --- remotes: Thens ----------------------------------------------------------
+
+#[then(regex = r#"^the shown remotes are "(.*)"$"#)]
+fn shown_remotes_are(world: &mut UsecaseWorld, expected: String) {
+    let names: Vec<&str> = remotes_view(world)
+        .blocks()
+        .iter()
+        .map(|block: &RemoteBlock| block.name())
+        .collect();
+    assert_eq!(names.join(", "), expected);
+}
+
+#[then(regex = r#"^the remote "([^"]*)" URL lines are "(.*)"$"#)]
+fn remote_url_lines_are(world: &mut UsecaseWorld, name: String, expected: String) {
+    let rendered: String = remote_block(world, &name)
+        .urls()
+        .iter()
+        .map(url_line_string)
+        .collect::<Vec<String>>()
+        .join(", ");
+    assert_eq!(rendered, expected);
+}
+
+#[then(regex = r#"^the remote "([^"]*)" tracks no branches$"#)]
+fn remote_tracks_no_branches(world: &mut UsecaseWorld, name: String) {
+    assert!(remote_block(world, &name).heads().is_empty());
+}
+
+#[then(regex = r#"^the remote "([^"]*)" tracks "(.*)"$"#)]
+fn remote_tracks(world: &mut UsecaseWorld, name: String, expected: String) {
+    let names: Vec<&str> = remote_block(world, &name)
+        .heads()
+        .iter()
+        .map(|row: &HeadRow| row.name())
+        .collect();
+    assert_eq!(names.join(", "), expected);
+}
+
+#[then(regex = r#"^the remote "([^"]*)" tracking branch "([^"]*)" shows the age "([^"]*)"$"#)]
+fn remote_tracking_age(world: &mut UsecaseWorld, remote: String, branch: String, expected: String) {
+    let humanized: String = tracking_row(world, &remote, &branch)
+        .age()
+        .expect("the tracking branch has an age")
+        .humanized();
+    assert_eq!(humanized, expected);
+}
+
+#[then(regex = r#"^the remote "([^"]*)" tracking branch "([^"]*)" is current$"#)]
+fn remote_tracking_current(world: &mut UsecaseWorld, remote: String, branch: String) {
+    assert!(tracking_row(world, &remote, &branch).current());
+}
+
+#[then("the remotes view is the single-remote view")]
+fn remotes_view_is_single(world: &mut UsecaseWorld) {
+    assert!(remotes_view(world).is_single());
+}
+
+#[then("assembling the remotes fails as forbidden")]
+fn remotes_fails_forbidden(world: &mut UsecaseWorld) {
+    assert!(matches!(remotes_error(world), DomainError::Forbidden(_)));
+}
+
+#[then("assembling the remotes fails as not found")]
+fn remotes_fails_not_found(world: &mut UsecaseWorld) {
+    assert!(matches!(remotes_error(world), DomainError::NotFound(_)));
 }
 
 #[tokio::main]

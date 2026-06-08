@@ -28,6 +28,7 @@ pub mod project_order;
 pub mod projects_list;
 pub mod ref_name;
 pub mod reference;
+pub mod remote;
 pub mod request;
 pub mod routing;
 pub mod safety;

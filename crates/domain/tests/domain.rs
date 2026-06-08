@@ -30,6 +30,7 @@ use gitweb_domain::model::project_info::{CategoryGroup, ProjectInfo, group_by_ca
 use gitweb_domain::model::project_order::ProjectOrder;
 use gitweb_domain::model::projects_list::{ProjectListEntry, parse_project_line};
 use gitweb_domain::model::ref_name::RefName;
+use gitweb_domain::model::remote::{Remote, RemoteUrl};
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::routing::{Dispatch, route};
 use gitweb_domain::model::safety::{SafePath, SafeRef};
@@ -126,6 +127,8 @@ struct DomainWorld {
     section_cap: usize,
     section_items: Vec<String>,
     section: Option<Section<String>>,
+    remote: Option<Remote>,
+    remote_url_lines: Option<Vec<RemoteUrl>>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -2068,6 +2071,18 @@ fn feature_is_not_overridable(world: &mut DomainWorld, name: String) {
     assert!(!resolved(world).feature(feature).is_overridable());
 }
 
+#[then(regex = r#"^the "(.*)" feature is enabled$"#)]
+fn feature_is_enabled(world: &mut DomainWorld, name: String) {
+    let feature: FeatureName = named_feature(&name);
+    assert!(resolved(world).feature(feature).enabled());
+}
+
+#[then(regex = r#"^the "(.*)" feature is disabled$"#)]
+fn feature_is_disabled(world: &mut DomainWorld, name: String) {
+    let feature: FeatureName = named_feature(&name);
+    assert!(!resolved(world).feature(feature).enabled());
+}
+
 // --- dispatch routing ---------------------------------------------------------
 
 #[when("I route the request")]
@@ -2162,6 +2177,59 @@ fn then_section_not_truncated(world: &mut DomainWorld) {
             .expect("limit the section first")
             .is_truncated()
     );
+}
+
+// --- remote: a configured remote's URL lines ---------------------------------
+
+/// Serializes one URL line to its `role value` form (just `missing` for the
+/// placeholder), so a scenario asserts the whole set with one comma-joined string.
+fn url_line_string(line: &RemoteUrl) -> String {
+    match line {
+        RemoteUrl::Combined(url) => format!("combined {url}"),
+        RemoteUrl::Fetch(url) => format!("fetch {url}"),
+        RemoteUrl::Push(url) => format!("push {url}"),
+        RemoteUrl::Missing => "missing".to_owned(),
+    }
+}
+
+#[given(regex = r#"^a remote "([^"]*)" fetching from "([^"]*)" pushing to "([^"]*)"$"#)]
+fn given_remote_fetch_push(world: &mut DomainWorld, name: String, fetch: String, push: String) {
+    world.remote = Some(Remote::new(name, Some(fetch), Some(push)));
+}
+
+#[given(regex = r#"^a remote "([^"]*)" fetching from "([^"]*)"$"#)]
+fn given_remote_fetch_only(world: &mut DomainWorld, name: String, fetch: String) {
+    world.remote = Some(Remote::new(name, Some(fetch), None));
+}
+
+#[given(regex = r#"^a remote "([^"]*)" pushing to "([^"]*)"$"#)]
+fn given_remote_push_only(world: &mut DomainWorld, name: String, push: String) {
+    world.remote = Some(Remote::new(name, None, Some(push)));
+}
+
+#[given(regex = r#"^a remote "([^"]*)" with no URLs$"#)]
+fn given_remote_no_urls(world: &mut DomainWorld, name: String) {
+    world.remote = Some(Remote::new(name, None, None));
+}
+
+#[when("I read the remote's URL lines")]
+fn when_read_url_lines(world: &mut DomainWorld) {
+    let remote: &Remote = world.remote.as_ref().expect("declare a remote first");
+    world.remote_url_lines = Some(remote.url_lines());
+}
+
+#[then(regex = r#"^the URL lines are "(.*)"$"#)]
+fn then_url_lines_are(world: &mut DomainWorld, expected: String) {
+    let lines: &[RemoteUrl] = world
+        .remote_url_lines
+        .as_ref()
+        .expect("read the URL lines first");
+    let rendered: String = lines
+        .iter()
+        .map(url_line_string)
+        .collect::<Vec<String>>()
+        .join(", ");
+    assert_eq!(rendered, expected);
 }
 
 #[tokio::main]

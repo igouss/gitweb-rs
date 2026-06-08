@@ -156,6 +156,30 @@ impl ProjectRoot {
         });
     }
 
+    /// Configures a remote (`[remote "<remote>"]`) in the repository at `name`,
+    /// with the given fetch (`url`) and push (`pushurl`) URLs — either omitted to
+    /// build the fetch-only / push-only / no-URL shapes. This is what the gix
+    /// adapter's `remotes()` reads for the remotes view.
+    pub fn add_remote(
+        &self,
+        name: &str,
+        remote: &str,
+        fetch_url: Option<&str>,
+        push_url: Option<&str>,
+    ) {
+        let builder: RepoBuilder = RepoBuilder::open_at(&self.dir.path().join(name));
+        builder.remote(remote, fetch_url, push_url);
+    }
+
+    /// Points `refs/remotes/<remote>/<branch>` at a fresh commit committed at
+    /// `epoch` in the repository at `name` — one remote-tracking branch for the
+    /// remotes view to list under its remote.
+    pub fn add_remote_branch(&self, name: &str, remote: &str, branch: &str, epoch: i64) {
+        let builder: RepoBuilder = RepoBuilder::open_at(&self.dir.path().join(name));
+        let commit: gix::ObjectId = commit_at(&builder, &format!("{remote}/{branch}"), epoch);
+        builder.remote_branch(remote, branch, commit);
+    }
+
     /// Writes the repository's `description` file (gitweb reads its first line),
     /// overwriting the default one `git init` lays down.
     pub fn set_description(&self, name: &str, text: &str) {

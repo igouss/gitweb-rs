@@ -24,6 +24,7 @@ use gitweb_render::markup::{Markup, html, raw};
 use gitweb_render::project_list::{
     ProjectLinks, ProjectList, ProjectRow, SortHeader, project_list,
 };
+use gitweb_render::remotes::{RemoteBlockView, RemoteUrlLine, RemotesPage, remotes_body};
 use gitweb_render::shortlog::{ShortlogEntryView, ShortlogTable, shortlog_table};
 use gitweb_render::summary::{
     HeadsSection, ShortlogSection, SummaryMetadata, SummaryPage, TagsSection, summary_body,
@@ -56,6 +57,8 @@ struct RenderWorld {
     summary_shortlog_href: Option<String>,
     summary_tags_href: Option<String>,
     summary_heads_href: Option<String>,
+    remotes_title: Option<String>,
+    remote_blocks: Vec<RemoteBlockView>,
     domain_error: Option<DomainError>,
     status: Option<HttpStatus>,
     output: Option<String>,
@@ -1138,6 +1141,83 @@ fn when_render_summary(world: &mut RenderWorld) {
             }),
     };
     world.output = Some(summary_body(&page).into_string());
+}
+
+// ---- Remotes page -----------------------------------------------------------
+
+/// The last declared remote block, which the per-block givens (URL lines,
+/// tracking branches) accrue onto.
+fn last_remote_block(world: &mut RenderWorld) -> &mut RemoteBlockView {
+    world
+        .remote_blocks
+        .last_mut()
+        .expect("declare a remote block first")
+}
+
+/// An empty heads table, the starting point a block's tracking branches accrue
+/// onto.
+fn empty_heads_table() -> HeadsTable {
+    HeadsTable {
+        rows: Vec::new(),
+        more: None,
+    }
+}
+
+#[given(regex = r#"^a remotes page titled "([^"]*)"$"#)]
+fn given_remotes_page(world: &mut RenderWorld, title: String) {
+    world.remotes_title = Some(title);
+}
+
+#[given(regex = r#"^a remote block "([^"]*)" linking to "([^"]*)"$"#)]
+fn given_remote_block_linked(world: &mut RenderWorld, name: String, href: String) {
+    world.remote_blocks.push(RemoteBlockView {
+        name,
+        href: Some(href),
+        urls: Vec::new(),
+        heads: empty_heads_table(),
+    });
+}
+
+#[given(regex = r#"^a remote block "([^"]*)" with no link$"#)]
+fn given_remote_block_unlinked(world: &mut RenderWorld, name: String) {
+    world.remote_blocks.push(RemoteBlockView {
+        name,
+        href: None,
+        urls: Vec::new(),
+        heads: empty_heads_table(),
+    });
+}
+
+#[given(regex = r#"^the remote block has a URL line labelled "([^"]*)" of "([^"]*)"$"#)]
+fn given_remote_url_line(world: &mut RenderWorld, label: String, value: String) {
+    last_remote_block(world).urls.push(RemoteUrlLine {
+        label: Some(label),
+        value,
+    });
+}
+
+#[given(regex = r#"^the remote block has an unlabelled URL line of "([^"]*)"$"#)]
+fn given_remote_url_line_unlabelled(world: &mut RenderWorld, value: String) {
+    last_remote_block(world)
+        .urls
+        .push(RemoteUrlLine { label: None, value });
+}
+
+#[given(regex = r#"^the remote block tracks branch "([^"]*)" at "([^"]*)"$"#)]
+fn given_remote_tracking_branch(world: &mut RenderWorld, name: String, base: String) {
+    let row: HeadEntryView = head_entry(&name, &base, Some(Age::from_seconds(600)), false);
+    last_remote_block(world).heads.rows.push(row);
+}
+
+#[when("I render the remotes page")]
+fn when_render_remotes_page(world: &mut RenderWorld) {
+    let page: RemotesPage = RemotesPage {
+        crumbs: std::mem::take(&mut world.crumbs),
+        ref_views: std::mem::take(&mut world.nav_items),
+        title: world.remotes_title.take().unwrap_or_default(),
+        blocks: std::mem::take(&mut world.remote_blocks),
+    };
+    world.output = Some(remotes_body(&page).into_string());
 }
 
 #[tokio::main]

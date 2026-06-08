@@ -181,6 +181,39 @@ impl RepoBuilder {
             .expect("point HEAD at a branch");
     }
 
+    /// Configures a remote in the repository's git config (`[remote "<name>"]`),
+    /// writing `url` for `fetch_url` and `pushurl` for `push_url` when given. This
+    /// is what `git remote -v` reads and the gix adapter's `remotes()` reports;
+    /// either URL may be omitted to build the fetch-only / push-only / no-URL
+    /// shapes gitweb's remote block handles. Written to the config file directly so
+    /// a freshly-opened adapter reads it back.
+    pub fn remote(&self, name: &str, fetch_url: Option<&str>, push_url: Option<&str>) {
+        let config: std::path::PathBuf = self.repo.path().join("config");
+        let mut text: String =
+            std::fs::read_to_string(&config).expect("read the fixture repo config");
+        text.push_str(&format!("[remote \"{name}\"]\n"));
+        if let Some(url) = fetch_url {
+            text.push_str(&format!("\turl = {url}\n"));
+        }
+        if let Some(url) = push_url {
+            text.push_str(&format!("\tpushurl = {url}\n"));
+        }
+        std::fs::write(&config, text).expect("write the fixture repo config");
+    }
+
+    /// Points `refs/remotes/<remote>/<name>` at `target` — one remote-tracking
+    /// branch, the refs gitweb's `fill_remote_heads` lists under a remote.
+    pub fn remote_branch(&self, remote: &str, name: &str, target: ObjectId) {
+        self.repo
+            .reference(
+                format!("refs/remotes/{remote}/{name}"),
+                target,
+                PreviousValue::Any,
+                "fixture remote branch",
+            )
+            .expect("create a fixture remote-tracking branch");
+    }
+
     /// Points `refs/tags/<name>` straight at `target` (a lightweight tag).
     pub fn lightweight_tag(&self, name: &str, target: ObjectId) {
         self.repo

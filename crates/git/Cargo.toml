@@ -112,3 +112,9 @@ harness = false
 [[test]]
 name = "archive"
 harness = false
+
+# Conformance for the `remotes` operation: configured remotes (name + fetch/push
+# URLs in name order) and the remote-tracking refs under refs/remotes/<name>/.
+[[test]]
+name = "remotes"
+harness = false

@@ -58,6 +58,19 @@ impl Feature {
     pub fn is_overridable(&self) -> bool {
         self.overridable
     }
+
+    /// Whether this feature is on, read as a boolean the way gitweb's
+    /// `gitweb_check_feature` / `feature_bool` read it: the first default option
+    /// in Perl-truthy terms — present, non-empty, and not `"0"`. A feature with no
+    /// options at all (a list feature read in boolean context, e.g. `actions`) is
+    /// off.
+    #[must_use]
+    pub fn enabled(&self) -> bool {
+        match self.default.first() {
+            Some(first) => !first.is_empty() && first != "0",
+            None => false,
+        }
+    }
 }
 
 /// The names of gitweb's `%feature` entries. The string form (`as_key`) is the

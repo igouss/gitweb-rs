@@ -7,6 +7,7 @@
 //! field, or the exact failure mode — without any branching in the step body.
 //! cucumber supplies its own `main`, so this target sets `harness = false`.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::Router;
@@ -19,13 +20,13 @@ use gitweb_domain::error::DomainError;
 use gitweb_domain::model::action::Action;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
-use gitweb_domain::model::settings::{Settings, SettingsLayer};
+use gitweb_domain::model::settings::{FeatureLayer, FeatureName, Settings, SettingsLayer};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
-    HeadsHandler, LogHandler, ProjectListHandler, ShortlogHandler, SummaryHandler, TagHandler,
-    TagsHandler,
+    HeadsHandler, LogHandler, ProjectListHandler, RemotesHandler, ShortlogHandler, SummaryHandler,
+    TagHandler, TagsHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -374,6 +375,69 @@ fn given_tag_served(world: &mut WebWorld) {
     let settings: Arc<Settings> = Arc::new(Settings::builtin());
     let handler: Arc<dyn Handler> = Arc::new(TagHandler::new(store, settings));
     world.dispatcher.register(Action::Tag, handler);
+}
+
+// --- remotes: fixtures and the served handler --------------------------------
+
+#[given(regex = r#"^the repository "([^"]*)" has a remote "([^"]*)" fetching "([^"]*)"$"#)]
+fn given_repo_remote(world: &mut WebWorld, name: String, remote: String, url: String) {
+    root(world).add_remote(&name, &remote, Some(&url), None);
+}
+
+#[given(
+    regex = r#"^the repository "([^"]*)" remote "([^"]*)" tracks "([^"]*)" committed at (\d+)$"#
+)]
+fn given_repo_remote_tracks(
+    world: &mut WebWorld,
+    name: String,
+    remote: String,
+    branch: String,
+    epoch: i64,
+) {
+    root(world).add_remote_branch(&name, &remote, &branch, epoch);
+}
+
+/// Settings with the `remote_heads` feature on or off, the gate the remotes view
+/// reads (gitweb's `gitweb_check_feature('remote_heads')`).
+fn remote_heads_settings(enabled: bool) -> Settings {
+    let mut features: BTreeMap<FeatureName, FeatureLayer> = BTreeMap::new();
+    let default: Vec<String> = if enabled {
+        vec!["1".to_owned()]
+    } else {
+        vec!["0".to_owned()]
+    };
+    features.insert(
+        FeatureName::RemoteHeads,
+        FeatureLayer {
+            default: Some(default),
+            overridable: None,
+        },
+    );
+    let layer: SettingsLayer = SettingsLayer {
+        features,
+        ..SettingsLayer::default()
+    };
+    Settings::resolve(&[layer])
+}
+
+#[given("the remotes action is served")]
+fn given_remotes_served(world: &mut WebWorld) {
+    register_remotes(world, true);
+}
+
+#[given("the remotes action is served with the remote_heads feature disabled")]
+fn given_remotes_served_disabled(world: &mut WebWorld) {
+    register_remotes(world, false);
+}
+
+/// Registers the remotes handler with the `remote_heads` feature on or off.
+fn register_remotes(world: &mut WebWorld, enabled: bool) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(remote_heads_settings(enabled));
+    let handler: Arc<dyn Handler> = Arc::new(RemotesHandler::new(store, settings));
+    world.dispatcher.register(Action::Remotes, handler);
 }
 
 // --- summary: fixture metadata and the served handler ------------------------

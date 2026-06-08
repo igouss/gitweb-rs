@@ -16,13 +16,14 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
-use gitweb_render::chrome::{Crumb, DocumentHead, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, document};
 use gitweb_render::heads::{HeadEntryView, HeadsPage, HeadsTable, heads_body};
 use gitweb_render::markup::Markup;
 
 use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
+use crate::handlers::refs::{CurrentRef, ref_views};
 use crate::response::View;
 use crate::url::href;
 
@@ -58,7 +59,7 @@ impl Handler for HeadsHandler {
 fn render_page(settings: &Settings, project: &str, view: &HeadsView) -> Markup {
     let page: HeadsPage = HeadsPage {
         crumbs: crumbs(settings.site_name(), project),
-        ref_views: ref_views(project),
+        ref_views: ref_views(project, settings, CurrentRef::Heads),
         table: HeadsTable {
             rows: view
                 .rows()
@@ -91,22 +92,6 @@ fn crumbs(site_name: &str, project: &str) -> Vec<Crumb> {
             href: Some(href(&[("p", project), ("a", "summary")])),
         },
         Crumb {
-            label: "heads".to_owned(),
-            href: None,
-        },
-    ]
-}
-
-/// The refs sub-navigation (gitweb's `format_ref_views`): tags links away, the
-/// current heads view is plain text. The remotes view is added by its own
-/// capability when the `remote_heads` feature is enabled.
-fn ref_views(project: &str) -> Vec<NavItem> {
-    vec![
-        NavItem {
-            label: "tags".to_owned(),
-            href: Some(href(&[("p", project), ("a", "tags")])),
-        },
-        NavItem {
             label: "heads".to_owned(),
             href: None,
         },

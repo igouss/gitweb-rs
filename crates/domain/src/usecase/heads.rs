@@ -96,17 +96,54 @@ struct HeadEntry {
 /// floats no branch and marks none current.
 pub fn assemble_heads(repo: &dyn Repository, now: i64) -> Result<HeadsView, DomainError> {
     let (head_branch, head_commit): (Option<String>, Option<ObjectId>) = read_head(repo)?;
-
     let references: Vec<Reference> = repo.references("refs/heads/")?;
+    let rows: Vec<HeadRow> = assemble_head_rows(
+        repo,
+        &references,
+        head_branch.as_deref(),
+        head_commit.as_ref(),
+        now,
+        |reference: &Reference| reference.short().into_owned(),
+    )?;
+    Ok(HeadsView { rows })
+}
+
+/// Enriches a set of branch-like refs into ordered head rows: each ref's tip age
+/// relative to `now`, the current-branch marker (its tip is HEAD's commit), and a
+/// display name from `display`. The rows come out in gitweb's
+/// `--sort=-HEAD --sort=-committerdate` order.
+///
+/// Shared by the heads listing (refs under `refs/heads/`, shown under their short
+/// name) and the remotes view (a remote's tracking branches under
+/// `refs/remotes/<name>/`, shown without the `<name>/` prefix); both are the same
+/// `git_heads_body` table over a different ref set and naming, so the enrichment
+/// lives here once.
+///
+/// # Errors
+///
+/// Propagates the repository's error if a tip-commit read fails.
+pub(crate) fn assemble_head_rows(
+    repo: &dyn Repository,
+    references: &[Reference],
+    head_branch: Option<&str>,
+    head_commit: Option<&ObjectId>,
+    now: i64,
+    display: impl Fn(&Reference) -> String,
+) -> Result<Vec<HeadRow>, DomainError> {
     let mut entries: Vec<HeadEntry> = references
         .iter()
         .map(|reference: &Reference| {
-            entry_for(repo, reference, head_branch.as_deref(), &head_commit)
+            entry_for(
+                repo,
+                reference,
+                head_branch,
+                head_commit,
+                display(reference),
+            )
         })
         .collect::<Result<Vec<HeadEntry>, DomainError>>()?;
     entries.sort_by(order_heads);
-
-    let rows: Vec<HeadRow> = entries
+    Ok(entries
         .into_iter()
         .map(|entry: HeadEntry| HeadRow {
             name: entry.name,
@@ -114,14 +151,16 @@ pub fn assemble_heads(repo: &dyn Repository, now: i64) -> Result<HeadsView, Doma
             age: age_of(entry.epoch, now),
             current: entry.current,
         })
-        .collect();
-    Ok(HeadsView { rows })
+        .collect())
 }
 
 /// Reads HEAD: the fully-qualified branch it points at and the commit it
 /// resolves to. An unborn HEAD (gitweb's empty `git_get_head_hash`) yields
-/// `(None, None)`; any other failure propagates.
-fn read_head(repo: &dyn Repository) -> Result<(Option<String>, Option<ObjectId>), DomainError> {
+/// `(None, None)`; any other failure propagates. Shared with the remotes use
+/// case, which needs HEAD's commit to mark a tracking branch current.
+pub(crate) fn read_head(
+    repo: &dyn Repository,
+) -> Result<(Option<String>, Option<ObjectId>), DomainError> {
     match repo.head() {
         Ok(reference) => Ok((
             Some(reference.name().full().to_owned()),
@@ -132,19 +171,21 @@ fn read_head(repo: &dyn Repository) -> Result<(Option<String>, Option<ObjectId>)
     }
 }
 
-/// Enriches one branch ref with its tip's committer epoch and its HEAD relation.
+/// Enriches one branch ref with its tip's committer epoch and its HEAD relation,
+/// under the already-resolved display `name`.
 fn entry_for(
     repo: &dyn Repository,
     reference: &Reference,
     head_branch: Option<&str>,
-    head_commit: &Option<ObjectId>,
+    head_commit: Option<&ObjectId>,
+    name: String,
 ) -> Result<HeadEntry, DomainError> {
     let commit: Commit = repo.find_commit(reference.target())?;
     let full_name: String = reference.name().full().to_owned();
     Ok(HeadEntry {
-        name: reference.short().into_owned(),
+        name,
         is_head_branch: head_branch == Some(full_name.as_str()),
-        current: head_commit.as_ref() == Some(reference.target()),
+        current: head_commit == Some(reference.target()),
         full_name,
         epoch: commit.committer().epoch(),
     })
