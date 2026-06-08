@@ -225,6 +225,13 @@ pub trait Repository {
     /// itself, so the caller passes just the merge commit.
     fn combined_diff(&self, commit: &ObjectId) -> Result<CombinedDiff, DomainError>;
 
+    /// The repository's default object-id abbreviation length, in hex
+    /// characters — git's `core.abbrev` (auto-scaled by object count, never
+    /// below 7). The `commitdiff_plain` / `patch` endpoints abbreviate their
+    /// `index` lines to this width, matching the short ids bare `git diff-tree
+    /// -p` writes, via [`Patch::render_abbreviated`](crate::model::patch::Patch::render_abbreviated).
+    fn abbrev_length(&self) -> Result<usize, DomainError>;
+
     /// Line-by-line blame of `path` as of commit `at`.
     fn blame(&self, at: &ObjectId, path: &str) -> Result<Blame, DomainError>;
 

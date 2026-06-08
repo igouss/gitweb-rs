@@ -129,3 +129,18 @@ Feature: Unified diff (patch) text formatting
     And the patch contains "deleted file mode 100644"
     And the patch contains "diff --git a/added.txt b/added.txt"
     And the patch contains "diff --git a/gone.txt b/gone.txt"
+
+  # The abbreviated form is what bare `git diff-tree -p` emits (no
+  # `--full-index`), which gitweb's `commitdiff_plain` streams verbatim. The
+  # `index` ids are cut to a uniform hex width; everything else is unchanged.
+  Scenario: An abbreviated render cuts the index ids to the given width
+    Given a modified file patch for "a.txt"
+    When I render the patch abbreviated to 7
+    Then the patch has a line "index 1111111..2222222 100644"
+
+  Scenario: An abbreviated created file keeps the zero source at the same width
+    Given a created file patch for "new.txt" with two lines
+    When I render the patch abbreviated to 7
+    Then the patch has a line "index 0000000..2222222"
+    And the patch contains "--- /dev/null"
+    And the patch contains "+++ b/new.txt"

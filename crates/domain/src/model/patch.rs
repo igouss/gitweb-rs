@@ -222,17 +222,19 @@ impl FilePatch {
     }
 
     /// Renders this file patch as git's unified-diff text, each line newline
-    /// terminated.
+    /// terminated, with full 40/64-hex `index` ids (`--full-index`).
     #[must_use]
     pub fn render(&self) -> String {
         let mut out: String = String::new();
-        self.write_to(&mut out);
+        self.write_to(&mut out, None);
         out
     }
 
     /// Appends this file patch to `out`. Shared by [`Patch::render`] so a
     /// multi-file patch is one streamed concatenation, exactly as git emits it.
-    fn write_to(&self, out: &mut String) {
+    /// `abbrev` truncates the `index` ids to that many hex characters (bare
+    /// `diff-tree -p`'s default short form); `None` keeps them full.
+    fn write_to(&self, out: &mut String, abbrev: Option<usize>) {
         let kind: ChangeKind = self.status.kind();
         let is_create: bool = matches!(kind, ChangeKind::Added);
         let is_delete: bool = matches!(kind, ChangeKind::Deleted);
@@ -241,7 +243,7 @@ impl FilePatch {
             "diff --git a/{} b/{}\n",
             self.from_path, self.to_path
         ));
-        self.write_extended_headers(out, kind, is_create, is_delete);
+        self.write_extended_headers(out, kind, is_create, is_delete, abbrev);
         self.write_body(out, is_create, is_delete);
     }
 
@@ -254,6 +256,7 @@ impl FilePatch {
         kind: ChangeKind,
         is_create: bool,
         is_delete: bool,
+        abbrev: Option<usize>,
     ) {
         // A mode change is announced only when both sides exist; creation and
         // deletion carry the mode in their own header instead.
@@ -295,8 +298,8 @@ impl FilePatch {
                 };
             out.push_str(&format!(
                 "index {}..{}{}\n",
-                self.from_oid.as_str(),
-                self.to_oid.as_str(),
+                abbrev_hex(self.from_oid.as_str(), abbrev),
+                abbrev_hex(self.to_oid.as_str(), abbrev),
                 trailing_mode
             ));
         }
@@ -350,13 +353,44 @@ impl Patch {
     }
 
     /// Renders the whole patch: each file patch's text, concatenated in order
-    /// the way git streams them.
+    /// the way git streams them, with full `index` ids (`--full-index`).
     #[must_use]
     pub fn render(&self) -> String {
+        self.render_with(None)
+    }
+
+    /// Renders the whole patch with the `index` ids abbreviated to `abbrev_len`
+    /// hex characters — the short form bare `git diff-tree -p` emits (without
+    /// `--full-index`), which gitweb's `commitdiff_plain` streams. The null
+    /// (all-zero) id of a created or deleted side abbreviates to the same width,
+    /// so `index 0000000..f971a5e` comes out exactly as git writes it.
+    ///
+    /// The width is uniform across every id, matching git for any repository
+    /// whose objects are unique at that length (git only extends an individual
+    /// id past the default on the rare prefix collision); the caller passes the
+    /// repository's default abbreviation, which the adapter reports.
+    #[must_use]
+    pub fn render_abbreviated(&self, abbrev_len: usize) -> String {
+        self.render_with(Some(abbrev_len))
+    }
+
+    /// Concatenates every file patch, optionally abbreviating the `index` ids.
+    fn render_with(&self, abbrev: Option<usize>) -> String {
         let mut out: String = String::new();
         for file in &self.files {
-            file.write_to(&mut out);
+            file.write_to(&mut out, abbrev);
         }
         out
+    }
+}
+
+/// The `index`-line form of an object id: the full hex, or its first
+/// `len` characters when an abbreviation is requested. The id is ASCII hex, so a
+/// byte-prefix is a valid character boundary; an over-long `len` is clamped to
+/// the id's own length.
+fn abbrev_hex(full: &str, abbrev: Option<usize>) -> &str {
+    match abbrev {
+        Some(len) => &full[..len.min(full.len())],
+        None => full,
     }
 }

@@ -119,6 +119,20 @@ impl View {
         }
     }
 
+    /// A plain-text body (`text/plain; charset=utf-8`) offered inline under a
+    /// per-request filename — gitweb's `commitdiff_plain` / `patch`, which set a
+    /// fixed `-type`/`-charset` but a `-content_disposition` whose filename
+    /// carries the project and hash, so the disposition is owned.
+    #[must_use]
+    pub fn plain_attachment(content_disposition: String, body: String) -> Self {
+        Self {
+            content_type: Cow::Borrowed(TEXT_MIME),
+            content_disposition: Some(content_disposition),
+            last_modified: None,
+            body: ViewBody::Text(body),
+        }
+    }
+
     /// A raw-bytes body under an explicit content type — gitweb's snapshot
     /// archives.
     #[must_use]

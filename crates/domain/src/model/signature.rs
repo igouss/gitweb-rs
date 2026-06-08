@@ -43,6 +43,17 @@ impl Signature {
         self.email.as_deref()
     }
 
+    /// The whole ident in gitweb's `$co{'author'}` form — `"name <email>"`, or
+    /// just the name when no email is present. The mailbox header of
+    /// `commitdiff_plain` and the feeds' `<author>` both print this.
+    #[must_use]
+    pub fn full_ident(&self) -> String {
+        match &self.email {
+            Some(email) => format!("{} <{email}>", self.name),
+            None => self.name.clone(),
+        }
+    }
+
     /// The author/committer time as a Unix epoch.
     #[must_use]
     pub fn epoch(&self) -> i64 {

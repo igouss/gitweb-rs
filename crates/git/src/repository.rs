@@ -355,6 +355,15 @@ struct CopyHint {
 /// 50% similarity at every level; copies are off for `RenamesOnly`, drawn from
 /// the modified set for `Copies` (`-C`), and from every source-tree file for
 /// `CopiesHarder` (`-C --find-copies-harder`).
+/// git's auto `core.abbrev`: roughly half the bits needed to count the objects,
+/// floored at 7 — the same `len.div_ceil(2).max(7)` over the packed-object count
+/// that gix's `Id::shorten` uses, so our abbreviated `index` ids match the width
+/// `git diff-tree -p` writes for the same repository.
+fn auto_hex_len(num_packed_objects: u64) -> usize {
+    let bits: u32 = u64::BITS - num_packed_objects.leading_zeros();
+    bits.div_ceil(2).max(7) as usize
+}
+
 fn rewrites_for(detection: RenameDetection) -> gix::diff::Rewrites {
     let copies: Option<gix::diff::rewrites::Copies> = detection.detects_copies().then(|| {
         let source: gix::diff::rewrites::CopySource = if detection.finds_copies_harder() {
@@ -655,6 +664,18 @@ impl Repository for GixRepository {
             files.push(to_file_patch(entry, &before, &after));
         }
         Ok(Patch::new(files))
+    }
+
+    fn abbrev_length(&self) -> Result<usize, DomainError> {
+        // gitweb leaves `core.abbrev` unset, so git auto-scales the default from
+        // the object count, never going below 7. gix's own `Id::shorten` floors
+        // its auto length the same way (`calculate_auto_hex_len`); reproduce that
+        // floor over the packed-object count so the `index` ids we abbreviate
+        // match the width `git diff-tree -p` writes. A configured `core.abbrev`
+        // is not honoured (gitweb does not set one); the default is what the
+        // format-stable endpoints need.
+        let packed: u64 = self.repo.objects.packed_object_count().map_err(backend)?;
+        Ok(auto_hex_len(packed))
     }
 
     fn combined_diff(&self, commit: &ObjectId) -> Result<CombinedDiff, DomainError> {

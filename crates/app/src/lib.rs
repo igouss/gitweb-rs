@@ -25,10 +25,10 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_git::GixProjectStore;
 use gitweb_web::{
-    BlobHandler, BlobPlainHandler, CommitHandler, CommitdiffHandler, Dispatcher, FeedHandler,
-    Handler, HeadsHandler, HistoryHandler, LogHandler, OpmlHandler, ProjectIndexHandler,
-    ProjectListHandler, RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler,
-    TreeHandler, router,
+    BlobHandler, BlobPlainHandler, CommitHandler, CommitdiffHandler, CommitdiffPlainHandler,
+    Dispatcher, FeedHandler, Handler, HeadsHandler, HistoryHandler, LogHandler, OpmlHandler,
+    ProjectIndexHandler, ProjectListHandler, RemotesHandler, ShortlogHandler, SummaryHandler,
+    TagHandler, TagsHandler, TreeHandler, router,
 };
 use tower_http::services::ServeDir;
 
@@ -146,13 +146,21 @@ fn build_dispatcher(
     ));
     dispatcher.register(Action::BlobPlain, blob_plain);
 
-    // The feeds are absolute against the site URL; gitweb derives it per-request
-    // (SERVER_NAME), but a standalone daemon takes a configured canonical base
-    // (GITWEB_BASE_URL), defaulting to the CGI default host. The generator stamps
-    // the feed with this build's version.
+    // The feeds, OPML, and the commitdiff_plain self-link are absolute against
+    // the site URL; gitweb derives it per-request (SERVER_NAME), but a standalone
+    // daemon takes a configured canonical base (GITWEB_BASE_URL), defaulting to
+    // the CGI default host. The generator stamps the feed with this build's version.
     let base: String =
         std::env::var("GITWEB_BASE_URL").unwrap_or_else(|_| "http://localhost".to_owned());
     let generator: String = concat!("gitweb-rs/", env!("CARGO_PKG_VERSION")).to_owned();
+
+    // commitdiff_plain's `X-Git-Url` line is the request's absolute self URL.
+    let commitdiff_plain: Arc<dyn Handler> = Arc::new(CommitdiffPlainHandler::new(
+        Arc::clone(&store),
+        base.clone(),
+    ));
+    dispatcher.register(Action::CommitdiffPlain, commitdiff_plain);
+
     let rss: Arc<dyn Handler> = Arc::new(FeedHandler::new(
         Arc::clone(&store),
         Arc::clone(&settings),

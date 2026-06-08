@@ -12,6 +12,7 @@ pub mod blob;
 pub mod blob_plain;
 pub mod commit;
 pub mod commitdiff;
+pub mod commitdiff_plain;
 pub mod feed;
 pub mod heads;
 pub mod history;

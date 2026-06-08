@@ -85,7 +85,7 @@ fn entry_of(
         commit.id().as_str().to_owned(),
         parent.map(|oid: &ObjectId| oid.as_str().to_owned()),
         commit.title(),
-        full_ident(author),
+        author.full_ident(),
         author.name().to_owned(),
         author.email().map(str::to_owned),
         committer.name().to_owned(),
@@ -122,13 +122,4 @@ fn matches_path(entry: &DiffEntry, path: Option<&str>) -> bool {
 /// Whether `candidate` is `path` itself or lives beneath it (`path/...`).
 fn under(candidate: &str, path: &str) -> bool {
     candidate == path || candidate.starts_with(&format!("{path}/"))
-}
-
-/// Reassembles a signature into gitweb's whole-ident form, `"name <email>"`
-/// (just the name when no email is present) — RSS's `<author>` text.
-fn full_ident(sig: &Signature) -> String {
-    match sig.email() {
-        Some(email) => format!("{} <{email}>", sig.name()),
-        None => sig.name().to_owned(),
-    }
 }

@@ -15,6 +15,7 @@ use gitweb_domain::model::chop::{ChopMode, chop_str};
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::commit_date::CommitDate;
 use gitweb_domain::model::commitdiff::{DiffBase, diff_base};
+use gitweb_domain::model::commitdiff_plain::CommitdiffPlain;
 use gitweb_domain::model::config_chain::{ConfigChain, ConfigSlot};
 use gitweb_domain::model::content_type::PlainHeaders;
 use gitweb_domain::model::diff::{CombinedDiffEntry, CombinedParent};
@@ -96,6 +97,13 @@ struct DomainWorld {
     visible: Option<bool>,
     patch_under_test: Option<Patch>,
     rendered: Option<String>,
+    cdp_author: Option<String>,
+    cdp_subject: Option<String>,
+    cdp_tag: Option<String>,
+    cdp_comment: Vec<String>,
+    cdp_commit_id: Option<String>,
+    cdp_patch_body: Option<String>,
+    cdp_rendered: Option<String>,
     commitdiff_parents: Vec<ObjectId>,
     commitdiff_explicit: Option<ObjectId>,
     commitdiff_base: Option<DiffBase>,
@@ -1552,6 +1560,15 @@ fn render_patch(world: &mut DomainWorld) {
     world.rendered = Some(patch.render());
 }
 
+#[when(regex = r#"^I render the patch abbreviated to (\d+)$"#)]
+fn render_patch_abbreviated(world: &mut DomainWorld, len: usize) {
+    let patch: &Patch = world
+        .patch_under_test
+        .as_ref()
+        .expect("a patch must be built before rendering");
+    world.rendered = Some(patch.render_abbreviated(len));
+}
+
 fn rendered(world: &DomainWorld) -> &str {
     world
         .rendered
@@ -1653,6 +1670,66 @@ fn then_commitdiff_base_commit(world: &mut DomainWorld, label: String) {
 #[then("the patch is empty")]
 fn then_patch_is_empty(world: &mut DomainWorld) {
     assert_eq!(rendered(world), "");
+}
+
+// --- commitdiff_plain body format --------------------------------------------
+
+/// The fixed author timestamp the commitdiff_plain scenarios render against:
+/// epoch 1_700_000_000 at `+0000`, which is `Tue, 14 Nov 2023 22:13:20 +0000`.
+const CDP_EPOCH: i64 = 1_700_000_000;
+
+#[given(regex = r#"^a commitdiff_plain by "([^"]*)" titled "([^"]*)"$"#)]
+fn given_commitdiff_plain(world: &mut DomainWorld, author: String, subject: String) {
+    world.cdp_author = Some(author);
+    world.cdp_subject = Some(subject);
+}
+
+#[given(regex = r#"^its comment line is "([^"]*)"$"#)]
+fn given_commitdiff_plain_comment(world: &mut DomainWorld, line: String) {
+    world.cdp_comment.push(line);
+}
+
+#[given(regex = r#"^it is tag-named "([^"]*)"$"#)]
+fn given_commitdiff_plain_tag(world: &mut DomainWorld, tag: String) {
+    world.cdp_tag = Some(tag);
+}
+
+#[given(regex = r#"^it carries the commit-id line "([^"]*)"$"#)]
+fn given_commitdiff_plain_commit_id(world: &mut DomainWorld, id: String) {
+    world.cdp_commit_id = Some(id);
+}
+
+#[given(regex = r#"^its patch body is "([^"]*)"$"#)]
+fn given_commitdiff_plain_body(world: &mut DomainWorld, body: String) {
+    world.cdp_patch_body = Some(format!("{body}\n"));
+}
+
+#[when(regex = r#"^I render the commitdiff_plain at "([^"]*)"$"#)]
+fn render_commitdiff_plain(world: &mut DomainWorld, self_url: String) {
+    let plain: CommitdiffPlain = CommitdiffPlain::new(
+        world.cdp_author.clone().expect("an author"),
+        Timestamp::new(CDP_EPOCH, "+0000"),
+        world.cdp_subject.clone().expect("a subject"),
+        world.cdp_tag.clone(),
+        world.cdp_comment.clone(),
+        world.cdp_commit_id.clone(),
+        world.cdp_patch_body.clone().unwrap_or_default(),
+    );
+    world.cdp_rendered = Some(plain.render(&self_url));
+}
+
+#[then("the commitdiff_plain body is:")]
+fn then_commitdiff_plain_body(world: &mut DomainWorld, step: &Step) {
+    let expected: &str = step
+        .docstring
+        .as_deref()
+        .expect("scenario must supply a docstring")
+        .trim_matches('\n');
+    let actual: &str = world
+        .cdp_rendered
+        .as_deref()
+        .expect("render the commitdiff_plain first");
+    assert_eq!(actual.trim_end_matches('\n'), expected);
 }
 
 // --- URL decoding (unescape) -------------------------------------------------

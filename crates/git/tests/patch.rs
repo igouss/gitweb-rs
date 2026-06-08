@@ -9,6 +9,7 @@
 //!
 //! cucumber supplies its own `main`, so this target sets `harness = false`.
 
+use cucumber::gherkin::Step;
 use cucumber::{World, given, then, when};
 
 use gitweb_domain::error::DomainError;
@@ -26,6 +27,7 @@ struct PatchWorld {
     to_oid: Option<ObjectId>,
     patch: Option<Result<Patch, DomainError>>,
     rendered: Option<String>,
+    abbrev_length: Option<usize>,
 }
 
 // --- fixture construction ----------------------------------------------------
@@ -230,6 +232,20 @@ fn given_modify_latin1(world: &mut PatchWorld) {
     build_pair(world, builder, &before, &after);
 }
 
+#[given("a commit that creates a two-line file")]
+fn given_create_two_line(world: &mut PatchWorld) {
+    let builder: RepoBuilder = RepoBuilder::init();
+    let tree: FixtureOid = builder.tree(&[blob_entry(
+        &builder,
+        "two.txt",
+        Mode::File,
+        b"alpha\nbeta\n",
+    )]);
+    let commit: FixtureOid = commit_of(&builder, tree, Vec::new());
+    // A root commit (no from-side) diffs against the empty tree — a creation.
+    open_pair(world, builder, None, to_domain(commit));
+}
+
 #[given("a commit and a missing object id")]
 fn given_missing(world: &mut PatchWorld) {
     let builder: RepoBuilder = RepoBuilder::init();
@@ -253,6 +269,15 @@ fn when_take_patch(world: &mut PatchWorld) {
         repo(world).patch(from.as_ref(), &to, RenameDetection::RenamesOnly);
     world.rendered = result.as_ref().ok().map(Patch::render);
     world.patch = Some(result);
+}
+
+#[when("I read the default abbreviation length")]
+fn when_read_abbrev(world: &mut PatchWorld) {
+    world.abbrev_length = Some(
+        repo(world)
+            .abbrev_length()
+            .expect("the adapter reports an abbreviation length"),
+    );
 }
 
 // --- Thens -------------------------------------------------------------------
@@ -284,6 +309,30 @@ fn then_patch_is_empty(world: &mut PatchWorld) {
 fn then_patch_not_found(world: &mut PatchWorld) {
     let result: &Result<Patch, DomainError> = world.patch.as_ref().expect("take the patch first");
     assert!(matches!(result, Err(DomainError::NotFound(_))));
+}
+
+#[then(regex = r#"^the default abbreviation length is (\d+)$"#)]
+fn then_abbrev_length_is(world: &mut PatchWorld, expected: usize) {
+    assert_eq!(
+        world
+            .abbrev_length
+            .expect("read the abbreviation length first"),
+        expected
+    );
+}
+
+#[then("the hunk text is:")]
+fn then_hunk_text_is(world: &mut PatchWorld, step: &Step) {
+    let expected: &str = step
+        .docstring
+        .as_deref()
+        .expect("scenario must supply a docstring")
+        .trim_matches('\n');
+    // Slice from the first `@@` so the assertion is over the hunk body, not the
+    // non-deterministic `index` blob ids above it.
+    let rendered: &str = rendered(world);
+    let at: usize = rendered.find("@@").expect("a hunk header");
+    assert_eq!(rendered[at..].trim_end_matches('\n'), expected);
 }
 
 #[tokio::main]

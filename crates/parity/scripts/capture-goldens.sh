@@ -128,6 +128,18 @@ echo ">> capturing project listing goldens" >&2
 capture "project_index/index" "a=project_index"
 capture "opml/opml" "a=opml"
 
+# commitdiff_plain is format-stable (git am parses it): a mailbox header, the
+# comment, then the raw `git diff-tree -p` patch. It is addressed by hash (no
+# by-path form), and is captured over the corpus root commit (a --root diff of
+# every blob: creation headers, abbreviated index lines, the binary notice, the
+# non-UTF-8 line, the missing-newline marker). The hash is the deterministic
+# corpus HEAD, so the X-Git-Url self-link in the BODY and the filename in the
+# Content-Disposition are reproducible; only the by-hash Expires/Date cache
+# HEADERS are volatile, and the golden test compares the body, not those.
+echo ">> capturing commitdiff_plain golden" >&2
+head_hash=$("$GIT" --git-dir="$project_root/repo.git" rev-parse HEAD)
+capture "commitdiff_plain/root" "p=repo.git;a=commitdiff_plain;h=$head_hash"
+
 # The feed body carries a <generator> version composite ($version/$git_version).
 # $version is pinned via VERSION-FILE above; $git_version is the capturing git's
 # version, which is not byte-stable across machines and is not part of the feed

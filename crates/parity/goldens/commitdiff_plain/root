@@ -1,0 +1,43 @@
+Expires: Tue, 09 Jun 2026 18:50:49 GMT
+Date: Mon, 08 Jun 2026 18:50:49 GMT
+Content-disposition: inline; filename="repo.git-331d8105735f3b7bd6256afbd609616b78475faa.patch"
+Content-Type: text/plain; charset=utf-8
+
+From: Ada Lovelace <ada@example.com>
+Date: Tue, 14 Nov 2023 22:13:20 +0000 (+0000)
+Subject: corpus root
+X-Git-Url: http://localhost?p=repo.git;a=commitdiff_plain;h=331d8105735f3b7bd6256afbd609616b78475faa
+
+corpus root
+---
+
+331d8105735f3b7bd6256afbd609616b78475faa
+diff --git a/binary.bin b/binary.bin
+new file mode 100644
+index 0000000..f971a5e
+Binary files /dev/null and b/binary.bin differ
+diff --git a/empty.txt b/empty.txt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/hello.txt b/hello.txt
+new file mode 100644
+index 0000000..e4354d6
+--- /dev/null
++++ b/hello.txt
+@@ -0,0 +1 @@
++hello gitweb
+diff --git a/latin1.txt b/latin1.txt
+new file mode 100644
+index 0000000..6f83395
+--- /dev/null
++++ b/latin1.txt
+@@ -0,0 +1 @@
++café
+diff --git a/one.txt b/one.txt
+new file mode 100644
+index 0000000..c1b0730
+--- /dev/null
++++ b/one.txt
+@@ -0,0 +1 @@
++x
+\ No newline at end of file

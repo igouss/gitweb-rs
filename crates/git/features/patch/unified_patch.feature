@@ -80,3 +80,25 @@ Feature: Unified diff (patch) text from a repository
     Given a commit and a missing object id
     When I take the patch
     Then the patch fails to find an object
+
+  # The plain endpoints abbreviate their `index` ids to git's default
+  # `core.abbrev`, which auto-scales by object count but floors at 7. A small
+  # fixture repository sits at that floor, so the adapter reports 7.
+  Scenario: A small repository abbreviates ids to git's floor of 7
+    Given a commit that modifies one file
+    When I read the default abbreviation length
+    Then the default abbreviation length is 7
+
+  # gix reports a 1-based hunk start and keeps each line's trailing newline; git
+  # writes `-0,0` for the empty before-side of a creation, and one newline per
+  # line. The adapter reconciles both, so a multi-line creation comes out exactly
+  # as `git diff-tree -p` would write it — no `@@ -1,0` and no doubled newlines.
+  Scenario: A multi-line creation numbers from zero with one newline per line
+    Given a commit that creates a two-line file
+    When I take the patch
+    Then the hunk text is:
+      """
+      @@ -0,0 +1,2 @@
+      +alpha
+      +beta
+      """

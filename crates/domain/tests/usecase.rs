@@ -18,6 +18,7 @@ use gitweb_domain::model::blame::Blame;
 use gitweb_domain::model::blob::{Blob, BlobDisplay};
 use gitweb_domain::model::change::{ChangeKind, ChangeStatus};
 use gitweb_domain::model::commit::Commit;
+use gitweb_domain::model::commitdiff_plain::CommitdiffPlain;
 use gitweb_domain::model::diff::{
     CombinedDiff, CombinedDiffEntry, CombinedParent, Diff, DiffEntry,
 };
@@ -46,6 +47,7 @@ use gitweb_domain::usecase::blob::{BlobView, assemble_blob};
 use gitweb_domain::usecase::blob_plain::{BlobPlainView, assemble_blob_plain};
 use gitweb_domain::usecase::commit::{ChangedFiles, CommitView, assemble_commit};
 use gitweb_domain::usecase::commitdiff::assemble_commit_diff;
+use gitweb_domain::usecase::commitdiff_plain::assemble_commitdiff_plain;
 use gitweb_domain::usecase::feed::assemble_feed;
 use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
 use gitweb_domain::usecase::history::{HistoryRow, HistoryView, assemble_history};
@@ -184,6 +186,7 @@ struct UsecaseWorld {
     commit_fixture: Option<FakeCommitFixture>,
     commit_result: Option<Result<CommitView, DomainError>>,
     commitdiff_result: Option<Result<String, DomainError>>,
+    commitdiff_plain_result: Option<Result<CommitdiffPlain, DomainError>>,
 }
 
 /// One directory in the fake repository's tree, listed by the `tree` use case.
@@ -819,6 +822,12 @@ impl Repository for FakeRepository {
             return Ok(fixture.patch.clone());
         }
         unimplemented!("only the commitdiff use case's fixture builds a patch")
+    }
+
+    fn abbrev_length(&self) -> Result<usize, DomainError> {
+        // git's floor for a small repository; the commitdiff_plain use case
+        // abbreviates its `index` ids to this width.
+        Ok(7)
     }
 
     fn combined_diff(&self, commit: &ObjectId) -> Result<CombinedDiff, DomainError> {
@@ -3026,6 +3035,102 @@ fn then_commitdiff_text_fails(world: &mut UsecaseWorld, expected: String) {
         Ok(text) => panic!("expected a failure, got commitdiff text:\n{text}"),
         Err(error) => assert_eq!(error.message(), expected),
     }
+}
+
+/// The self link the commitdiff_plain scenarios render against; its exact bytes
+/// do not matter to these structural assertions, only that the `X-Git-Url` line
+/// carries it.
+const PLAIN_SELF_URL: &str = "http://localhost?p=r.git;a=commitdiff_plain;h=HEAD";
+
+#[when(regex = r#"^I assemble the commitdiff_plain for "([^"]*)"$"#)]
+fn assemble_commitdiff_plain_step(world: &mut UsecaseWorld, rev: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.commitdiff_plain_result = Some(assemble_commitdiff_plain(&repo, Some(&rev), None));
+}
+
+/// Renders the assembled plain body (asserting the use case succeeded).
+fn commitdiff_plain_body(world: &UsecaseWorld) -> String {
+    match world
+        .commitdiff_plain_result
+        .as_ref()
+        .expect("assemble the commitdiff_plain first")
+    {
+        Ok(plain) => plain.render(PLAIN_SELF_URL),
+        Err(error) => panic!("expected a commitdiff_plain, got error: {error:?}"),
+    }
+}
+
+#[then(regex = r#"^the commitdiff_plain body contains "(.*)"$"#)]
+fn then_commitdiff_plain_contains(world: &mut UsecaseWorld, expected: String) {
+    let body: String = commitdiff_plain_body(world);
+    assert!(
+        body.contains(&expected),
+        "expected commitdiff_plain body to contain {expected:?}, got:\n{body}"
+    );
+}
+
+#[then(regex = r#"^the commitdiff_plain body does not contain "(.*)"$"#)]
+fn then_commitdiff_plain_not_contains(world: &mut UsecaseWorld, unexpected: String) {
+    let body: String = commitdiff_plain_body(world);
+    assert!(
+        !body.contains(&unexpected),
+        "expected commitdiff_plain body not to contain {unexpected:?}, got:\n{body}"
+    );
+}
+
+#[then(regex = r#"^the commitdiff_plain body has a line "(.*)"$"#)]
+fn then_commitdiff_plain_has_line(world: &mut UsecaseWorld, expected: String) {
+    let body: String = commitdiff_plain_body(world);
+    assert!(
+        body.lines().any(|line: &str| line == expected),
+        "expected commitdiff_plain body to have the exact line {expected:?}, got:\n{body}"
+    );
+}
+
+#[then(regex = r#"^assembling the commitdiff_plain fails with "(.*)"$"#)]
+fn then_commitdiff_plain_fails(world: &mut UsecaseWorld, expected: String) {
+    match world
+        .commitdiff_plain_result
+        .as_ref()
+        .expect("assemble the commitdiff_plain first")
+    {
+        Ok(plain) => panic!(
+            "expected a failure, got body:\n{}",
+            plain.render(PLAIN_SELF_URL)
+        ),
+        Err(error) => assert_eq!(error.message(), expected),
+    }
+}
+
+/// The fixture commit's id, the bare line `git diff-tree` prints for a root.
+fn fixture_commit_id(world: &UsecaseWorld) -> String {
+    world
+        .commit_fixture
+        .as_ref()
+        .expect("declare a commit fixture first")
+        .id
+        .as_str()
+        .to_owned()
+}
+
+#[then("the commitdiff_plain body carries the commit id on its own line")]
+fn then_commitdiff_plain_has_id_line(world: &mut UsecaseWorld) {
+    let id: String = fixture_commit_id(world);
+    let body: String = commitdiff_plain_body(world);
+    assert!(
+        body.lines().any(|line: &str| line == id),
+        "expected commitdiff_plain body to carry the commit id {id:?} on its own line, got:\n{body}"
+    );
+}
+
+#[then("the commitdiff_plain body has no bare commit-id line")]
+fn then_commitdiff_plain_no_id_line(world: &mut UsecaseWorld) {
+    let id: String = fixture_commit_id(world);
+    let body: String = commitdiff_plain_body(world);
+    assert!(
+        !body.lines().any(|line: &str| line == id),
+        "expected commitdiff_plain body to have no bare commit-id line {id:?}, got:\n{body}"
+    );
 }
 
 /// The assembled commit view (asserting the use case succeeded).

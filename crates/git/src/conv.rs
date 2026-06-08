@@ -373,13 +373,28 @@ fn to_domain_hunk(
             to_hunk_line(entry.1.0, &entry.1.1, no_newline)
         })
         .collect();
+    // gix reports a 1-based hunk start for every side; git writes the line
+    // *before* the change for an empty side, so a created or deleted side starts
+    // at 0 (`@@ -0,0 +1 @@`), not 1. The reaches-EOF checks above keep gix's raw
+    // 1-based start, so only the displayed start is adjusted.
     Hunk::new(
-        raw.before_start,
+        git_hunk_start(raw.before_start, raw.before_len),
         raw.before_len,
-        raw.after_start,
+        git_hunk_start(raw.after_start, raw.after_len),
         raw.after_len,
         lines,
     )
+}
+
+/// git's displayed hunk start for one side: gix's 1-based start, less one when
+/// the side is empty (git counts from the line before an insertion/deletion, so
+/// a creation or deletion shows `0`).
+fn git_hunk_start(start: u32, len: u32) -> u32 {
+    if len == 0 {
+        start.saturating_sub(1)
+    } else {
+        start
+    }
 }
 
 /// Flattens a gix blame [`Outcome`] into the domain's [`Blame`]: one
@@ -421,11 +436,21 @@ pub(crate) fn to_blame(outcome: gix::blame::Outcome) -> Blame {
     Blame::new(lines)
 }
 
-/// Translates one diff line into a domain [`HunkLine`]. Non-UTF-8 bytes are
-/// decoded lossily; the byte-exact plain endpoint, which streams git's raw
-/// bytes, is a later concern.
+/// Translates one diff line into a domain [`HunkLine`]. Content is decoded the
+/// way gitweb's `to_utf8` does — kept verbatim when valid UTF-8, otherwise read
+/// through the latin1 fallback — so a Latin-1 byte like `0xE9` becomes `é`
+/// (`0xC3 0xA9`) rather than the replacement character. That matches what
+/// gitweb's `commitdiff_plain` emits when git's raw diff bytes pass through its
+/// `:utf8` STDOUT layer (the byte-exact plain endpoint renders this same
+/// content), and shows real text rather than `caf\u{FFFD}` in the diff viewer.
 fn to_hunk_line(kind: DiffLineKind, bytes: &[u8], no_newline: bool) -> HunkLine {
-    let text: String = String::from_utf8_lossy(bytes).into_owned();
+    // gix's unified-diff tokens keep their trailing newline when the source line
+    // had one (only the file's final unterminated line lacks it); the domain
+    // `HunkLine` holds the line *without* its terminator and re-adds it on
+    // render, so strip a single trailing `\n` here — exactly as `to_blame` does
+    // — or every newline-terminated line would render doubled.
+    let trimmed: &[u8] = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+    let text: String = to_utf8(trimmed, FallbackEncoding::Latin1);
     let line: HunkLine = match kind {
         DiffLineKind::Add => HunkLine::addition(text),
         DiffLineKind::Remove => HunkLine::deletion(text),

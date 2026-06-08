@@ -13,6 +13,7 @@ use cucumber::{World, given, then, when};
 use tempfile::TempDir;
 
 use gitweb_domain::model::blob::Blob;
+use gitweb_domain::model::commitdiff_plain::CommitdiffPlain;
 use gitweb_domain::model::content_type::PlainHeaders;
 use gitweb_domain::model::feed::Feed;
 use gitweb_domain::model::object_id::ObjectId;
@@ -21,6 +22,7 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
+use gitweb_domain::usecase::commitdiff_plain::assemble_commitdiff_plain;
 use gitweb_domain::usecase::feed::assemble_feed;
 use gitweb_domain::usecase::opml::{Opml, assemble_opml};
 use gitweb_domain::usecase::project_index::{ProjectIndex, assemble_project_index};
@@ -36,6 +38,7 @@ use gitweb_web::handlers::opml::{OPML_CONTENT_TYPE, OPML_DISPOSITION, assemble_o
 use gitweb_web::handlers::project_index::{
     INDEX_CONTENT_TYPE, INDEX_DISPOSITION, assemble_project_index_view,
 };
+use gitweb_web::url::self_url;
 
 #[derive(Debug, Default, World)]
 struct GoldenWorld {
@@ -58,6 +61,11 @@ struct GoldenWorld {
     /// The serialized opml body — the exact bytes the handler emits over the
     /// corpus.
     opml_body: Option<String>,
+    /// The serialized commitdiff_plain body and the Content-Disposition our
+    /// endpoint derives — the exact bytes and header the handler emits over the
+    /// corpus root commit.
+    commitdiff_plain_body: Option<String>,
+    commitdiff_plain_disposition: Option<String>,
     golden: Option<Golden>,
 }
 
@@ -226,6 +234,42 @@ fn opml_body(world: &GoldenWorld) -> &str {
     world.opml_body.as_deref().expect("serve the opml first")
 }
 
+#[when("I serve the commitdiff_plain of the corpus root commit")]
+fn serve_commitdiff_plain(world: &mut GoldenWorld) {
+    // Exactly what the handler emits over the by-hash request gitweb was
+    // captured with: the use case over the adapter for the corpus HEAD oid, the
+    // body rendered with the request's own self URL (gitweb's self_url), and the
+    // inline filename both stamped with that hash.
+    let head: ObjectId = repo(world)
+        .resolve("HEAD")
+        .expect("resolve the corpus HEAD");
+    let plain: CommitdiffPlain = assemble_commitdiff_plain(repo(world), Some(head.as_str()), None)
+        .expect("assemble the corpus commitdiff_plain");
+    let link: String = self_url(
+        "http://localhost",
+        &[
+            ("p", Corpus::PROJECT),
+            ("a", "commitdiff_plain"),
+            ("h", head.as_str()),
+        ],
+    );
+    world.commitdiff_plain_body = Some(plain.render(&link));
+    world.commitdiff_plain_disposition = Some(format!(
+        "inline; filename=\"{}-{}.patch\"",
+        Corpus::PROJECT,
+        head.as_str()
+    ));
+    world.golden = Some(Golden::load("commitdiff_plain/root"));
+}
+
+/// The serialized commitdiff_plain body, or a panic if none was served.
+fn commitdiff_plain_body(world: &GoldenWorld) -> &str {
+    world
+        .commitdiff_plain_body
+        .as_deref()
+        .expect("serve the commitdiff_plain first")
+}
+
 // --- Then --------------------------------------------------------------------
 
 #[then("its body matches gitweb's reference output")]
@@ -327,6 +371,32 @@ fn opml_disposition_matches(world: &mut GoldenWorld) {
         .header("Content-Disposition")
         .expect("gitweb declares a Content-Disposition");
     assert_eq!(OPML_DISPOSITION, theirs);
+}
+
+#[then("the commitdiff_plain body matches gitweb's reference output")]
+fn commitdiff_plain_body_matches(world: &mut GoldenWorld) {
+    assert_eq!(
+        commitdiff_plain_body(world).as_bytes(),
+        golden(world).body()
+    );
+}
+
+#[then("the commitdiff_plain content type matches gitweb's")]
+fn commitdiff_plain_content_type_matches(world: &mut GoldenWorld) {
+    // gitweb sets `-type => 'text/plain', -charset => 'utf-8'`; our endpoint
+    // serves the same fixed type, so the whole Content-Type matches exactly.
+    let theirs: &str = golden(world)
+        .header("Content-Type")
+        .expect("gitweb declares a Content-Type");
+    assert_eq!("text/plain; charset=utf-8", theirs);
+}
+
+#[then("the commitdiff_plain content disposition matches gitweb's")]
+fn commitdiff_plain_disposition_matches(world: &mut GoldenWorld) {
+    let theirs: &str = golden(world)
+        .header("Content-Disposition")
+        .expect("gitweb declares a Content-Disposition");
+    assert_eq!(world.commitdiff_plain_disposition.as_deref(), Some(theirs));
 }
 
 #[tokio::main]
