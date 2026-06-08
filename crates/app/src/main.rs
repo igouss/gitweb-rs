@@ -13,6 +13,9 @@
 //! - `GITWEB_PROJECTROOT` — the directory the repositories live under; overrides
 //!   the config's `projectroot` so a quick run needs no config file.
 //! - `GITWEB_ADDR` — the listen address (default `127.0.0.1:8080`).
+//! - `GITWEB_STATIC_DIR` — the directory the vendored diff-viewer bundle is
+//!   served from (default `./static`). Build it with `scripts/vendor-pierre.sh`;
+//!   its absence only disables inline diff rendering (see `static/vendor/`).
 
 use std::net::SocketAddr;
 use std::path::PathBuf;

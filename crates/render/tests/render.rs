@@ -12,9 +12,11 @@ use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_render::age::age_class_name;
 use gitweb_render::blob::{BlobContent, BlobLine, blob_content};
 use gitweb_render::chrome::{
-    Crumb, DocumentHead, FeedLink, FooterLink, HiddenField, Logo, MoreLink, NavItem, PageFooter,
-    SearchForm, SearchOption, breadcrumbs, document, footer, page_header, page_nav, search_form,
+    Crumb, DocumentHead, FeedLink, FooterLink, FormatLink, HiddenField, Logo, MoreLink, NavItem,
+    PageFooter, SearchForm, SearchOption, breadcrumbs, document, footer, page_header, page_nav,
+    search_form,
 };
+use gitweb_render::diff_host::{DiffHostPage, diff_host_body};
 use gitweb_render::error::{ErrorResponse, HttpStatus, error_page, error_response};
 use gitweb_render::escape::{
     esc_attr, esc_html, esc_html_nbsp, esc_index_field, esc_param, esc_path, esc_path_info, esc_url,
@@ -81,6 +83,11 @@ struct RenderWorld {
     status: Option<HttpStatus>,
     output: Option<String>,
     feed_view: Option<FeedView>,
+    diff_url: Option<String>,
+    diff_viewer_module_src: Option<String>,
+    diff_title: Option<String>,
+    diff_path: Option<String>,
+    diff_formats: Vec<FormatLink>,
 }
 
 // ---- Given: the text under escaping -----------------------------------------
@@ -1420,6 +1427,50 @@ fn then_result_is_docstring(world: &mut RenderWorld, step: &Step) {
         .expect("scenario must supply a docstring")
         .trim_matches('\n');
     assert_eq!(world.output.as_deref(), Some(expected));
+}
+
+// ---- diff-viewer host page --------------------------------------------------
+
+#[given(regex = r#"^a diff host fetching "([^"]*)"$"#)]
+fn given_diff_host(world: &mut RenderWorld, diff_url: String) {
+    world.diff_url = Some(diff_url);
+}
+
+#[given(regex = r#"^the viewer module is served at "([^"]*)"$"#)]
+fn given_diff_viewer_module(world: &mut RenderWorld, src: String) {
+    world.diff_viewer_module_src = Some(src);
+}
+
+#[given(regex = r#"^the diff host title is "([^"]*)"$"#)]
+fn given_diff_title(world: &mut RenderWorld, title: String) {
+    world.diff_title = Some(title);
+}
+
+#[given(regex = r#"^the diff host is scoped to file "([^"]*)"$"#)]
+fn given_diff_path(world: &mut RenderWorld, path: String) {
+    world.diff_path = Some(path);
+}
+
+#[given(regex = r#"^the diff host offers format "([^"]*)" at "([^"]*)"$"#)]
+fn given_diff_format(world: &mut RenderWorld, label: String, href: String) {
+    world.diff_formats.push(FormatLink { label, href });
+}
+
+#[when("I render the diff host page")]
+fn when_render_diff_host(world: &mut RenderWorld) {
+    let page: DiffHostPage = DiffHostPage {
+        crumbs: Vec::new(),
+        nav: Vec::new(),
+        formats: std::mem::take(&mut world.diff_formats),
+        title: world.diff_title.take().unwrap_or_default(),
+        path: world.diff_path.take(),
+        diff_url: world.diff_url.take().expect("a diff URL must be set"),
+        viewer_module_src: world
+            .diff_viewer_module_src
+            .take()
+            .expect("a viewer module src must be set"),
+    };
+    world.output = Some(diff_host_body(&page).into_string());
 }
 
 // ---- Summary page -----------------------------------------------------------

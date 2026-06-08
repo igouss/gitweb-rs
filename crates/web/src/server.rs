@@ -42,6 +42,7 @@ pub fn router(store: Arc<dyn ProjectStore + Send + Sync>, dispatcher: Arc<Dispat
     Router::new()
         .route(assets::STYLESHEET_PATH, get(assets::stylesheet))
         .route(assets::FAVICON_PATH, get(assets::favicon))
+        .route(assets::DIFF_VIEWER_PATH, get(assets::diff_viewer_js))
         .fallback(handle)
         .with_state(state)
 }

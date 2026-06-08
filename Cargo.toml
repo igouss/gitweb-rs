@@ -42,6 +42,11 @@ percent-encoding = "2"
 # (ServiceExt::oneshot), so the web boundary's end-to-end behaviour is specced
 # without binding a socket.
 tower = { version = "0.5", features = ["util"] }
+# Static-file serving for the composition root: ServeDir mounts the git-ignored,
+# built-on-demand @pierre/diffs viewer bundle. A missing bundle 404s rather than
+# crashing, so the binary stays inspectable without it. Only the app crate (the
+# adapter-aware composition root) depends on this.
+tower-http = { version = "0.6", features = ["fs"] }
 # The declarative on-disk format for gitweb-rs global config (replacing gitweb's
 # executable Perl) and the derive that maps it onto the domain's config layers.
 # serde stays a pure data dependency; only the config adapter knows the format.

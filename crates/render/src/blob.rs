@@ -11,7 +11,9 @@
 //! lines (including tabs) is preserved by the stylesheet, not by rewriting the
 //! text here.
 
-use crate::chrome::{Crumb, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{
+    Crumb, FormatLink, NavItem, PageFooter, footer, formats_nav, page_header, page_nav,
+};
 use crate::markup::{Markup, html};
 
 /// One source line: its 1-based number (the `lN` anchor) and its text.
@@ -46,16 +48,6 @@ pub enum BlobContent {
     },
 }
 
-/// One file affordance in the page navigation's right side (gitweb's
-/// `formats_nav`: blame / history / raw / HEAD).
-#[derive(Debug, Clone)]
-pub struct BlobFormat {
-    /// The link text.
-    pub label: String,
-    /// The finished href.
-    pub href: String,
-}
-
 /// The whole blob page body: the breadcrumb header, the action navigation with
 /// the file affordances, the title (commit subject or blob hash), the file path,
 /// and the content.
@@ -66,7 +58,7 @@ pub struct BlobPage {
     /// The per-project action navigation; the current view has no link.
     pub nav: Vec<NavItem>,
     /// The file affordances shown on the right (blame / history / raw / HEAD).
-    pub formats: Vec<BlobFormat>,
+    pub formats: Vec<FormatLink>,
     /// The header title: the commit subject, or the blob hash for a loose blob.
     pub title: String,
     /// The file path, shown when known.
@@ -127,18 +119,4 @@ pub fn blob_content(content: &BlobContent) -> Markup {
             }
         },
     }
-}
-
-/// The file-affordance navigation (gitweb's `formats_nav`): each affordance in
-/// order separated by `|`, or `None` when there are none to show.
-fn formats_nav(formats: &[BlobFormat]) -> Option<Markup> {
-    if formats.is_empty() {
-        return None;
-    }
-    Some(html! {
-        @for (index, format) in formats.iter().enumerate() {
-            @if index > 0 { span class="sep" { "|" } }
-            a href=(format.href) { (format.label) }
-        }
-    })
 }

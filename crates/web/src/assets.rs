@@ -12,17 +12,23 @@
 
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
-use gitweb_render::assets::{FAVICON_SVG, STYLESHEET};
+use gitweb_render::assets::{DIFF_VIEWER_JS, FAVICON_SVG, STYLESHEET};
 
 /// URL the stylesheet is served at — the value document heads link to.
 pub const STYLESHEET_PATH: &str = "/static/style.css";
 /// URL the favicon is served at.
 pub const FAVICON_PATH: &str = "/static/favicon.svg";
+/// URL the diff-viewer boot module is served at — the `src` the diff host page
+/// boots (see the render `diff_host` module).
+pub const DIFF_VIEWER_PATH: &str = "/static/diff-viewer.js";
 
 /// `text/css; charset=utf-8`.
 const CSS_MIME: &str = "text/css; charset=utf-8";
 /// `image/svg+xml` — the scalable favicon.
 const SVG_MIME: &str = "image/svg+xml";
+/// `text/javascript; charset=utf-8` — the MIME type a browser requires before
+/// it will execute an ES module.
+const JS_MIME: &str = "text/javascript; charset=utf-8";
 
 /// `GET /static/style.css` — the modernized stylesheet.
 pub(crate) async fn stylesheet() -> Response {
@@ -32,4 +38,9 @@ pub(crate) async fn stylesheet() -> Response {
 /// `GET /static/favicon.svg` — the site favicon.
 pub(crate) async fn favicon() -> Response {
     ([(header::CONTENT_TYPE, SVG_MIME)], FAVICON_SVG).into_response()
+}
+
+/// `GET /static/diff-viewer.js` — the diff-viewer boot module.
+pub(crate) async fn diff_viewer_js() -> Response {
+    ([(header::CONTENT_TYPE, JS_MIME)], DIFF_VIEWER_JS).into_response()
 }

@@ -29,6 +29,34 @@ pub struct MoreLink {
     pub label: String,
 }
 
+/// One alternate-format affordance in a view's right-hand navigation — gitweb's
+/// `formats_nav`: the per-file `blame | history | raw | HEAD` of the blob view,
+/// the `raw | patch` of the commitdiff view, and so on. Each is a labelled link;
+/// the view decides which appear and the boundary builds their URLs.
+#[derive(Debug, Clone)]
+pub struct FormatLink {
+    /// The link text (the format name).
+    pub label: String,
+    /// The finished href.
+    pub href: String,
+}
+
+/// Renders a view's alternate-format affordances (gitweb's `formats_nav`): each
+/// link in order, separated by `|`, or `None` when there are none — the value a
+/// view passes as [`page_nav`]'s `extra`.
+#[must_use]
+pub fn formats_nav(formats: &[FormatLink]) -> Option<Markup> {
+    if formats.is_empty() {
+        return None;
+    }
+    Some(html! {
+        @for (index, format) in formats.iter().enumerate() {
+            @if index > 0 { span class="sep" { "|" } }
+            a href=(format.href) { (format.label) }
+        }
+    })
+}
+
 /// Renders the action bar: each item is a link, except the current view (no
 /// `href`), which is plain text. A `|` separator sits between items, and any
 /// pre-rendered `extra` (pager, formats) is appended.

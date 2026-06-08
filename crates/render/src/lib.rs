@@ -15,6 +15,7 @@ pub mod age;
 pub mod assets;
 pub mod blob;
 pub mod chrome;
+pub mod diff_host;
 pub mod error;
 pub mod escape;
 pub mod feed;

@@ -19,8 +19,8 @@ use gitweb_domain::model::settings::{FeatureName, Settings};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::blob::{BlobView, assemble_blob};
-use gitweb_render::blob::{BlobContent, BlobFormat, BlobLine, BlobPage, blob_body};
-use gitweb_render::chrome::{Crumb, DocumentHead, NavItem, document};
+use gitweb_render::blob::{BlobContent, BlobLine, BlobPage, blob_body};
+use gitweb_render::chrome::{Crumb, DocumentHead, FormatLink, NavItem, document};
 use gitweb_render::markup::Markup;
 
 use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
@@ -192,30 +192,30 @@ fn formats(
     base: Option<&str>,
     file: Option<&str>,
     view: &BlobView,
-) -> Vec<BlobFormat> {
+) -> Vec<FormatLink> {
     let Some(file) = file else {
-        return vec![BlobFormat {
+        return vec![FormatLink {
             label: "raw".to_owned(),
             href: raw_href(project, view.blob_id(), base, None),
         }];
     };
-    let mut formats: Vec<BlobFormat> = Vec::new();
+    let mut formats: Vec<FormatLink> = Vec::new();
     let blame_on: bool = settings.feature(FeatureName::Blame).enabled();
     if blame_on && view.display() == BlobDisplay::Text {
-        formats.push(BlobFormat {
+        formats.push(FormatLink {
             label: "blame".to_owned(),
             href: file_action_href(project, "blame", base, file),
         });
     }
-    formats.push(BlobFormat {
+    formats.push(FormatLink {
         label: "history".to_owned(),
         href: file_action_href(project, "history", base, file),
     });
-    formats.push(BlobFormat {
+    formats.push(FormatLink {
         label: "raw".to_owned(),
         href: raw_href(project, view.blob_id(), base, Some(file)),
     });
-    formats.push(BlobFormat {
+    formats.push(FormatLink {
         label: "HEAD".to_owned(),
         href: href(&[("p", project), ("a", "blob"), ("hb", "HEAD"), ("f", file)]),
     });

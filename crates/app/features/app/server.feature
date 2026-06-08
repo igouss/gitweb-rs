@@ -34,6 +34,18 @@ Feature: The composition root serves a wired gitweb-rs over a real project root
     Then the response status is 200
     And the response content type is "text/css; charset=utf-8"
 
+  Scenario: the diff-viewer boot module is served as a static asset
+    Given a project root
+    When I GET "/static/diff-viewer.js"
+    Then the response status is 200
+    And the response content type is "text/javascript; charset=utf-8"
+
+  Scenario: the server still serves when the vendored diff bundle is absent
+    Given a project root
+    When I GET "/static/vendor/pierre/index.js"
+    Then the response status is 404
+    And the response body does not contain "error-status"
+
   Scenario: the composition root serves a project's shortlog
     Given a project root
     And the root contains repository "alpha.git"

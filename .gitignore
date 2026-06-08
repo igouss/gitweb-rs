@@ -2,3 +2,8 @@
 
 # bv (beads viewer) local config and caches
 .bv/
+
+# Vendored, built-on-demand browser bundles (scripts/vendor-pierre.sh).
+# ~11 MB of Shiki grammars; refresh locally, never committed. See
+# static/vendor/README.md.
+/static/vendor/pierre/

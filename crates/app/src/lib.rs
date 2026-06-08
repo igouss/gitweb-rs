@@ -29,6 +29,7 @@ use gitweb_web::{
     LogHandler, OpmlHandler, ProjectIndexHandler, ProjectListHandler, RemotesHandler,
     ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler, router,
 };
+use tower_http::services::ServeDir;
 
 /// Assembles the full gitweb-rs router: a gix project store rooted at
 /// `projectroot`, the dispatch table populated with every handler this build
@@ -37,7 +38,31 @@ use gitweb_web::{
 pub fn build_router(projectroot: PathBuf, settings: Arc<Settings>) -> Router {
     let store: Arc<dyn ProjectStore + Send + Sync> = Arc::new(GixProjectStore::new(projectroot));
     let dispatcher: Arc<Dispatcher> = Arc::new(build_dispatcher(Arc::clone(&store), settings));
-    router(store, dispatcher)
+    mount_vendor_assets(router(store, dispatcher))
+}
+
+/// Mounts the vendored `@pierre/diffs` viewer bundle under `/static/vendor`,
+/// served from the `vendor/` subdirectory of the static directory (gitweb's
+/// `static/`). The bundle is built on demand by `scripts/vendor-pierre.sh` and
+/// git-ignored (~11 MB of Shiki grammars); when it is absent, [`ServeDir`] simply
+/// returns `404` for those URLs, so the binary still serves every other route and
+/// the diff host page degrades to its no-JavaScript raw-diff link. The diff
+/// boot module ([`gitweb_render::assets::DIFF_VIEWER_JS`]) imports the bundle from
+/// `/static/vendor/pierre/`, the prefix this mount strips.
+fn mount_vendor_assets(router: Router) -> Router {
+    let vendor_dir: PathBuf = static_dir().join("vendor");
+    router.nest_service("/static/vendor", ServeDir::new(vendor_dir))
+}
+
+/// The directory the runtime-served static assets live under — gitweb's
+/// `static/`. Read from `GITWEB_STATIC_DIR`, defaulting to `./static` relative to
+/// the working directory. Only the vendored viewer bundle is served from here;
+/// the stylesheet, favicon and diff boot module are baked into the binary.
+fn static_dir() -> PathBuf {
+    std::env::var("GITWEB_STATIC_DIR")
+        .ok()
+        .filter(|value: &String| !value.is_empty())
+        .map_or_else(|| PathBuf::from("static"), PathBuf::from)
 }
 
 /// gitweb's `%actions` table, populated with the handlers this build serves.

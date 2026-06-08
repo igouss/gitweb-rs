@@ -26,6 +26,10 @@ gitweb-web = { path = "../web" }
 # bind a listener; `signal` lets the server shut down on Ctrl-C cleanly.
 axum = { workspace = true }
 tokio = { workspace = true, features = ["net", "signal"] }
+# Serves the git-ignored, built-on-demand @pierre/diffs viewer bundle from the
+# static directory (gitweb's `static/`). A missing bundle 404s, so the binary
+# stays runnable and inspectable without it.
+tower-http = { workspace = true }
 
 [dev-dependencies]
 # features/app boots the assembled Router over a real, gix-built project root and

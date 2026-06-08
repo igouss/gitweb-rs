@@ -90,7 +90,7 @@ fn then_content_type_is(world: &mut AppWorld, expected: String) {
     );
 }
 
-#[then(regex = r#"^the response body contains "([^"]*)"$"#)]
+#[then(regex = r#"^the response body contains "(.*)"$"#)]
 fn then_body_contains(world: &mut AppWorld, needle: String) {
     let body: &str = world
         .response_body
@@ -99,6 +99,18 @@ fn then_body_contains(world: &mut AppWorld, needle: String) {
     assert!(
         body.contains(&needle),
         "body did not contain {needle:?}: {body}"
+    );
+}
+
+#[then(regex = r#"^the response body does not contain "(.*)"$"#)]
+fn then_body_excludes(world: &mut AppWorld, needle: String) {
+    let body: &str = world
+        .response_body
+        .as_deref()
+        .expect("a response body must have been captured");
+    assert!(
+        !body.contains(&needle),
+        "body unexpectedly contained {needle:?}: {body}"
     );
 }
 
