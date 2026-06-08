@@ -102,3 +102,15 @@ Feature: Unified diff (patch) text from a repository
       +alpha
       +beta
       """
+
+  # Valid UTF-8 content passes through the diff verbatim: the domain decodes
+  # bytes UTF-8-first (the latin1 fallback only catches bytes that are NOT valid
+  # UTF-8), so a non-ASCII grapheme is preserved, not replaced or double-encoded.
+  Scenario: A UTF-8 file diffs to the same UTF-8 bytes
+    Given a commit that creates a UTF-8 file
+    When I take the patch
+    Then the hunk text is:
+      """
+      @@ -0,0 +1 @@
+      +café
+      """

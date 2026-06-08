@@ -246,6 +246,21 @@ fn given_create_two_line(world: &mut PatchWorld) {
     open_pair(world, builder, None, to_domain(commit));
 }
 
+#[given("a commit that creates a UTF-8 file")]
+fn given_create_utf8(world: &mut PatchWorld) {
+    let builder: RepoBuilder = RepoBuilder::init();
+    // Valid UTF-8 content with a non-ASCII grapheme ("café", c3 a9). It must
+    // survive the diff verbatim — neither replaced (lossy) nor re-encoded.
+    let tree: FixtureOid = builder.tree(&[blob_entry(
+        &builder,
+        "u.txt",
+        Mode::File,
+        "café\n".as_bytes(),
+    )]);
+    let commit: FixtureOid = commit_of(&builder, tree, Vec::new());
+    open_pair(world, builder, None, to_domain(commit));
+}
+
 #[given("a commit and a missing object id")]
 fn given_missing(world: &mut PatchWorld) {
     let builder: RepoBuilder = RepoBuilder::init();
