@@ -117,25 +117,7 @@ fn log_entry(entry: &LogEntryView) -> Markup {
                 }
             }
             div class="log_body" {
-                @for line in &entry.comment {
-                    (log_line(line))
-                }
-            }
-        }
-    }
-}
-
-/// One processed message line: prose (escaped, then a break), a sign-off in its
-/// own span, or a link trailer with its URL linked — each followed by a `<br>`,
-/// mirroring gitweb's `git_print_log`.
-fn log_line(line: &LogLine) -> Markup {
-    html! {
-        @match line {
-            LogLine::Text(text) => { (text) br; }
-            LogLine::Signoff(text) => { span class="signoff" { (text) } br; }
-            LogLine::Autolink { label, url } => {
-                span class="signoff" { (label) ": " a href=(url) { (url) } }
-                br;
+                (crate::message::log_lines(&entry.comment))
             }
         }
     }

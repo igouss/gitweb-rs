@@ -16,6 +16,7 @@ pub mod email_privacy;
 pub mod encoding;
 pub mod export;
 pub mod feed;
+pub mod file_change;
 pub mod file_mode;
 pub mod forks;
 pub mod grep;

@@ -146,6 +146,129 @@ impl ProjectRoot {
         builder.set_head("main");
     }
 
+    /// Lays down a bare repository at `name` whose `HEAD` commit exercises every
+    /// ordinary changed-file kind against its single parent: it modifies `README`,
+    /// deletes `gone.txt`, renames `old.txt` to `new.txt` (the blob is reused, so
+    /// rename detection reports full similarity), and adds `NEWFILE`. Its message
+    /// has a subject line and a body, so the commit view shows both.
+    pub fn add_commit_repo(&self, name: &str) {
+        let full: PathBuf = self.dir.path().join(name);
+        let builder: RepoBuilder = RepoBuilder::init_at(&full);
+        let root_who: Identity = Identity {
+            epoch_seconds: 1_700_000_000,
+            ..ada()
+        };
+        let head_who: Identity = Identity {
+            epoch_seconds: 1_700_100_000,
+            ..ada()
+        };
+
+        let moved: gix::ObjectId = builder.blob(b"moved content\n");
+        let root_tree: gix::ObjectId = builder.tree(&[
+            TreeEntry {
+                name: "README".to_owned(),
+                mode: Mode::File,
+                oid: builder.blob(b"first\n"),
+            },
+            TreeEntry {
+                name: "gone.txt".to_owned(),
+                mode: Mode::File,
+                oid: builder.blob(b"bye\n"),
+            },
+            TreeEntry {
+                name: "old.txt".to_owned(),
+                mode: Mode::File,
+                oid: moved,
+            },
+        ]);
+        let root: gix::ObjectId = builder.commit(&CommitSpec {
+            tree: root_tree,
+            parents: Vec::new(),
+            author: root_who.clone(),
+            committer: root_who,
+            message: "Initial import\n".to_owned(),
+        });
+
+        let head_tree: gix::ObjectId = builder.tree(&[
+            TreeEntry {
+                name: "README".to_owned(),
+                mode: Mode::File,
+                oid: builder.blob(b"second\n"),
+            },
+            TreeEntry {
+                name: "new.txt".to_owned(),
+                mode: Mode::File,
+                oid: moved,
+            },
+            TreeEntry {
+                name: "NEWFILE".to_owned(),
+                mode: Mode::File,
+                oid: builder.blob(b"brand new\n"),
+            },
+        ]);
+        let head: gix::ObjectId = builder.commit(&CommitSpec {
+            tree: head_tree,
+            parents: vec![root],
+            author: head_who.clone(),
+            committer: head_who,
+            message: "Rework the engine\n\nDetailed body line.\n".to_owned(),
+        });
+
+        builder.branch("main", head);
+        builder.set_head("main");
+    }
+
+    /// Lays down a bare repository at `name` whose `HEAD` is a merge of two
+    /// branches that each changed `file.txt`, resolved to a third value — so the
+    /// combined diff against both parents lists `file.txt`.
+    pub fn add_merge_repo(&self, name: &str) {
+        let full: PathBuf = self.dir.path().join(name);
+        let builder: RepoBuilder = RepoBuilder::init_at(&full);
+        let who: Identity = Identity {
+            epoch_seconds: 1_700_200_000,
+            ..ada()
+        };
+        let one_file = |content: &[u8]| -> gix::ObjectId {
+            builder.tree(&[TreeEntry {
+                name: "file.txt".to_owned(),
+                mode: Mode::File,
+                oid: builder.blob(content),
+            }])
+        };
+
+        let base: gix::ObjectId = builder.commit(&CommitSpec {
+            tree: one_file(b"base\n"),
+            parents: Vec::new(),
+            author: who.clone(),
+            committer: who.clone(),
+            message: "base\n".to_owned(),
+        });
+        let side_a: gix::ObjectId = builder.commit(&CommitSpec {
+            tree: one_file(b"side A\n"),
+            parents: vec![base],
+            author: who.clone(),
+            committer: who.clone(),
+            message: "side a\n".to_owned(),
+        });
+        let side_b: gix::ObjectId = builder.commit(&CommitSpec {
+            tree: one_file(b"side B\n"),
+            parents: vec![base],
+            author: who.clone(),
+            committer: who.clone(),
+            message: "side b\n".to_owned(),
+        });
+        let merge: gix::ObjectId = builder.commit(&CommitSpec {
+            tree: one_file(b"merged\n"),
+            parents: vec![side_a, side_b],
+            author: who.clone(),
+            committer: who,
+            message: "Merge side branches\n".to_owned(),
+        });
+
+        builder.branch("main", merge);
+        builder.set_head("main");
+    }
+
     /// Lays down a bare repository at `name` whose `HEAD` commit holds one tree
     /// exercising every entry kind the tree view distinguishes: a regular file
     /// `README` (12 bytes), an executable `build.sh`, a symlink `latest` pointing

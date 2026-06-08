@@ -21,6 +21,7 @@ use gitweb_domain::model::email_privacy::redact;
 use gitweb_domain::model::encoding::{FallbackEncoding, to_utf8};
 use gitweb_domain::model::export::{ExportPolicy, RepoFacts};
 use gitweb_domain::model::feed::{comment_lines, feed_title, feed_window};
+use gitweb_domain::model::file_change::FileChangeNote;
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::forks::{ProjectGroup, partition_forks};
 use gitweb_domain::model::grep::{GrepMatch, file_matches};
@@ -73,6 +74,10 @@ struct DomainWorld {
     change: Option<ChangeStatus>,
     mod_from: Option<FileMode>,
     mod_to: Option<FileMode>,
+    note_status: Option<ChangeStatus>,
+    note_from: Option<FileMode>,
+    note_to: Option<FileMode>,
+    derived_note: Option<Option<FileChangeNote>>,
     type_name: String,
     object_kind: Option<ObjectKind>,
     action_name: String,
@@ -772,6 +777,78 @@ fn there_is_no_change(world: &mut DomainWorld) {
     assert_eq!(world.change, None);
 }
 
+#[then(regex = r#"^the permission bits are "(.*)"$"#)]
+fn permission_bits_are(world: &mut DomainWorld, expected: String) {
+    let mode: FileMode = world.file_mode.expect("a valid mode");
+    assert_eq!(mode.permission_bits(), expected);
+}
+
+#[then(regex = r"^the mode is regular is (true|false)$")]
+fn mode_is_regular_is(world: &mut DomainWorld, expected: bool) {
+    let mode: FileMode = world.file_mode.expect("a valid mode");
+    assert_eq!(mode.is_regular(), expected);
+}
+
+#[given(
+    regex = r#"^a change with status "(added|deleted|modified)", from mode "(.*)", to mode "(.*)"$"#
+)]
+fn given_plain_change(world: &mut DomainWorld, status: String, from: String, to: String) {
+    let from_mode: FileMode = mode_of(&from);
+    let to_mode: FileMode = mode_of(&to);
+    world.note_from = Some(from_mode);
+    world.note_to = Some(to_mode);
+    world.note_status = Some(plain_status(&status, from_mode, to_mode));
+}
+
+#[given(
+    regex = r#"^a change with status "(renamed|copied)" similarity (\d+), from mode "(.*)", to mode "(.*)"$"#
+)]
+fn given_rename_change(world: &mut DomainWorld, status: String, sim: u8, from: String, to: String) {
+    world.note_from = Some(mode_of(&from));
+    world.note_to = Some(mode_of(&to));
+    world.note_status = Some(rename_status(&status, sim));
+}
+
+#[when("I derive the file-change note")]
+fn derive_file_change_note(world: &mut DomainWorld) {
+    let status: ChangeStatus = world.note_status.expect("a change status");
+    let from: FileMode = world.note_from.expect("a from mode");
+    let to: FileMode = world.note_to.expect("a to mode");
+    world.derived_note = Some(FileChangeNote::derive(status, from, to));
+}
+
+#[then(regex = r#"^the note category is "(.*)"$"#)]
+fn note_category_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(note(world).category(), expected);
+}
+
+#[then(regex = r#"^the note file type is "(.*)"$"#)]
+fn note_file_type_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(note(world).file_type().expect("a file type"), expected);
+}
+
+#[then(regex = r#"^the note mode is "(.*)"$"#)]
+fn note_mode_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(note(world).mode().unwrap_or("none"), expected);
+}
+
+#[then(regex = r#"^the note text is "(.*)"$"#)]
+fn note_text_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(note(world).text().expect("link-free note text"), expected);
+}
+
+#[then(regex = r"^the note similarity is (\d+)$")]
+fn note_similarity_is(world: &mut DomainWorld, expected: u8) {
+    assert_eq!(note(world).similarity().expect("a similarity"), expected);
+}
+
+#[then("there is no note")]
+fn there_is_no_note(world: &mut DomainWorld) {
+    let result: &Option<FileChangeNote> =
+        world.derived_note.as_ref().expect("derive the note first");
+    assert!(result.is_none(), "expected no note, got {result:?}");
+}
+
 #[given(regex = r#"^an object type "(.*)"$"#)]
 fn given_object_type(world: &mut DomainWorld, name: String) {
     world.type_name = name;
@@ -1196,6 +1273,34 @@ fn oid_of(digit: char) -> ObjectId {
 
 fn mode_of(octal: &str) -> FileMode {
     FileMode::from_octal(octal).expect("a valid octal mode")
+}
+
+/// The change status a plain (non-rename) note scenario names: a created or
+/// removed path, or a modification re-derived from its two modes.
+fn plain_status(word: &str, from: FileMode, to: FileMode) -> ChangeStatus {
+    match word {
+        "added" => ChangeStatus::added(),
+        "deleted" => ChangeStatus::deleted(),
+        _ => ChangeStatus::from_modification(from, to),
+    }
+}
+
+/// The change status a rename/copy note scenario names, carrying its similarity.
+fn rename_status(word: &str, similarity: u8) -> ChangeStatus {
+    match word {
+        "copied" => ChangeStatus::copied(similarity),
+        _ => ChangeStatus::renamed(similarity),
+    }
+}
+
+/// The file-change note the current scenario derived (asserting it is present).
+fn note(world: &DomainWorld) -> &FileChangeNote {
+    world
+        .derived_note
+        .as_ref()
+        .expect("derive the note first")
+        .as_ref()
+        .expect("a note")
 }
 
 fn modified_patch(path: &str) -> FilePatch {

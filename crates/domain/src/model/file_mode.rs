@@ -69,6 +69,24 @@ impl FileMode {
         format!("{:06o}", self.bits)
     }
 
+    /// gitweb's `mode_str` for the diff annotations: the four-digit octal of the
+    /// permission bits alone (`sprintf("%04o", $mode & 0777)`), e.g. `"0644"`,
+    /// `"0755"`, or `"0000"` for a mode that carries none. This is the value
+    /// `git_difftree_body` prints in a `with mode:` / `mode: …->…` span, distinct
+    /// from the ten-character [`Self::permission_string`].
+    #[must_use]
+    pub fn permission_bits(self) -> String {
+        format!("{:04o}", self.bits & 0o777)
+    }
+
+    /// Whether this mode names a regular file (executable or not) — gitweb's
+    /// `S_ISREG`, the predicate under which `git_difftree_body` shows a file's
+    /// permission bits. A directory, symlink, gitlink, or invalid mode is not.
+    #[must_use]
+    pub fn is_regular(self) -> bool {
+        matches!(self.kind(), FileKind::Executable | FileKind::Regular)
+    }
+
     /// Whether two modes name the same git object *type*, ignoring permission
     /// bits.
     ///

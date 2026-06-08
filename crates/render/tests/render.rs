@@ -16,6 +16,10 @@ use gitweb_render::chrome::{
     PageFooter, SearchForm, SearchOption, breadcrumbs, document, footer, page_header, page_nav,
     search_form,
 };
+use gitweb_render::commit::{
+    AuthorRow, ChangeNoteView, ChangedRow, CommitPage, LinkedId, ParentNav, ParentNavLink,
+    ParentRow, commit_body,
+};
 use gitweb_render::diff_host::{DiffHostPage, diff_host_body};
 use gitweb_render::error::{ErrorResponse, HttpStatus, error_page, error_response};
 use gitweb_render::escape::{
@@ -1716,6 +1720,164 @@ fn when_render_atom(world: &mut RenderWorld) {
         .as_ref()
         .expect("a feed must be built first");
     world.output = Some(atom(view));
+}
+
+// --- commit view rendering ---------------------------------------------------
+
+/// An author/committer row with a fixed zone-aware date (the same instant the tag
+/// scenarios use, so its rendered badge is known).
+fn author_row_of(name: &str, email: Option<&str>) -> AuthorRow {
+    AuthorRow {
+        name: name.to_owned(),
+        email: email.map(str::to_owned),
+        timestamp: Timestamp::new(1_780_842_645, "+0200"),
+    }
+}
+
+/// A labelled action link for a changed-files row.
+fn action_link(label: &str, href: &str) -> FormatLink {
+    FormatLink {
+        label: label.to_owned(),
+        href: href.to_owned(),
+    }
+}
+
+#[when("I render a single-parent commit page")]
+fn render_single_parent_commit(world: &mut RenderWorld) {
+    let page: CommitPage = CommitPage {
+        crumbs: Vec::new(),
+        nav: Vec::new(),
+        parent_nav: ParentNav::Single(ParentNavLink {
+            short: "parent0".to_owned(),
+            href: "/r/commit/parent01".to_owned(),
+        }),
+        title: "Add the analytical engine".to_owned(),
+        commit_id: "c0ffeec0ffee".to_owned(),
+        tree: LinkedId {
+            id: "treeid".to_owned(),
+            href: "/r/tree/c0ffee".to_owned(),
+        },
+        author: author_row_of("Ada Lovelace", Some("ada@example.com")),
+        committer: author_row_of("Linus Torvalds", Some("linus@example.com")),
+        parents: vec![ParentRow {
+            id: "parent01".to_owned(),
+            commit_href: "/r/commit/parent01".to_owned(),
+            diff_href: "/r/commitdiff/parent01".to_owned(),
+        }],
+        comment: vec![LogLine::Text("Add the analytical engine".to_owned())],
+        changed: vec![
+            ChangedRow {
+                path: "engine.rs".to_owned(),
+                path_href: Some("/r/blob/engine".to_owned()),
+                note: ChangeNoteView::Text {
+                    category: "changed".to_owned(),
+                    text: "changed mode: 0644->0755".to_owned(),
+                },
+                links: vec![
+                    action_link("blob", "/r/blob/engine"),
+                    action_link("diff", "/r/blobdiff/engine"),
+                    action_link("history", "/r/history/engine"),
+                ],
+            },
+            ChangedRow {
+                path: "new.rs".to_owned(),
+                path_href: Some("/r/blob/new".to_owned()),
+                note: ChangeNoteView::Rename {
+                    category: "moved".to_owned(),
+                    from_path: "old.rs".to_owned(),
+                    from_href: "/r/blob/old".to_owned(),
+                    similarity: 95,
+                    mode: None,
+                },
+                links: vec![action_link("blob", "/r/blob/new")],
+            },
+            ChangedRow {
+                path: "README".to_owned(),
+                path_href: Some("/r/blob/readme".to_owned()),
+                note: ChangeNoteView::Text {
+                    category: "new".to_owned(),
+                    text: "new file with mode: 0644".to_owned(),
+                },
+                links: vec![action_link("blob", "/r/blob/readme")],
+            },
+        ],
+    };
+    world.output = Some(commit_body(&page).into_string());
+}
+
+#[when("I render a root commit page")]
+fn render_root_commit(world: &mut RenderWorld) {
+    let page: CommitPage = CommitPage {
+        crumbs: Vec::new(),
+        nav: Vec::new(),
+        parent_nav: ParentNav::Initial,
+        title: "Initial commit".to_owned(),
+        commit_id: "1n1t1n1t".to_owned(),
+        tree: LinkedId {
+            id: "tinit".to_owned(),
+            href: "/r/tree/init".to_owned(),
+        },
+        author: author_row_of("Tester", Some("t@example.com")),
+        committer: author_row_of("Tester", Some("t@example.com")),
+        parents: Vec::new(),
+        comment: vec![LogLine::Text("Initial commit".to_owned())],
+        changed: vec![ChangedRow {
+            path: "LICENSE".to_owned(),
+            path_href: Some("/r/blob/license".to_owned()),
+            note: ChangeNoteView::Text {
+                category: "new".to_owned(),
+                text: "new file with mode: 0644".to_owned(),
+            },
+            links: vec![action_link("blob", "/r/blob/license")],
+        }],
+    };
+    world.output = Some(commit_body(&page).into_string());
+}
+
+#[when("I render a merge commit page")]
+fn render_merge_commit(world: &mut RenderWorld) {
+    let page: CommitPage = CommitPage {
+        crumbs: Vec::new(),
+        nav: Vec::new(),
+        parent_nav: ParentNav::Merge(vec![
+            ParentNavLink {
+                short: "par1".to_owned(),
+                href: "/r/commit/par1".to_owned(),
+            },
+            ParentNavLink {
+                short: "par2".to_owned(),
+                href: "/r/commit/par2".to_owned(),
+            },
+        ]),
+        title: "Merge branch topic".to_owned(),
+        commit_id: "mer9emer9e".to_owned(),
+        tree: LinkedId {
+            id: "tmerge".to_owned(),
+            href: "/r/tree/merge".to_owned(),
+        },
+        author: author_row_of("Tester", Some("t@example.com")),
+        committer: author_row_of("Tester", Some("t@example.com")),
+        parents: vec![
+            ParentRow {
+                id: "par1".to_owned(),
+                commit_href: "/r/commit/par1".to_owned(),
+                diff_href: "/r/commitdiff/par1".to_owned(),
+            },
+            ParentRow {
+                id: "par2".to_owned(),
+                commit_href: "/r/commit/par2".to_owned(),
+                diff_href: "/r/commitdiff/par2".to_owned(),
+            },
+        ],
+        comment: vec![LogLine::Text("Merge branch topic".to_owned())],
+        changed: vec![ChangedRow {
+            path: "conflict.txt".to_owned(),
+            path_href: Some("/r/blob/conflict".to_owned()),
+            note: ChangeNoteView::None,
+            links: vec![action_link("blob", "/r/blob/conflict")],
+        }],
+    };
+    world.output = Some(commit_body(&page).into_string());
 }
 
 #[tokio::main]

@@ -16,9 +16,11 @@ use cucumber::{World, given, then, when};
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::blame::Blame;
 use gitweb_domain::model::blob::{Blob, BlobDisplay};
-use gitweb_domain::model::change::ChangeStatus;
+use gitweb_domain::model::change::{ChangeKind, ChangeStatus};
 use gitweb_domain::model::commit::Commit;
-use gitweb_domain::model::diff::{CombinedDiff, Diff, DiffEntry};
+use gitweb_domain::model::diff::{
+    CombinedDiff, CombinedDiffEntry, CombinedParent, Diff, DiffEntry,
+};
 use gitweb_domain::model::encoding::FallbackEncoding;
 use gitweb_domain::model::feed::{Feed, FeedEntry, FeedFile};
 use gitweb_domain::model::file_mode::FileMode;
@@ -42,6 +44,7 @@ use gitweb_domain::port::repository::{
 };
 use gitweb_domain::usecase::blob::{BlobView, assemble_blob};
 use gitweb_domain::usecase::blob_plain::{BlobPlainView, assemble_blob_plain};
+use gitweb_domain::usecase::commit::{ChangedFiles, CommitView, assemble_commit};
 use gitweb_domain::usecase::feed::assemble_feed;
 use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
 use gitweb_domain::usecase::history::{HistoryRow, HistoryView, assemble_history};
@@ -177,6 +180,8 @@ struct UsecaseWorld {
     blob_result: Option<Result<BlobView, DomainError>>,
     blob_plain_result: Option<Result<BlobPlainView, DomainError>>,
     feed_result: Option<Result<Feed, DomainError>>,
+    commit_fixture: Option<FakeCommitFixture>,
+    commit_result: Option<Result<CommitView, DomainError>>,
 }
 
 /// One directory in the fake repository's tree, listed by the `tree` use case.
@@ -337,6 +342,26 @@ struct FakeRepository {
     tree_nodes: Vec<FakeTreeNode>,
     blob_base_title: Option<String>,
     blob_files: Vec<FakeBlobFile>,
+    commit_fixture: Option<FakeCommitFixture>,
+}
+
+/// A single commit the `commit` use case resolves and reads: the revision name it
+/// answers to, its identity and ancestry, its authorship and message, the object
+/// kind it reports (so a non-commit drives the `Unknown commit object` 404), and
+/// its changed-files set — ordinary entries for a single-parent/root commit, or
+/// combined entries for a merge.
+#[derive(Debug, Clone)]
+struct FakeCommitFixture {
+    rev: String,
+    id: ObjectId,
+    tree: ObjectId,
+    parents: Vec<ObjectId>,
+    author: Signature,
+    committer: Signature,
+    message: String,
+    kind: ObjectKind,
+    diff: Vec<DiffEntry>,
+    combined: Vec<CombinedDiffEntry>,
 }
 
 impl FakeRepository {
@@ -460,6 +485,16 @@ impl Repository for FakeRepository {
     }
 
     fn find_commit(&self, oid: &ObjectId) -> Result<Commit, DomainError> {
+        if let Some(fixture) = self.commit_fixture.as_ref().filter(|f| &f.id == oid) {
+            return Ok(Commit::new(
+                fixture.id.clone(),
+                fixture.tree.clone(),
+                fixture.parents.clone(),
+                fixture.author.clone(),
+                fixture.committer.clone(),
+                fixture.message.clone(),
+            ));
+        }
         if self.has_blob_base() && oid == &blob_base_oid() {
             let title: &str = self.blob_base_title.as_deref().expect("a blob base title");
             let who: Signature = Signature::parse("Tester <t@example.com> 1000 +0000")
@@ -505,6 +540,9 @@ impl Repository for FakeRepository {
     }
 
     fn resolve(&self, rev: &str) -> Result<ObjectId, DomainError> {
+        if let Some(fixture) = self.commit_fixture.as_ref().filter(|f| f.rev == rev) {
+            return Ok(fixture.id.clone());
+        }
         if rev == "HEAD" && self.has_tree() {
             return Ok(tree_head_oid());
         }
@@ -537,6 +575,9 @@ impl Repository for FakeRepository {
     }
 
     fn object_kind(&self, oid: &ObjectId) -> Result<ObjectKind, DomainError> {
+        if let Some(fixture) = self.commit_fixture.as_ref().filter(|f| &f.id == oid) {
+            return Ok(fixture.kind);
+        }
         if self.has_tree() && oid == &tree_head_oid() {
             return Ok(ObjectKind::Commit);
         }
@@ -726,6 +767,9 @@ impl Repository for FakeRepository {
         to: &ObjectId,
         _detection: RenameDetection,
     ) -> Result<Diff, DomainError> {
+        if let Some(fixture) = self.commit_fixture.as_ref().filter(|f| &f.id == to) {
+            return Ok(Diff::new(fixture.diff.clone()));
+        }
         // The feed use case diffs each commit against its parent; the fake's
         // commits carry the paths they touch, so synthesize one added-file entry
         // per touched path (the to-side id from the path's blob when present).
@@ -771,8 +815,11 @@ impl Repository for FakeRepository {
         unimplemented!("the heads use case never builds a patch")
     }
 
-    fn combined_diff(&self, _commit: &ObjectId) -> Result<CombinedDiff, DomainError> {
-        unimplemented!("the heads use case never builds a combined diff")
+    fn combined_diff(&self, commit: &ObjectId) -> Result<CombinedDiff, DomainError> {
+        if let Some(fixture) = self.commit_fixture.as_ref().filter(|f| &f.id == commit) {
+            return Ok(CombinedDiff::new(fixture.combined.clone()));
+        }
+        unimplemented!("only the commit use case's merge fixture builds a combined diff")
     }
 
     fn blame(&self, _at: &ObjectId, _path: &str) -> Result<Blame, DomainError> {
@@ -1587,6 +1634,7 @@ fn fake_repo(world: &UsecaseWorld) -> FakeRepository {
         tree_nodes: world.tree_nodes.clone(),
         blob_base_title: world.blob_base_title.clone(),
         blob_files: world.blob_files.clone(),
+        commit_fixture: world.commit_fixture.clone(),
     }
 }
 
@@ -2778,6 +2826,258 @@ fn feed_entry_lists_files(world: &mut UsecaseWorld, name: String, expected: Stri
         .collect::<Vec<&str>>()
         .join(",");
     assert_eq!(listed, expected);
+}
+
+// --- commit: fixtures, Whens, Thens -----------------------------------------
+
+/// The object kind a scenario names for the commit fixture's resolved object.
+fn object_kind_of(word: &str) -> ObjectKind {
+    match word {
+        "blob" => ObjectKind::Blob,
+        "tree" => ObjectKind::Tree,
+        "tag" => ObjectKind::Tag,
+        _ => ObjectKind::Commit,
+    }
+}
+
+/// A `100644` regular-file mode for the commit fixture's diff entries.
+fn regular_file_mode() -> FileMode {
+    FileMode::from_octal("100644").expect("100644 is a valid mode")
+}
+
+/// The absent (`000000`) mode for a created or deleted side.
+fn absent_mode() -> FileMode {
+    FileMode::from_octal("000000").expect("000000 is a valid mode")
+}
+
+/// One ordinary diff entry for a changed path, shaped to its status: a creation
+/// comes from the empty side, a deletion goes to it, anything else is a
+/// same-path modification.
+fn fixture_diff_entry(path: &str, token: &str) -> DiffEntry {
+    let status: ChangeStatus = ChangeStatus::parse(token).expect("a valid status token");
+    match status.kind() {
+        ChangeKind::Added => DiffEntry::new(
+            status,
+            absent_mode(),
+            regular_file_mode(),
+            fake_oid(&format!("from-{path}")).null_like(),
+            fake_oid(&format!("to-{path}")),
+            path.to_owned(),
+            path.to_owned(),
+        ),
+        ChangeKind::Deleted => DiffEntry::new(
+            status,
+            regular_file_mode(),
+            absent_mode(),
+            fake_oid(&format!("from-{path}")),
+            fake_oid(&format!("to-{path}")).null_like(),
+            path.to_owned(),
+            path.to_owned(),
+        ),
+        _ => DiffEntry::new(
+            status,
+            regular_file_mode(),
+            regular_file_mode(),
+            fake_oid(&format!("from-{path}")),
+            fake_oid(&format!("to-{path}")),
+            path.to_owned(),
+            path.to_owned(),
+        ),
+    }
+}
+
+/// One combined diff entry for a merge changed path: every parent reports a plain
+/// modification of the path, resolving to a single merge result.
+fn fixture_combined_entry(path: &str, nparents: usize) -> CombinedDiffEntry {
+    let parents: Vec<CombinedParent> = (0..nparents)
+        .map(|index: usize| {
+            CombinedParent::new(
+                ChangeStatus::from_modification(regular_file_mode(), regular_file_mode()),
+                regular_file_mode(),
+                fake_oid(&format!("from-{path}-{index}")),
+            )
+        })
+        .collect();
+    CombinedDiffEntry::new(
+        parents,
+        regular_file_mode(),
+        fake_oid(&format!("to-{path}")),
+        path.to_owned(),
+    )
+}
+
+/// The commit fixture under construction, expecting a `Given a commit …` first.
+fn commit_fixture_mut(world: &mut UsecaseWorld) -> &mut FakeCommitFixture {
+    world
+        .commit_fixture
+        .as_mut()
+        .expect("declare a commit fixture first")
+}
+
+#[given(regex = r#"^a commit "([^"]*)" with author "([^"]*)"$"#)]
+fn given_commit(world: &mut UsecaseWorld, id: String, ident: String) {
+    let author: Signature = Signature::parse(&ident).expect("a valid author ident");
+    world.commit_fixture = Some(FakeCommitFixture {
+        rev: "HEAD".to_owned(),
+        id: fake_oid(&format!("commit-{id}")),
+        tree: fake_oid(&format!("tree-{id}")),
+        parents: Vec::new(),
+        author: author.clone(),
+        committer: author,
+        message: String::new(),
+        kind: ObjectKind::Commit,
+        diff: Vec::new(),
+        combined: Vec::new(),
+    });
+}
+
+#[given(regex = r#"^the commit committer is "([^"]*)"$"#)]
+fn given_commit_committer(world: &mut UsecaseWorld, ident: String) {
+    commit_fixture_mut(world).committer =
+        Signature::parse(&ident).expect("a valid committer ident");
+}
+
+#[given(regex = r#"^the commit message is "(.*)"$"#)]
+fn given_commit_message(world: &mut UsecaseWorld, message: String) {
+    commit_fixture_mut(world).message = message;
+}
+
+#[given(regex = r#"^the commit has parent "([^"]*)"$"#)]
+fn given_commit_parent(world: &mut UsecaseWorld, label: String) {
+    commit_fixture_mut(world).parents.push(fake_oid(&label));
+}
+
+#[given(regex = r#"^the commit object kind is "([^"]*)"$"#)]
+fn given_commit_object_kind(world: &mut UsecaseWorld, word: String) {
+    commit_fixture_mut(world).kind = object_kind_of(&word);
+}
+
+#[given(regex = r#"^the commit changes "([^"]*)" with status "([^"]*)"$"#)]
+fn given_commit_changes(world: &mut UsecaseWorld, path: String, token: String) {
+    let entry: DiffEntry = fixture_diff_entry(&path, &token);
+    commit_fixture_mut(world).diff.push(entry);
+}
+
+#[given(regex = r#"^the merge changes "([^"]*)"$"#)]
+fn given_merge_changes(world: &mut UsecaseWorld, path: String) {
+    let nparents: usize = commit_fixture_mut(world).parents.len();
+    let entry: CombinedDiffEntry = fixture_combined_entry(&path, nparents);
+    commit_fixture_mut(world).combined.push(entry);
+}
+
+#[when(regex = r#"^I assemble the commit view for "([^"]*)"$"#)]
+fn assemble_commit_view(world: &mut UsecaseWorld, rev: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.commit_result = Some(assemble_commit(&repo, Some(&rev)));
+}
+
+/// The assembled commit view (asserting the use case succeeded).
+fn commit_view(world: &UsecaseWorld) -> &CommitView {
+    match world
+        .commit_result
+        .as_ref()
+        .expect("assemble the commit first")
+    {
+        Ok(view) => view,
+        Err(error) => panic!("expected a commit view, got error: {error:?}"),
+    }
+}
+
+/// The ordinary changed-files rows (asserting the diff is an ordinary one).
+fn ordinary_changes(world: &UsecaseWorld) -> &[gitweb_domain::usecase::commit::OrdinaryChange] {
+    match commit_view(world).changes() {
+        ChangedFiles::Ordinary(rows) => rows,
+        ChangedFiles::Combined(_) => panic!("expected an ordinary diff, got a combined one"),
+    }
+}
+
+/// The combined changed-files rows (asserting the diff is a combined one).
+fn combined_changes(world: &UsecaseWorld) -> &[gitweb_domain::usecase::commit::CombinedChange] {
+    match commit_view(world).changes() {
+        ChangedFiles::Combined(rows) => rows,
+        ChangedFiles::Ordinary(_) => panic!("expected a combined diff, got an ordinary one"),
+    }
+}
+
+#[then(regex = r#"^the commit author name is "(.*)"$"#)]
+fn commit_author_name_is(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(commit_view(world).author().name(), expected);
+}
+
+#[then(regex = r#"^the commit author email is "(.*)"$"#)]
+fn commit_author_email_is(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(
+        commit_view(world).author().email().expect("an email"),
+        expected
+    );
+}
+
+#[then(regex = r#"^the commit committer name is "(.*)"$"#)]
+fn commit_committer_name_is(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(commit_view(world).committer().name(), expected);
+}
+
+#[then(regex = r#"^the commit title is "(.*)"$"#)]
+fn commit_title_is(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(commit_view(world).title(), expected);
+}
+
+#[then(regex = r"^the commit has (\d+) parents?$")]
+fn commit_has_parents(world: &mut UsecaseWorld, expected: usize) {
+    assert_eq!(commit_view(world).parents().len(), expected);
+}
+
+#[then("the commit is a merge")]
+fn commit_is_a_merge(world: &mut UsecaseWorld) {
+    assert!(commit_view(world).is_merge());
+}
+
+#[then("the commit is not a merge")]
+fn commit_is_not_a_merge(world: &mut UsecaseWorld) {
+    assert!(!commit_view(world).is_merge());
+}
+
+#[then("the changed files are ordinary")]
+fn changed_files_are_ordinary(world: &mut UsecaseWorld) {
+    assert!(matches!(
+        commit_view(world).changes(),
+        ChangedFiles::Ordinary(_)
+    ));
+}
+
+#[then("the changed files are combined")]
+fn changed_files_are_combined(world: &mut UsecaseWorld) {
+    assert!(matches!(
+        commit_view(world).changes(),
+        ChangedFiles::Combined(_)
+    ));
+}
+
+#[then(regex = r"^there are (\d+) changed files$")]
+fn there_are_changed_files(world: &mut UsecaseWorld, expected: usize) {
+    assert_eq!(commit_view(world).changes().len(), expected);
+}
+
+#[then(regex = r#"^ordinary change (\d+) is "(.*)"$"#)]
+fn ordinary_change_is(world: &mut UsecaseWorld, index: usize, expected: String) {
+    assert_eq!(ordinary_changes(world)[index - 1].to_path(), expected);
+}
+
+#[then(regex = r"^combined change (\d+) has (\d+) parent sides$")]
+fn combined_change_parent_sides(world: &mut UsecaseWorld, index: usize, expected: usize) {
+    assert_eq!(combined_changes(world)[index - 1].parents().len(), expected);
+}
+
+#[then(regex = r#"^assembling the commit fails with "(.*)"$"#)]
+fn assembling_commit_fails_with(world: &mut UsecaseWorld, expected: String) {
+    match world
+        .commit_result
+        .as_ref()
+        .expect("assemble the commit first")
+    {
+        Ok(view) => panic!("expected a failure, got a commit view: {view:?}"),
+        Err(error) => assert_eq!(error.message(), expected),
+    }
 }
 
 #[tokio::main]

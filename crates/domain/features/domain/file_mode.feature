@@ -36,6 +36,23 @@ Feature: Git file modes
       | 100755 | blob   |
       | 120000 | blob   |
 
+  Scenario Outline: A mode exposes its permission bits and whether it is a regular file
+    The diff annotations show the four-digit octal permission bits
+    (gitweb's mode_str) and gate that display on S_ISREG.
+
+    Given a file mode "<mode>"
+    When I read the file mode
+    Then the permission bits are "<bits>"
+    And the mode is regular is <regular>
+
+    Examples:
+      | mode   | bits | regular |
+      | 100644 | 0644 | true    |
+      | 100755 | 0755 | true    |
+      | 120000 | 0000 | false   |
+      | 040000 | 0000 | false   |
+      | 160000 | 0000 | false   |
+
   Scenario: A mode string that is not octal is rejected
     Given a file mode "100abc"
     When I read the file mode

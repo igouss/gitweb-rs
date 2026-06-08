@@ -14,6 +14,7 @@
 
 pub mod blob;
 pub mod blob_plain;
+pub mod commit;
 pub mod feed;
 pub mod heads;
 pub mod history;
@@ -31,6 +32,7 @@ pub mod tree;
 
 pub use blob::BlobHandler;
 pub use blob_plain::BlobPlainHandler;
+pub use commit::CommitHandler;
 pub use feed::FeedHandler;
 pub use heads::HeadsHandler;
 pub use history::HistoryHandler;
