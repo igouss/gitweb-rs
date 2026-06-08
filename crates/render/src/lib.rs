@@ -22,6 +22,8 @@ pub mod heads;
 pub mod history;
 pub mod log;
 pub mod markup;
+pub mod opml;
+pub mod project_index;
 pub mod project_list;
 pub mod remotes;
 pub mod shortlog;

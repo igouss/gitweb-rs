@@ -100,6 +100,25 @@ impl View {
         }
     }
 
+    /// A text body served under an explicit content type and offered inline
+    /// under a fixed filename — gitweb's machine-readable listings
+    /// (`project_index`'s `index.aux`, `opml`'s `opml.xml`), which set both a
+    /// `-type`/`-charset` and a `-content_disposition`. Both header values are
+    /// fixed per endpoint, so they are `'static`.
+    #[must_use]
+    pub fn text_attachment(
+        content_type: &'static str,
+        content_disposition: &'static str,
+        body: String,
+    ) -> Self {
+        Self {
+            content_type: Cow::Borrowed(content_type),
+            content_disposition: Some(content_disposition.to_owned()),
+            last_modified: None,
+            body: ViewBody::Text(body),
+        }
+    }
+
     /// A raw-bytes body under an explicit content type — gitweb's snapshot
     /// archives.
     #[must_use]

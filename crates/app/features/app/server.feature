@@ -63,6 +63,22 @@ Feature: The composition root serves a wired gitweb-rs over a real project root
     And the response body contains "heads"
     And the response body contains "init"
 
+  Scenario: the composition root serves the machine-readable project index
+    Given a project root
+    And the root contains repository "alpha.git"
+    When I GET "/?a=project_index"
+    Then the response status is 200
+    And the response content type is "text/plain; charset=utf-8"
+    And the response body contains "alpha.git"
+
+  Scenario: the composition root serves the OPML project outline
+    Given a project root
+    And the root contains repository "alpha.git"
+    When I GET "/?a=opml"
+    Then the response status is 200
+    And the response content type is "text/xml; charset=utf-8"
+    And the response body contains "<opml version="1.0">"
+
   Scenario: a project action with no handler yet takes the die_error path
     Given a project root
     And the root contains repository "alpha.git"

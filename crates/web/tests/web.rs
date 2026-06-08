@@ -26,8 +26,8 @@ use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
     BlobHandler, BlobPlainHandler, FeedHandler, HeadsHandler, HistoryHandler, LogHandler,
-    ProjectListHandler, RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler,
-    TreeHandler,
+    OpmlHandler, ProjectIndexHandler, ProjectListHandler, RemotesHandler, ShortlogHandler,
+    SummaryHandler, TagHandler, TagsHandler, TreeHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -376,6 +376,29 @@ fn given_project_list_served(world: &mut WebWorld) {
     let settings: Arc<Settings> = Arc::new(Settings::builtin());
     let handler: Arc<dyn Handler> = Arc::new(ProjectListHandler::new(store, settings));
     world.dispatcher.register(Action::ProjectList, handler);
+}
+
+#[given("the project index is served")]
+fn given_project_index_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let handler: Arc<dyn Handler> = Arc::new(ProjectIndexHandler::new(store));
+    world.dispatcher.register(Action::ProjectIndex, handler);
+}
+
+#[given("the opml action is served")]
+fn given_opml_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(Settings::builtin());
+    let handler: Arc<dyn Handler> = Arc::new(OpmlHandler::new(
+        store,
+        settings,
+        "http://localhost".to_owned(),
+    ));
+    world.dispatcher.register(Action::Opml, handler);
 }
 
 #[given("the heads action is served")]

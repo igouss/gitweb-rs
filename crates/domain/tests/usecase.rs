@@ -46,6 +46,10 @@ use gitweb_domain::usecase::feed::assemble_feed;
 use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
 use gitweb_domain::usecase::history::{HistoryRow, HistoryView, assemble_history};
 use gitweb_domain::usecase::log::{LogRow, LogView, assemble_log};
+use gitweb_domain::usecase::opml::{Opml, OpmlProject, assemble_opml};
+use gitweb_domain::usecase::project_index::{
+    ProjectIndex, ProjectIndexRow, assemble_project_index,
+};
 use gitweb_domain::usecase::project_list::{
     ProjectListRow, ProjectListView, assemble_project_list,
 };
@@ -91,12 +95,55 @@ impl ProjectStore for FakeStore {
     }
 }
 
+/// An in-memory [`ProjectStore`] for the opml use case: each project either has a
+/// HEAD (included) or does not (skipped), mirroring gitweb's per-project
+/// `git_get_head_hash` check. Only `list` and `open` are reached; `open` yields a
+/// [`FakeRepository`] whose `head` resolves exactly when the project has one.
+struct FakeOpmlStore {
+    projects: Vec<(String, bool)>,
+}
+
+impl ProjectStore for FakeOpmlStore {
+    fn list(&self) -> Result<Vec<Project>, DomainError> {
+        Ok(self
+            .projects
+            .iter()
+            .map(|(name, _): &(String, bool)| Project::new(name.clone()))
+            .collect())
+    }
+
+    fn open(&self, name: &str) -> Result<Box<dyn Repository>, DomainError> {
+        let has_head: bool = self
+            .projects
+            .iter()
+            .find(|(candidate, _): &&(String, bool)| candidate == name)
+            .map(|(_, has_head): &(String, bool)| *has_head)
+            .ok_or_else(|| DomainError::NotFound(format!("no project {name}")))?;
+        let repository: FakeRepository = FakeRepository {
+            head_commit: has_head.then(|| fake_oid(name)),
+            ..FakeRepository::default()
+        };
+        Ok(Box::new(repository))
+    }
+
+    fn info(&self, _name: &str) -> Result<ProjectInfo, DomainError> {
+        unimplemented!("the opml use case never reads project metadata")
+    }
+
+    fn readme_html(&self, _name: &str) -> Result<Option<String>, DomainError> {
+        unimplemented!("the opml use case never reads a README")
+    }
+}
+
 #[derive(Debug, Default, World)]
 struct UsecaseWorld {
     projects: Vec<ProjectInfo>,
     now: i64,
     settings: Settings,
     result: Option<Result<ProjectListView, DomainError>>,
+    index_result: Option<Result<ProjectIndex, DomainError>>,
+    opml_projects: Vec<(String, bool)>,
+    opml_result: Option<Result<Opml, DomainError>>,
     head: Option<String>,
     branches: Vec<FakeBranch>,
     heads_result: Option<Result<HeadsView, DomainError>>,
@@ -277,6 +324,7 @@ fn fake_oid(seed: &str) -> ObjectId {
 /// the reads the heads and tags use cases make — `head`, `references`,
 /// `object_kind`, `find_commit`, `find_tag` — and leaves every other port method
 /// unimplemented, since those use cases never reach them.
+#[derive(Default)]
 struct FakeRepository {
     head: Option<String>,
     head_commit: Option<ObjectId>,
@@ -881,6 +929,125 @@ fn project_shows_age(world: &mut UsecaseWorld, name: String, expected: String) {
 #[then(regex = r#"^the project "([^"]*)" has no age$"#)]
 fn project_has_no_age(world: &mut UsecaseWorld, name: String) {
     assert_eq!(row(world, &name).age(), None);
+}
+
+// --- project_index: When / accessors / Thens ---------------------------------
+
+#[when("I assemble the project index")]
+fn assemble_index(world: &mut UsecaseWorld) {
+    let store: FakeStore = FakeStore {
+        projects: world.projects.clone(),
+    };
+    world.index_result = Some(assemble_project_index(&store));
+}
+
+/// The assembled index, or a panic if the scenario produced an error.
+fn index(world: &UsecaseWorld) -> &ProjectIndex {
+    world
+        .index_result
+        .as_ref()
+        .expect("assemble the index first")
+        .as_ref()
+        .expect("assembly succeeded")
+}
+
+/// The index failure, or a panic if the scenario produced a success.
+fn index_error(world: &UsecaseWorld) -> &DomainError {
+    match world
+        .index_result
+        .as_ref()
+        .expect("assemble the index first")
+    {
+        Ok(_) => panic!("expected assembly to fail"),
+        Err(failure) => failure,
+    }
+}
+
+/// The index row for `path`, or a panic if it is absent.
+fn index_row<'a>(world: &'a UsecaseWorld, path: &str) -> &'a ProjectIndexRow {
+    index(world)
+        .rows()
+        .iter()
+        .find(|row: &&ProjectIndexRow| row.path() == path)
+        .unwrap_or_else(|| panic!("no index row for {path}"))
+}
+
+#[then("assembling the index fails as not found")]
+fn index_fails_not_found(world: &mut UsecaseWorld) {
+    assert!(matches!(index_error(world), DomainError::NotFound(_)));
+}
+
+#[then(regex = r#"^the index row for "([^"]*)" has owner "([^"]*)"$"#)]
+fn index_row_has_owner(world: &mut UsecaseWorld, path: String, expected: String) {
+    assert_eq!(index_row(world, &path).owner(), expected);
+}
+
+#[then(regex = r#"^the indexed projects are "(.*)"$"#)]
+fn indexed_projects_are(world: &mut UsecaseWorld, expected: String) {
+    let paths: Vec<&str> = index(world)
+        .rows()
+        .iter()
+        .map(|row: &ProjectIndexRow| row.path())
+        .collect();
+    assert_eq!(paths.join(", "), expected);
+}
+
+// --- opml: Givens / When / accessors / Thens ---------------------------------
+
+#[given(regex = r#"^the opml store has project "([^"]*)" with a head$"#)]
+fn opml_store_has_headed_project(world: &mut UsecaseWorld, name: String) {
+    world.opml_projects.push((name, true));
+}
+
+#[given(regex = r#"^the opml store has project "([^"]*)" without a head$"#)]
+fn opml_store_has_headless_project(world: &mut UsecaseWorld, name: String) {
+    world.opml_projects.push((name, false));
+}
+
+#[when("I assemble the opml")]
+fn assemble_opml_outline(world: &mut UsecaseWorld) {
+    let store: FakeOpmlStore = FakeOpmlStore {
+        projects: world.opml_projects.clone(),
+    };
+    world.opml_result = Some(assemble_opml(&store));
+}
+
+/// The assembled outline, or a panic if the scenario produced an error.
+fn opml(world: &UsecaseWorld) -> &Opml {
+    world
+        .opml_result
+        .as_ref()
+        .expect("assemble the opml first")
+        .as_ref()
+        .expect("assembly succeeded")
+}
+
+/// The opml failure, or a panic if the scenario produced a success.
+fn opml_error(world: &UsecaseWorld) -> &DomainError {
+    match world.opml_result.as_ref().expect("assemble the opml first") {
+        Ok(_) => panic!("expected assembly to fail"),
+        Err(failure) => failure,
+    }
+}
+
+#[then("assembling the opml fails as not found")]
+fn opml_fails_not_found(world: &mut UsecaseWorld) {
+    assert!(matches!(opml_error(world), DomainError::NotFound(_)));
+}
+
+#[then(regex = r#"^the opml projects are "(.*)"$"#)]
+fn opml_projects_are(world: &mut UsecaseWorld, expected: String) {
+    let paths: Vec<&str> = opml(world)
+        .projects()
+        .iter()
+        .map(|project: &OpmlProject| project.path())
+        .collect();
+    assert_eq!(paths.join(", "), expected);
+}
+
+#[then("the opml has no projects")]
+fn opml_has_no_projects(world: &mut UsecaseWorld) {
+    assert!(opml(world).projects().is_empty());
 }
 
 // --- heads: accessors --------------------------------------------------------

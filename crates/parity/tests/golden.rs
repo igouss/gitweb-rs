@@ -22,12 +22,20 @@ use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::feed::assemble_feed;
+use gitweb_domain::usecase::opml::{Opml, assemble_opml};
+use gitweb_domain::usecase::project_index::{ProjectIndex, assemble_project_index};
 use gitweb_fixtures::ObjectId as FixtureOid;
 use gitweb_git::{GixProjectStore, GixRepository};
 use gitweb_parity::corpus::{self, Corpus};
 use gitweb_parity::golden::Golden;
 use gitweb_render::feed::{atom, rss};
+use gitweb_render::opml::{OpmlView, opml};
+use gitweb_render::project_index::{ProjectIndexView, project_index};
 use gitweb_web::handlers::feed::{FeedFormat, FeedRequest, assemble_feed_view};
+use gitweb_web::handlers::opml::{OPML_CONTENT_TYPE, OPML_DISPOSITION, assemble_opml_view};
+use gitweb_web::handlers::project_index::{
+    INDEX_CONTENT_TYPE, INDEX_DISPOSITION, assemble_project_index_view,
+};
 
 #[derive(Debug, Default, World)]
 struct GoldenWorld {
@@ -44,6 +52,12 @@ struct GoldenWorld {
     feed_body: Option<String>,
     feed_media_type: Option<&'static str>,
     feed_last_modified: Option<String>,
+    /// The serialized project_index body — the exact bytes the handler emits over
+    /// the corpus.
+    index_body: Option<String>,
+    /// The serialized opml body — the exact bytes the handler emits over the
+    /// corpus.
+    opml_body: Option<String>,
     golden: Option<Golden>,
 }
 
@@ -175,6 +189,43 @@ fn feed_body(world: &GoldenWorld) -> &str {
     world.feed_body.as_deref().expect("serve a feed first")
 }
 
+#[when("I serve the project index")]
+fn serve_project_index(world: &mut GoldenWorld) {
+    let project_root: PathBuf = corpus(world).project_root.clone();
+    let store: GixProjectStore = GixProjectStore::new(project_root);
+    // Exactly what the handler emits: the use case over the adapter, mapped to
+    // the render view, serialized — no boundary URL building, no settings.
+    let index: ProjectIndex =
+        assemble_project_index(&store).expect("assemble the corpus project index");
+    let view: ProjectIndexView = assemble_project_index_view(&index);
+    world.index_body = Some(project_index(&view));
+    world.golden = Some(Golden::load("project_index/index"));
+}
+
+/// The serialized project_index body, or a panic if none was served.
+fn index_body(world: &GoldenWorld) -> &str {
+    world.index_body.as_deref().expect("serve the index first")
+}
+
+#[when("I serve the opml outline")]
+fn serve_opml(world: &mut GoldenWorld) {
+    let project_root: PathBuf = corpus(world).project_root.clone();
+    let store: GixProjectStore = GixProjectStore::new(project_root);
+    // Exactly what the handler emits: the use case over the adapter, mapped to
+    // the render view with the CGI default site URL and the built-in site name,
+    // serialized.
+    let outline: Opml = assemble_opml(&store).expect("assemble the corpus opml");
+    let settings: Settings = Settings::builtin();
+    let view: OpmlView = assemble_opml_view(&outline, &settings, "http://localhost");
+    world.opml_body = Some(opml(&view));
+    world.golden = Some(Golden::load("opml/opml"));
+}
+
+/// The serialized opml body, or a panic if none was served.
+fn opml_body(world: &GoldenWorld) -> &str {
+    world.opml_body.as_deref().expect("serve the opml first")
+}
+
 // --- Then --------------------------------------------------------------------
 
 #[then("its body matches gitweb's reference output")]
@@ -230,6 +281,52 @@ fn content_disposition_matches(world: &mut GoldenWorld) {
 #[then("the reference declares a Content-Type header")]
 fn declares_content_type(world: &mut GoldenWorld) {
     assert!(golden(world).header("Content-Type").is_some());
+}
+
+#[then("the project index body matches gitweb's reference output")]
+fn index_body_matches(world: &mut GoldenWorld) {
+    assert_eq!(index_body(world).as_bytes(), golden(world).body());
+}
+
+#[then("the project index content type matches gitweb's")]
+fn index_content_type_matches(world: &mut GoldenWorld) {
+    // gitweb sets `-type => 'text/plain', -charset => 'utf-8'`, so the whole
+    // Content-Type (with charset) is its own choice and matches ours exactly.
+    let theirs: &str = golden(world)
+        .header("Content-Type")
+        .expect("gitweb declares a Content-Type");
+    assert_eq!(INDEX_CONTENT_TYPE, theirs);
+}
+
+#[then("the project index content disposition matches gitweb's")]
+fn index_disposition_matches(world: &mut GoldenWorld) {
+    let theirs: &str = golden(world)
+        .header("Content-Disposition")
+        .expect("gitweb declares a Content-Disposition");
+    assert_eq!(INDEX_DISPOSITION, theirs);
+}
+
+#[then("the opml body matches gitweb's reference output")]
+fn opml_body_matches(world: &mut GoldenWorld) {
+    assert_eq!(opml_body(world).as_bytes(), golden(world).body());
+}
+
+#[then("the opml content type matches gitweb's")]
+fn opml_content_type_matches(world: &mut GoldenWorld) {
+    // gitweb sets `-type => 'text/xml', -charset => 'utf-8'`, so the whole
+    // Content-Type (with charset) is its own choice and matches ours exactly.
+    let theirs: &str = golden(world)
+        .header("Content-Type")
+        .expect("gitweb declares a Content-Type");
+    assert_eq!(OPML_CONTENT_TYPE, theirs);
+}
+
+#[then("the opml content disposition matches gitweb's")]
+fn opml_disposition_matches(world: &mut GoldenWorld) {
+    let theirs: &str = golden(world)
+        .header("Content-Disposition")
+        .expect("gitweb declares a Content-Disposition");
+    assert_eq!(OPML_DISPOSITION, theirs);
 }
 
 #[tokio::main]

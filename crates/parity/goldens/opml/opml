@@ -1,0 +1,14 @@
+Content-disposition: inline; filename="opml.xml"
+Content-Type: text/xml; charset=utf-8
+
+<?xml version="1.0" encoding="utf-8"?>
+<opml version="1.0">
+<head>
+  <title>Untitled Git OPML Export</title>
+</head>
+<body>
+<outline text="git RSS feeds">
+<outline type="rss" text="repo.git" title="repo.git" xmlUrl="http://localhost/?p=repo.git;a=rss" htmlUrl="http://localhost/?p=repo.git;a=summary"/>
+</outline>
+</body>
+</opml>

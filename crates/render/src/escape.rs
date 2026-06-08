@@ -57,6 +57,15 @@ pub fn esc_path_info(text: &str) -> String {
     percent_encode(text, is_path_info_safe, SpaceEncoding::Literal)
 }
 
+/// Quotes a `project_index` field — a project path or owner — gitweb's inline
+/// `s/([^a-zA-Z0-9_.\-\/ ])/%XX/; s/ /+/`: percent-encode every byte outside the
+/// keep-set with upper-case hex, *keeping the slash* so the project path stays
+/// readable, then turn spaces into `+` (gitweb's `git_project_index`).
+#[must_use]
+pub fn esc_index_field(text: &str) -> String {
+    percent_encode(text, is_index_safe, SpaceEncoding::Plus)
+}
+
 // ---- HTML escaping ----------------------------------------------------------
 
 /// Whether spaces are kept as ordinary collapsing whitespace or pinned with
@@ -170,4 +179,11 @@ fn is_path_info_safe(ch: char) -> bool {
             ch,
             '-' | '_' | '.' | '~' | '(' | ')' | ';' | '/' | ':' | '@' | '&' | '=' | ' ' | '+'
         )
+}
+
+// gitweb's project_index keep-set is the bare `[a-zA-Z0-9_.\-\/ ]`: only the
+// underscore, dot, hyphen and slash join the alphanumerics; the space is handled
+// by `SpaceEncoding::Plus` before this predicate is consulted.
+fn is_index_safe(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '-' | '/')
 }

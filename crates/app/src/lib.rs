@@ -26,8 +26,8 @@ use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_git::GixProjectStore;
 use gitweb_web::{
     BlobHandler, BlobPlainHandler, Dispatcher, FeedHandler, Handler, HeadsHandler, HistoryHandler,
-    LogHandler, ProjectListHandler, RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler,
-    TagsHandler, TreeHandler, router,
+    LogHandler, OpmlHandler, ProjectIndexHandler, ProjectListHandler, RemotesHandler,
+    ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler, router,
 };
 
 /// Assembles the full gitweb-rs router: a gix project store rooted at
@@ -56,6 +56,9 @@ fn build_dispatcher(
         Arc::clone(&settings),
     ));
     dispatcher.register(Action::ProjectList, project_list);
+
+    let project_index: Arc<dyn Handler> = Arc::new(ProjectIndexHandler::new(Arc::clone(&store)));
+    dispatcher.register(Action::ProjectIndex, project_index);
 
     let summary: Arc<dyn Handler> = Arc::new(SummaryHandler::new(
         Arc::clone(&store),
@@ -122,10 +125,18 @@ fn build_dispatcher(
     let atom: Arc<dyn Handler> = Arc::new(FeedHandler::new(
         Arc::clone(&store),
         Arc::clone(&settings),
-        base,
+        base.clone(),
         generator,
     ));
     dispatcher.register(Action::Atom, atom);
+
+    // OPML links are absolute against the same site URL the feeds use.
+    let opml: Arc<dyn Handler> = Arc::new(OpmlHandler::new(
+        Arc::clone(&store),
+        Arc::clone(&settings),
+        base,
+    ));
+    dispatcher.register(Action::Opml, opml);
 
     let remotes: Arc<dyn Handler> = Arc::new(RemotesHandler::new(store, settings));
     dispatcher.register(Action::Remotes, remotes);

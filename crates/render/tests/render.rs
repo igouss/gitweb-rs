@@ -17,13 +17,15 @@ use gitweb_render::chrome::{
 };
 use gitweb_render::error::{ErrorResponse, HttpStatus, error_page, error_response};
 use gitweb_render::escape::{
-    esc_attr, esc_html, esc_html_nbsp, esc_param, esc_path, esc_path_info, esc_url,
+    esc_attr, esc_html, esc_html_nbsp, esc_index_field, esc_param, esc_path, esc_path_info, esc_url,
 };
 use gitweb_render::feed::{FeedEntryView, FeedFileView, FeedView, atom, rss};
 use gitweb_render::heads::{HeadEntryView, HeadsTable, heads_table};
 use gitweb_render::history::{HistoryEntryView, HistoryTable, history_table};
 use gitweb_render::log::{LogEntryView, log_entries};
 use gitweb_render::markup::{Markup, html, raw};
+use gitweb_render::opml::{OpmlRowView, OpmlView, opml};
+use gitweb_render::project_index::{ProjectIndexEntry, ProjectIndexView, project_index};
 use gitweb_render::project_list::{
     ProjectLinks, ProjectList, ProjectRow, SortHeader, project_list,
 };
@@ -44,6 +46,9 @@ struct RenderWorld {
     nav_items: Vec<NavItem>,
     footer_links: Vec<FooterLink>,
     project_rows: Vec<ProjectRow>,
+    project_index_entries: Vec<ProjectIndexEntry>,
+    opml_site_name: Option<String>,
+    opml_rows: Vec<OpmlRowView>,
     head_entries: Vec<HeadEntryView>,
     heads_more: Option<MoreLink>,
     tags_more: Option<MoreLink>,
@@ -150,6 +155,11 @@ fn when_esc_param(world: &mut RenderWorld) {
 #[when("I escape it as path info")]
 fn when_esc_path_info(world: &mut RenderWorld) {
     world.output = Some(esc_path_info(&world.input));
+}
+
+#[when("I quote it as a project index field")]
+fn when_esc_index_field(world: &mut RenderWorld) {
+    world.output = Some(esc_index_field(&world.input));
 }
 
 // ---- Given: an age classification -------------------------------------------
@@ -457,6 +467,71 @@ fn when_render_project_list(world: &mut RenderWorld, order: String) {
         rows: std::mem::take(&mut world.project_rows),
     };
     world.output = Some(project_list(&list).into_string());
+}
+
+// ---- Project index ----------------------------------------------------------
+
+#[given(regex = r#"^a project index entry "([^"]*)" owned by "([^"]*)"$"#)]
+fn given_index_entry(world: &mut RenderWorld, path: String, owner: String) {
+    world
+        .project_index_entries
+        .push(ProjectIndexEntry { path, owner });
+}
+
+#[given("an empty project index")]
+fn given_empty_index(world: &mut RenderWorld) {
+    world.project_index_entries.clear();
+}
+
+#[when("I render the project index")]
+fn when_render_index(world: &mut RenderWorld) {
+    let view: ProjectIndexView = ProjectIndexView {
+        entries: std::mem::take(&mut world.project_index_entries),
+    };
+    world.output = Some(project_index(&view));
+}
+
+#[then("the rendered body is the newline-ended lines:")]
+fn then_rendered_body_lines(world: &mut RenderWorld, step: &Step) {
+    let expected: String = step
+        .docstring
+        .as_deref()
+        .expect("scenario must supply a docstring")
+        .trim_matches('\n')
+        .lines()
+        .map(|line: &str| format!("{line}\n"))
+        .collect();
+    assert_eq!(world.output.as_deref(), Some(expected.as_str()));
+}
+
+#[then("the index body is empty")]
+fn then_index_body_empty(world: &mut RenderWorld) {
+    assert_eq!(world.output.as_deref(), Some(""));
+}
+
+// ---- OPML outline -----------------------------------------------------------
+
+#[given(regex = r#"^an opml outline for site "([^"]*)"$"#)]
+fn given_opml_site(world: &mut RenderWorld, site: String) {
+    world.opml_site_name = Some(site);
+}
+
+#[given(regex = r#"^an opml project "([^"]*)" with feed "([^"]*)" and summary "([^"]*)"$"#)]
+fn given_opml_project(world: &mut RenderWorld, path: String, feed: String, summary: String) {
+    world.opml_rows.push(OpmlRowView {
+        text: path,
+        xml_url: feed,
+        html_url: summary,
+    });
+}
+
+#[when("I render the opml outline")]
+fn when_render_opml(world: &mut RenderWorld) {
+    let view: OpmlView = OpmlView {
+        site_name: world.opml_site_name.take().unwrap_or_default(),
+        rows: std::mem::take(&mut world.opml_rows),
+    };
+    world.output = Some(opml(&view));
 }
 
 // ---- Heads table ------------------------------------------------------------

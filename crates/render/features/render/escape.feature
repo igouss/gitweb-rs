@@ -169,6 +169,30 @@ Feature: Escaping for safe HTML and URLs
     Then the result is "a/b:c@d"
 
   # ---------------------------------------------------------------------------
+  # esc_index_field: project_index quoting — keep the slash, space becomes plus
+  # ---------------------------------------------------------------------------
+
+  Scenario: A project path keeps its slashes and dots in an index field
+    Given the text "lib/sub/foo.git"
+    When I quote it as a project index field
+    Then the result is "lib/sub/foo.git"
+
+  Scenario: A space in an index field becomes a plus
+    Given the text "Ada Lovelace"
+    When I quote it as a project index field
+    Then the result is "Ada+Lovelace"
+
+  Scenario: An unsafe character in an index field is percent-encoded with upper-case hex
+    Given the text "a&b"
+    When I quote it as a project index field
+    Then the result is "a%26b"
+
+  Scenario: A non-ASCII character in an index field is percent-encoded per UTF-8 byte
+    Given the text "café"
+    When I quote it as a project index field
+    Then the result is "caf%C3%A9"
+
+  # ---------------------------------------------------------------------------
   # esc_path_info: space and plus stay literal, ? is escaped
   # ---------------------------------------------------------------------------
 

@@ -120,6 +120,14 @@ echo ">> capturing feed goldens" >&2
 capture "feed/rss" "p=repo.git;a=rss"
 capture "feed/atom" "p=repo.git;a=atom"
 
+# The machine-readable project listings are format-stable. project_index is the
+# text/plain "index.aux" (one "path owner" line per project, CGI-quoted); opml is
+# the OPML XML outline. Both list every project under the root, so they are
+# captured with no per-project query.
+echo ">> capturing project listing goldens" >&2
+capture "project_index/index" "a=project_index"
+capture "opml/opml" "a=opml"
+
 # The feed body carries a <generator> version composite ($version/$git_version).
 # $version is pinned via VERSION-FILE above; $git_version is the capturing git's
 # version, which is not byte-stable across machines and is not part of the feed
