@@ -25,10 +25,11 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_git::GixProjectStore;
 use gitweb_web::{
-    BlobHandler, BlobPlainHandler, BlobdiffPlainHandler, CommitHandler, CommitdiffHandler,
-    CommitdiffPlainHandler, Dispatcher, FeedHandler, Handler, HeadsHandler, HistoryHandler,
-    LogHandler, ObjectHandler, OpmlHandler, ProjectIndexHandler, ProjectListHandler,
-    RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler, router,
+    BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
+    CommitdiffHandler, CommitdiffPlainHandler, Dispatcher, FeedHandler, Handler, HeadsHandler,
+    HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, ProjectIndexHandler,
+    ProjectListHandler, RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler,
+    TreeHandler, router,
 };
 use tower_http::services::ServeDir;
 
@@ -165,6 +166,14 @@ fn build_dispatcher(
     let blobdiff_plain: Arc<dyn Handler> =
         Arc::new(BlobdiffPlainHandler::new(Arc::clone(&store), base.clone()));
     dispatcher.register(Action::BlobdiffPlain, blobdiff_plain);
+
+    // The html blobdiff viewer fetches its clean single-file diff from the same
+    // diff-text endpoint the commitdiff viewer uses, scoped to the file.
+    let blobdiff: Arc<dyn Handler> = Arc::new(BlobdiffHandler::new(
+        Arc::clone(&store),
+        Arc::clone(&settings),
+    ));
+    dispatcher.register(Action::Blobdiff, blobdiff);
 
     // The object action redirects (gitweb's `href(-full => 1, …)`), absolute
     // against the same site URL.

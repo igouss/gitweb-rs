@@ -32,15 +32,22 @@ const DETECTION: RenameDetection = RenameDetection::RenamesOnly;
 /// against `explicit_parent` when one is given, otherwise the base the
 /// [`diff_base`] rule picks — as git's clean unified patch text.
 ///
+/// `file` scopes the diff to a single new-side path (the html `blobdiff` viewer's
+/// fetch), rendered with full `--full-index` ids exactly as the whole-commit form
+/// is; `None` renders the whole diff (the `commitdiff` viewer's fetch). A `file`
+/// the diff does not touch is gitweb's `die_error(404, "Blob diff not found")`.
+///
 /// # Errors
 ///
 /// Returns [`DomainError::NotFound`] with gitweb's `Unknown commit object`
-/// message when the revision is not a commit, and propagates the repository's
+/// message when the revision is not a commit, or `Blob diff not found` when a
+/// requested `file` is absent from the diff, and propagates the repository's
 /// failures (an unresolvable revision, a bad explicit parent, a patch read).
 pub fn assemble_commit_diff(
     repo: &dyn Repository,
     revision: Option<&str>,
     explicit_parent: Option<&str>,
+    file: Option<&str>,
 ) -> Result<String, DomainError> {
     let oid: ObjectId = repo.resolve(revision.unwrap_or("HEAD"))?;
     if repo.object_kind(&oid)? != ObjectKind::Commit {
@@ -56,5 +63,10 @@ pub fn assemble_commit_diff(
         DiffBase::Commit(base) => Some(base),
     };
     let patch: Patch = repo.patch(from.as_ref(), commit.id(), DETECTION)?;
-    Ok(patch.render())
+    match file {
+        None => Ok(patch.render()),
+        Some(path) => patch
+            .render_file(path)
+            .ok_or_else(|| DomainError::NotFound("Blob diff not found".to_owned())),
+    }
 }

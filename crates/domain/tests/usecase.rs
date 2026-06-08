@@ -47,6 +47,7 @@ use gitweb_domain::port::repository::{
 };
 use gitweb_domain::usecase::blob::{BlobView, assemble_blob};
 use gitweb_domain::usecase::blob_plain::{BlobPlainView, assemble_blob_plain};
+use gitweb_domain::usecase::blobdiff::{BlobdiffView, assemble_blobdiff};
 use gitweb_domain::usecase::blobdiff_plain::assemble_blobdiff_plain;
 use gitweb_domain::usecase::commit::{ChangedFiles, CommitView, assemble_commit};
 use gitweb_domain::usecase::commitdiff::assemble_commit_diff;
@@ -195,6 +196,7 @@ struct UsecaseWorld {
     /// folds them into the fixture's whole-tree patch before assembling.
     blobdiff_files: Vec<FilePatch>,
     blobdiff_plain_result: Option<Result<BlobdiffPlain, DomainError>>,
+    blobdiff_result: Option<Result<BlobdiffView, DomainError>>,
     object_result: Option<Result<ObjectRedirect, DomainError>>,
 }
 
@@ -3134,7 +3136,7 @@ fn given_commitdiff_creates(world: &mut UsecaseWorld, path: String) {
 #[when(regex = r#"^I assemble the commitdiff text for "([^"]*)"$"#)]
 fn assemble_commitdiff_text(world: &mut UsecaseWorld, rev: String) {
     let repo: FakeRepository = fake_repo(world);
-    world.commitdiff_result = Some(assemble_commit_diff(&repo, Some(&rev), None));
+    world.commitdiff_result = Some(assemble_commit_diff(&repo, Some(&rev), None, None));
 }
 
 #[then(regex = r#"^the commitdiff text contains "(.*)"$"#)]
@@ -3342,6 +3344,162 @@ fn then_blobdiff_plain_fails(world: &mut UsecaseWorld, expected: String) {
             "expected a failure, got body:\n{}",
             plain.render(BLOBDIFF_SELF_URL)
         ),
+        Err(error) => assert_eq!(error.message(), expected),
+    }
+}
+
+// --- blobdiff (html resolution) ----------------------------------------------
+
+/// The fixed new-side id two "twin" added files share, so a by-id resolution is
+/// ambiguous; both [`given_diff_twin_adds`] and the shared-id When use it.
+fn twin_shared_oid() -> ObjectId {
+    fake_oid("twin-shared")
+}
+
+/// A renamed file patch from `from` to `to` with no hunks — enough to carry the
+/// from/to paths the resolution reports, without a diff algorithm.
+fn renamed_file_patch(from: &str, to: &str) -> FilePatch {
+    let mode: FileMode = FileMode::from_octal("100644").expect("a valid file mode");
+    FilePatch::new(
+        ChangeStatus::renamed(100),
+        mode,
+        mode,
+        fake_oid(&format!("from-{from}")),
+        fake_oid(&format!("to-{to}")),
+        from.to_owned(),
+        to.to_owned(),
+        FileContent::Text(Vec::new()),
+    )
+}
+
+/// An added file patch for `path` carrying `to_oid` as its new-side id.
+fn added_file_patch_with_oid(path: &str, to_oid: ObjectId) -> FilePatch {
+    let mode: FileMode = FileMode::from_octal("100644").expect("a valid file mode");
+    let absent: FileMode = FileMode::from_octal("000000").expect("a valid absent mode");
+    FilePatch::new(
+        ChangeStatus::added(),
+        absent,
+        mode,
+        to_oid.null_like(),
+        to_oid,
+        path.to_owned(),
+        path.to_owned(),
+        FileContent::Text(Vec::new()),
+    )
+}
+
+#[given(regex = r#"^the diff renames "([^"]*)" to "([^"]*)"$"#)]
+fn given_diff_renames(world: &mut UsecaseWorld, from: String, to: String) {
+    world.blobdiff_files.push(renamed_file_patch(&from, &to));
+}
+
+#[given(regex = r#"^the diff adds "([^"]*)" and "([^"]*)" sharing new-side content$"#)]
+fn given_diff_twin_adds(world: &mut UsecaseWorld, first: String, second: String) {
+    world
+        .blobdiff_files
+        .push(added_file_patch_with_oid(&first, twin_shared_oid()));
+    world
+        .blobdiff_files
+        .push(added_file_patch_with_oid(&second, twin_shared_oid()));
+}
+
+/// Folds the accumulated file patches into the fixture's whole-tree patch and
+/// runs the blobdiff resolution for the given selector.
+fn run_blobdiff(
+    world: &mut UsecaseWorld,
+    hb: &str,
+    hpb: &str,
+    file_name: Option<&str>,
+    hash: Option<&str>,
+) {
+    let files: Vec<FilePatch> = world.blobdiff_files.clone();
+    commit_fixture_mut(world).patch = Patch::new(files);
+    let repo: FakeRepository = fake_repo(world);
+    world.blobdiff_result = Some(assemble_blobdiff(&repo, hb, hpb, file_name, hash));
+}
+
+/// The new-side id of the accumulated file patch whose new-side path is `path`.
+fn blobdiff_to_oid(world: &UsecaseWorld, path: &str) -> String {
+    world
+        .blobdiff_files
+        .iter()
+        .find(|file: &&FilePatch| file.to_path() == path)
+        .expect("the diff touches that path")
+        .to_oid()
+        .as_str()
+        .to_owned()
+}
+
+#[when(
+    regex = r#"^I assemble the blobdiff of "([^"]*)" with base "([^"]*)" and parent base "([^"]*)"$"#
+)]
+fn assemble_blobdiff_by_path(world: &mut UsecaseWorld, file: String, hb: String, hpb: String) {
+    run_blobdiff(world, &hb, &hpb, Some(&file), None);
+}
+
+#[when(
+    regex = r#"^I assemble the blobdiff by the new-side id of "([^"]*)" with base "([^"]*)" and parent base "([^"]*)"$"#
+)]
+fn assemble_blobdiff_by_id(world: &mut UsecaseWorld, file: String, hb: String, hpb: String) {
+    let id: String = blobdiff_to_oid(world, &file);
+    run_blobdiff(world, &hb, &hpb, None, Some(&id));
+}
+
+#[when(
+    regex = r#"^I assemble the blobdiff with neither file nor hash, base "([^"]*)" and parent base "([^"]*)"$"#
+)]
+fn assemble_blobdiff_no_selector(world: &mut UsecaseWorld, hb: String, hpb: String) {
+    run_blobdiff(world, &hb, &hpb, None, None);
+}
+
+#[when(
+    regex = r#"^I assemble the blobdiff by the shared new-side id with base "([^"]*)" and parent base "([^"]*)"$"#
+)]
+fn assemble_blobdiff_shared_id(world: &mut UsecaseWorld, hb: String, hpb: String) {
+    let id: String = twin_shared_oid().as_str().to_owned();
+    run_blobdiff(world, &hb, &hpb, None, Some(&id));
+}
+
+/// The assembled blobdiff view (asserting the resolution succeeded).
+fn blobdiff_view(world: &UsecaseWorld) -> &BlobdiffView {
+    match world
+        .blobdiff_result
+        .as_ref()
+        .expect("assemble the blobdiff first")
+    {
+        Ok(view) => view,
+        Err(error) => panic!("expected a blobdiff view, got error: {error:?}"),
+    }
+}
+
+#[then(regex = r#"^the blobdiff file name is "([^"]*)"$"#)]
+fn then_blobdiff_file_name(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(blobdiff_view(world).file_name(), expected);
+}
+
+#[then("the blobdiff has no file parent")]
+fn then_blobdiff_no_file_parent(world: &mut UsecaseWorld) {
+    assert_eq!(blobdiff_view(world).file_parent(), None);
+}
+
+#[then(regex = r#"^the blobdiff file parent is "([^"]*)"$"#)]
+fn then_blobdiff_file_parent(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(blobdiff_view(world).file_parent(), Some(expected.as_str()));
+}
+
+#[then(regex = r#"^the blobdiff title is "(.*)"$"#)]
+fn then_blobdiff_title(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(blobdiff_view(world).title(), expected);
+}
+
+#[then(regex = r#"^assembling the blobdiff fails with "(.*)"$"#)]
+fn then_blobdiff_fails(world: &mut UsecaseWorld, expected: String) {
+    match world
+        .blobdiff_result
+        .as_ref()
+        .expect("assemble the blobdiff first")
+    {
+        Ok(view) => panic!("expected a failure, got view: {view:?}"),
         Err(error) => assert_eq!(error.message(), expected),
     }
 }

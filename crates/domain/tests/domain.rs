@@ -32,7 +32,7 @@ use gitweb_domain::model::message_body::{LogLine, log_lines};
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::object_redirect::{Resolution, resolution, target_action};
-use gitweb_domain::model::patch::{FileContent, FilePatch, Hunk, HunkLine, Patch};
+use gitweb_domain::model::patch::{FileContent, FilePatch, FileSelection, Hunk, HunkLine, Patch};
 use gitweb_domain::model::path_info::PathInfo;
 use gitweb_domain::model::project_info::{CategoryGroup, ProjectInfo, group_by_category};
 use gitweb_domain::model::project_order::ProjectOrder;
@@ -102,6 +102,9 @@ struct DomainWorld {
     /// The single-file selection result: `None` until the When runs, then the
     /// inner `Option` distinguishes a found file's text from no match.
     selected_file: Option<Option<String>>,
+    /// The `blobdiff` file-resolution outcome, reduced to an owned form so the
+    /// borrow of the patch does not outlive the When.
+    file_resolution: Option<FileResolution>,
     bdp_patch_body: Option<String>,
     bdp_rendered: Option<String>,
     cdp_author: Option<String>,
@@ -1389,6 +1392,28 @@ fn one_file(patch: FilePatch) -> Patch {
     Patch::new(vec![patch])
 }
 
+/// The owned form of a [`FileSelection`], so the resolution outcome can outlive
+/// the borrow of the patch it was selected from.
+#[derive(Debug, PartialEq, Eq)]
+enum FileResolution {
+    Found { from: String, to: String },
+    Missing,
+    Ambiguous,
+}
+
+/// Reduces a [`FileSelection`] (which borrows the patch) to the owned
+/// [`FileResolution`] the world stores.
+fn owned_selection(selection: FileSelection<'_>) -> FileResolution {
+    match selection {
+        FileSelection::One(file) => FileResolution::Found {
+            from: file.from_path().to_owned(),
+            to: file.to_path().to_owned(),
+        },
+        FileSelection::Missing => FileResolution::Missing,
+        FileSelection::Ambiguous => FileResolution::Ambiguous,
+    }
+}
+
 #[given(regex = r#"^a modified file patch for "([^"]+)"$"#)]
 fn given_modified_patch(world: &mut DomainWorld, path: String) {
     world.patch_under_test = Some(one_file(modified_patch(&path)));
@@ -1556,6 +1581,17 @@ fn given_empty_patch(world: &mut DomainWorld) {
     world.patch_under_test = Some(Patch::new(vec![]));
 }
 
+#[given("a patch over two files added with identical content")]
+fn given_twin_adds_patch(world: &mut DomainWorld) {
+    // Both created from nothing with the same two lines, so they share a new-side
+    // blob id (created_patch's `to_oid` is the same digit fill) — the only way a
+    // by-id blobdiff resolution is ambiguous.
+    world.patch_under_test = Some(Patch::new(vec![
+        created_patch("twin-a.txt"),
+        created_patch("twin-b.txt"),
+    ]));
+}
+
 #[given("a patch over a created file and a deleted file")]
 fn given_multi_file_patch(world: &mut DomainWorld) {
     world.patch_under_test = Some(Patch::new(vec![
@@ -1644,6 +1680,56 @@ fn then_no_file_selected(world: &mut DomainWorld) {
             .expect("the selection must have run"),
         &None
     );
+}
+
+#[when(regex = r#"^I render the file "([^"]+)"$"#)]
+fn render_file(world: &mut DomainWorld, path: String) {
+    let patch: &Patch = world
+        .patch_under_test
+        .as_ref()
+        .expect("a patch must be built before rendering");
+    world.selected_file = Some(patch.render_file(&path));
+}
+
+#[when(regex = r#"^I resolve the file by path "([^"]+)"$"#)]
+fn resolve_by_path(world: &mut DomainWorld, path: String) {
+    let patch: &Patch = world
+        .patch_under_test
+        .as_ref()
+        .expect("a patch must be built before resolving");
+    world.file_resolution = Some(owned_selection(patch.select_by_to_path(&path)));
+}
+
+#[when(regex = r#"^I resolve the file by new-side id "([^"]+)"$"#)]
+fn resolve_by_id(world: &mut DomainWorld, id: String) {
+    let patch: &Patch = world
+        .patch_under_test
+        .as_ref()
+        .expect("a patch must be built before resolving");
+    world.file_resolution = Some(owned_selection(patch.select_by_to_oid(&id)));
+}
+
+/// The file-resolution outcome, asserting one was produced.
+fn file_resolution(world: &DomainWorld) -> &FileResolution {
+    world
+        .file_resolution
+        .as_ref()
+        .expect("a file must be resolved before asserting on it")
+}
+
+#[then(regex = r#"^the resolution finds the file from "([^"]+)" to "([^"]+)"$"#)]
+fn then_resolution_finds(world: &mut DomainWorld, from: String, to: String) {
+    assert_eq!(file_resolution(world), &FileResolution::Found { from, to });
+}
+
+#[then("the resolution finds no file")]
+fn then_resolution_missing(world: &mut DomainWorld) {
+    assert_eq!(file_resolution(world), &FileResolution::Missing);
+}
+
+#[then("the resolution is ambiguous")]
+fn then_resolution_ambiguous(world: &mut DomainWorld) {
+    assert_eq!(file_resolution(world), &FileResolution::Ambiguous);
 }
 
 #[then(regex = r#"^the patch contains "(.*)"$"#)]

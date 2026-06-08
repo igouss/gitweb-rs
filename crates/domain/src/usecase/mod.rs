@@ -10,6 +10,7 @@
 
 pub mod blob;
 pub mod blob_plain;
+pub mod blobdiff;
 pub mod blobdiff_plain;
 pub mod commit;
 pub mod commitdiff;

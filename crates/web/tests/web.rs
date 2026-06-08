@@ -28,10 +28,10 @@ use gitweb_domain::port::repository::Repository;
 use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
-    BlobHandler, BlobPlainHandler, BlobdiffPlainHandler, CommitHandler, CommitdiffHandler,
-    CommitdiffPlainHandler, FeedHandler, HeadsHandler, HistoryHandler, LogHandler, ObjectHandler,
-    OpmlHandler, ProjectIndexHandler, ProjectListHandler, RemotesHandler, ShortlogHandler,
-    SummaryHandler, TagHandler, TagsHandler, TreeHandler,
+    BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
+    CommitdiffHandler, CommitdiffPlainHandler, FeedHandler, HeadsHandler, HistoryHandler,
+    LogHandler, ObjectHandler, OpmlHandler, ProjectIndexHandler, ProjectListHandler,
+    RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -582,6 +582,16 @@ fn given_blobdiff_plain_served(world: &mut WebWorld) {
     world.dispatcher.register(Action::BlobdiffPlain, handler);
 }
 
+#[given("the blobdiff action is served")]
+fn given_blobdiff_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(Settings::builtin());
+    let handler: Arc<dyn Handler> = Arc::new(BlobdiffHandler::new(store, settings));
+    world.dispatcher.register(Action::Blobdiff, handler);
+}
+
 #[given("the tags action is served")]
 fn given_tags_served(world: &mut WebWorld) {
     ensure_root(world);
@@ -757,6 +767,20 @@ async fn when_get_blobdiff_plain_renamed(
     let (head, parent): (String, String) = head_and_parent(world, &project);
     let uri: String =
         format!("/?p={project}&a=blobdiff_plain&hb={head}&hpb={parent}&f={file}&fp={file_parent}");
+    dispatch_capture(world, uri).await;
+}
+
+#[when(regex = r#"^I GET the blobdiff of "([^"]*)" in "([^"]*)"$"#)]
+async fn when_get_blobdiff(world: &mut WebWorld, file: String, project: String) {
+    let (head, parent): (String, String) = head_and_parent(world, &project);
+    let uri: String = format!("/?p={project}&a=blobdiff&hb={head}&hpb={parent}&f={file}");
+    dispatch_capture(world, uri).await;
+}
+
+#[when(regex = r#"^I GET the file diff of "([^"]*)" in "([^"]*)"$"#)]
+async fn when_get_file_diff(world: &mut WebWorld, file: String, project: String) {
+    let (head, parent): (String, String) = head_and_parent(world, &project);
+    let uri: String = format!("/diff?p={project}&h={head}&hp={parent}&f={file}");
     dispatch_capture(world, uri).await;
 }
 

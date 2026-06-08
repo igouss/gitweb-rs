@@ -164,3 +164,46 @@ Feature: Unified diff (patch) text formatting
     Given a patch over a created file and a deleted file
     When I select the file "absent.txt" abbreviated to 7
     Then no file patch is selected
+
+  # gitweb's html `blobdiff` passes `--full-index`, so the same single-file slice
+  # also renders with FULL `index` ids — the clean diff its client viewer fetches,
+  # the full-index sibling of the abbreviated `blobdiff_plain` slice above.
+  Scenario: Rendering one file for the viewer keeps full index ids
+    Given a modified file patch for "a.txt"
+    When I render the file "a.txt"
+    Then the selected patch has a line "index 1111111111111111111111111111111111111111..2222222222222222222222222222222222222222 100644"
+
+  Scenario: Rendering a path the diff does not touch renders nothing
+    Given a patch over a created file and a deleted file
+    When I render the file "absent.txt"
+    Then no file patch is selected
+
+  # gitweb's git_blobdiff resolves WHICH file to show from the raw diff-tree:
+  # directly by its new-side path, or — the legacy by-hash URI — by its new-side
+  # blob id, grepping the tree's `to_id` column. None is 404 "Blob diff not
+  # found"; more than one (only reachable by id, when two files share new-side
+  # content) is 400 "Ambiguous blob diff specification".
+  Scenario: Resolving by new-side path reports the file's old and new paths
+    Given an exact rename file patch from "old.txt" to "new.txt"
+    When I resolve the file by path "new.txt"
+    Then the resolution finds the file from "old.txt" to "new.txt"
+
+  Scenario: Resolving a path the diff does not touch finds nothing
+    Given a patch over a created file and a deleted file
+    When I resolve the file by path "absent.txt"
+    Then the resolution finds no file
+
+  Scenario: Resolving by a new-side blob id finds the one file
+    Given a patch over a created file and a deleted file
+    When I resolve the file by new-side id "2222222222222222222222222222222222222222"
+    Then the resolution finds the file from "added.txt" to "added.txt"
+
+  Scenario: Resolving by an id no file produces finds nothing
+    Given a patch over a created file and a deleted file
+    When I resolve the file by new-side id "9999999999999999999999999999999999999999"
+    Then the resolution finds no file
+
+  Scenario: Resolving by an id two added files share is ambiguous
+    Given a patch over two files added with identical content
+    When I resolve the file by new-side id "2222222222222222222222222222222222222222"
+    Then the resolution is ambiguous

@@ -42,13 +42,16 @@ pub fn diff_text_href(params: &[(&str, &str)]) -> String {
 ///
 /// `query` is the decoded query string as gitweb's short CGI names. The commit
 /// is `h` (defaulting to `HEAD`); an optional `hp` selects the parent to diff
-/// against (otherwise the use case picks the base).
+/// against (otherwise the use case picks the base); an optional `f` scopes the
+/// diff to a single file — the html `blobdiff` viewer's fetch, where `h` / `hp`
+/// are the base / parent-base commits and `f` the file's new-side path.
 ///
 /// # Errors
 ///
 /// Returns [`DomainError::Invalid`] for a missing project or an unsafe path /
 /// ref parameter (gitweb's `die_error(400, …)`), and propagates the store's and
-/// use case's failures (a missing project, a non-commit revision).
+/// use case's failures (a missing project, a non-commit revision, a `f` the diff
+/// does not touch).
 pub fn serve(store: &dyn ProjectStore, query: &[(String, String)]) -> Result<View, DomainError> {
     let project: &str =
         first(query, "p").ok_or_else(|| DomainError::Invalid("Project needed".to_owned()))?;
@@ -57,9 +60,21 @@ pub fn serve(store: &dyn ProjectStore, query: &[(String, String)]) -> Result<Vie
     }
     let hash: Option<&str> = validate_ref(first(query, "h"), "Invalid hash parameter")?;
     let parent: Option<&str> = validate_ref(first(query, "hp"), "Invalid hash parent parameter")?;
+    let file: Option<&str> = validate_path(first(query, "f"))?;
     let repository = store.open(project)?;
-    let text: String = assemble_commit_diff(repository.as_ref(), hash, parent)?;
+    let text: String = assemble_commit_diff(repository.as_ref(), hash, parent, file)?;
     Ok(View::plain_text(text))
+}
+
+/// Validates an optional file path (gitweb's `is_valid_pathname`), failing 400
+/// when present but unsafe — run before the repository is touched.
+fn validate_path(value: Option<&str>) -> Result<Option<&str>, DomainError> {
+    match value {
+        Some(raw) if SafePath::parse(raw).is_none() => {
+            Err(DomainError::Invalid("Invalid file parameter".to_owned()))
+        }
+        other => Ok(other),
+    }
 }
 
 /// Validates an optional revision selector (gitweb's `is_valid_refname`), failing

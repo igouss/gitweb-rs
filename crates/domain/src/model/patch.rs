@@ -230,6 +230,27 @@ impl FilePatch {
         out
     }
 
+    /// The old-side path (gitweb's `from_file`): the path a rename or copy moved
+    /// from, equal to [`to_path`](Self::to_path) for every other status.
+    #[must_use]
+    pub fn from_path(&self) -> &str {
+        &self.from_path
+    }
+
+    /// The new-side path (gitweb's `to_file`): the path a `blobdiff` `f=` names,
+    /// and the one [`Patch::select_by_to_path`] matches against.
+    #[must_use]
+    pub fn to_path(&self) -> &str {
+        &self.to_path
+    }
+
+    /// The new-side blob id (gitweb's `to_id`): the id a legacy by-hash
+    /// `blobdiff` URI resolves a file against ([`Patch::select_by_to_oid`]).
+    #[must_use]
+    pub fn to_oid(&self) -> &ObjectId {
+        &self.to_oid
+    }
+
     /// Appends this file patch to `out`. Shared by [`Patch::render`] so a
     /// multi-file patch is one streamed concatenation, exactly as git emits it.
     /// `abbrev` truncates the `index` ids to that many hex characters (bare
@@ -339,6 +360,20 @@ impl FilePatch {
     }
 }
 
+/// The outcome of resolving the one file a `blobdiff` shows out of a whole diff
+/// (gitweb's `git_blobdiff` difftree resolution): the unique match, nothing, or
+/// more than one. The last two are gitweb's `die_error(404, "Blob diff not
+/// found")` and `die_error(400, "Ambiguous blob diff specification")`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileSelection<'a> {
+    /// Exactly one file matched the spec.
+    One(&'a FilePatch),
+    /// No file matched.
+    Missing,
+    /// More than one file matched.
+    Ambiguous,
+}
+
 /// A whole patch: the file patches of one diff, in order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Patch {
@@ -395,6 +430,48 @@ impl Patch {
         Some(out)
     }
 
+    /// Renders just the file whose new-side path is `to_path`, with FULL 40/64
+    /// hex `index` ids (`--full-index`) — the clean single-file diff gitweb's
+    /// html `blobdiff` passes its viewer (the format passes `--full-index`,
+    /// unlike the abbreviated [`render_file_abbreviated`](Self::render_file_abbreviated)
+    /// the plain endpoint streams). `None` when the diff touches no such path.
+    #[must_use]
+    pub fn render_file(&self, to_path: &str) -> Option<String> {
+        let file: &FilePatch = self
+            .files
+            .iter()
+            .find(|file: &&FilePatch| file.to_path == to_path)?;
+        let mut out: String = String::new();
+        file.write_to(&mut out, None);
+        Some(out)
+    }
+
+    /// Resolves the one file whose new-side path is `to_path` — the direct
+    /// `blobdiff` form (`f=`). A new-side path is unique in a diff, so this is
+    /// [`FileSelection::Missing`] or [`FileSelection::One`].
+    #[must_use]
+    pub fn select_by_to_path(&self, to_path: &str) -> FileSelection<'_> {
+        select(
+            self.files
+                .iter()
+                .filter(|file: &&FilePatch| file.to_path == to_path),
+        )
+    }
+
+    /// Resolves the one file whose new-side blob id begins with `to_oid` — the
+    /// legacy by-hash `blobdiff` form, mirroring gitweb's literal grep of the
+    /// raw diff-tree's `to_id` column (an unanchored prefix match, so an
+    /// abbreviated id still resolves). Two files that share new-side content
+    /// share a `to_id`, so this can be [`FileSelection::Ambiguous`].
+    #[must_use]
+    pub fn select_by_to_oid(&self, to_oid: &str) -> FileSelection<'_> {
+        select(
+            self.files
+                .iter()
+                .filter(|file: &&FilePatch| file.to_oid.as_str().starts_with(to_oid)),
+        )
+    }
+
     /// Concatenates every file patch, optionally abbreviating the `index` ids.
     fn render_with(&self, abbrev: Option<usize>) -> String {
         let mut out: String = String::new();
@@ -402,6 +479,18 @@ impl Patch {
             file.write_to(&mut out, abbrev);
         }
         out
+    }
+}
+
+/// Reduces a filtered run of file patches to a [`FileSelection`]: gitweb's
+/// difftree count check — none is [`FileSelection::Missing`], exactly one is
+/// [`FileSelection::One`], more than one is [`FileSelection::Ambiguous`]. The
+/// iterator is consumed lazily, so a third match is never examined.
+fn select<'a>(mut matches: impl Iterator<Item = &'a FilePatch>) -> FileSelection<'a> {
+    match (matches.next(), matches.next()) {
+        (None, _) => FileSelection::Missing,
+        (Some(file), None) => FileSelection::One(file),
+        (Some(_), Some(_)) => FileSelection::Ambiguous,
     }
 }
 
