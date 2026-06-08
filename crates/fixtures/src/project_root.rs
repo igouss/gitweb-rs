@@ -195,6 +195,15 @@ impl ProjectRoot {
         std::fs::write(&config, text).expect("write the fixture repo config");
     }
 
+    /// Writes the repository's `README.html`, the raw-HTML file gitweb injects
+    /// verbatim into the summary page. Written under the repository's git
+    /// directory exactly as gitweb reads it (`$GIT_DIR/README.html`); the bytes
+    /// are stored as given, so a spec can write a non-empty or an empty file to
+    /// exercise gitweb's `-s` test.
+    pub fn set_readme_html(&self, name: &str, contents: &str) {
+        self.write_metadata_file(name, "README.html", contents);
+    }
+
     /// Writes a `$projects_list` file (one entry per line) alongside the root and
     /// returns its path, for a store that lists from a file rather than scanning.
     pub fn write_projects_list(&self, body: &str) -> PathBuf {

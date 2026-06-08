@@ -66,6 +66,11 @@ harness = false
 name = "metadata"
 harness = false
 
+# Conformance for reading a project's raw-HTML README.html (the summary sink).
+[[test]]
+name = "readme"
+harness = false
+
 # Conformance for file-mode listing: projects-list file + owner precedence.
 [[test]]
 name = "list_file"

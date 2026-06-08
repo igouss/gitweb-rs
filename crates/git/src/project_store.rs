@@ -163,6 +163,27 @@ impl ProjectStore for GixProjectStore {
         }
         Ok(info)
     }
+
+    fn readme_html(&self, name: &str) -> Result<Option<String>, DomainError> {
+        // Validate the name and confirm a repository lives there first, so a
+        // bad name fails like open()/info() rather than silently reading no
+        // README.
+        let git_dir: PathBuf = self.locate(name)?;
+        Ok(read_nonempty(&git_dir.join("README.html")))
+    }
+}
+
+/// gitweb's `-s "$projectroot/$project/README.html"`: the file's bytes when it
+/// exists and is non-empty, decoded lossily (it is HTML, normally UTF-8), or
+/// `None` when the file is absent or empty. A read error other than absence —
+/// a permission failure, say — also yields `None`, the same way gitweb's `-s`
+/// test simply fails the condition rather than dying.
+fn read_nonempty(path: &Path) -> Option<String> {
+    let bytes: Vec<u8> = fs::read(path).ok()?;
+    if bytes.is_empty() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// gitweb's `git_get_last_activity`: the committer timestamp (Unix epoch seconds)

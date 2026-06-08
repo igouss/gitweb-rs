@@ -69,6 +69,12 @@ impl ProjectStore for FakeStore {
             .cloned()
             .ok_or_else(|| DomainError::NotFound(format!("no project {name}")))
     }
+
+    fn readme_html(&self, _name: &str) -> Result<Option<String>, DomainError> {
+        // The summary use case takes its README as a direct input (the boundary
+        // reads it from the store), so no use case drives this through the fake.
+        Ok(None)
+    }
 }
 
 #[derive(Debug, Default, World)]

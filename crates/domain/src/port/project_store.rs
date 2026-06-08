@@ -23,4 +23,16 @@ pub trait ProjectStore {
     /// (gitweb's `git_get_project_*` family). A name that does not resolve to a
     /// repository fails the same way [`open`](Self::open) does.
     fn info(&self, name: &str) -> Result<ProjectInfo, DomainError>;
+
+    /// The raw contents of the project's `$GIT_DIR/README.html`, when the file
+    /// exists and is non-empty (gitweb's `-s` test on the summary page); `None`
+    /// when it is absent or empty.
+    ///
+    /// This is a DELIBERATE raw-HTML sink: gitweb's `git_summary` injects these
+    /// bytes verbatim with `insert_file`, doing no escaping. The caller is the
+    /// guard — gitweb only reaches this when `$prevent_xss` is off — so a
+    /// consumer must apply that gate before emitting the result. A name that does
+    /// not resolve to a repository fails the same way [`open`](Self::open) does;
+    /// a missing or empty README is not a failure, just `None`.
+    fn readme_html(&self, name: &str) -> Result<Option<String>, DomainError>;
 }
