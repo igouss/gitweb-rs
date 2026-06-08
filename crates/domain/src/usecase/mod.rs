@@ -18,6 +18,7 @@ pub mod heads;
 pub mod history;
 pub mod log;
 pub mod log_generic;
+pub mod object;
 pub mod opml;
 pub mod project_index;
 pub mod project_list;

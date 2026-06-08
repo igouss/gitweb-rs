@@ -25,6 +25,7 @@ pub mod grep;
 pub mod message_body;
 pub mod object_id;
 pub mod object_kind;
+pub mod object_redirect;
 pub mod patch;
 pub mod path_info;
 pub mod project;

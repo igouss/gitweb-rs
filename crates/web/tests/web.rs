@@ -26,9 +26,9 @@ use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
     BlobHandler, BlobPlainHandler, CommitHandler, CommitdiffHandler, CommitdiffPlainHandler,
-    FeedHandler, HeadsHandler, HistoryHandler, LogHandler, OpmlHandler, ProjectIndexHandler,
-    ProjectListHandler, RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler,
-    TreeHandler,
+    FeedHandler, HeadsHandler, HistoryHandler, LogHandler, ObjectHandler, OpmlHandler,
+    ProjectIndexHandler, ProjectListHandler, RemotesHandler, ShortlogHandler, SummaryHandler,
+    TagHandler, TagsHandler, TreeHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -45,6 +45,7 @@ struct WebWorld {
     response_content_type: Option<String>,
     response_content_disposition: Option<String>,
     response_last_modified: Option<String>,
+    response_location: Option<String>,
     response_body: Option<String>,
     built_url: Option<String>,
 }
@@ -544,6 +545,16 @@ fn given_blob_plain_served(world: &mut WebWorld) {
     world.dispatcher.register(Action::BlobPlain, handler);
 }
 
+#[given("the object action is served")]
+fn given_object_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let handler: Arc<dyn Handler> =
+        Arc::new(ObjectHandler::new(store, "http://localhost".to_owned()));
+    world.dispatcher.register(Action::Object, handler);
+}
+
 #[given("the commitdiff_plain action is served")]
 fn given_commitdiff_plain_served(world: &mut WebWorld) {
     ensure_root(world);
@@ -722,6 +733,11 @@ async fn when_get(world: &mut WebWorld, uri: String) {
         .get(header::LAST_MODIFIED)
         .and_then(|value: &header::HeaderValue| value.to_str().ok())
         .map(str::to_owned);
+    let location: Option<String> = response
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|value: &header::HeaderValue| value.to_str().ok())
+        .map(str::to_owned);
     let bytes: axum::body::Bytes = to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("the response body collects");
@@ -730,6 +746,7 @@ async fn when_get(world: &mut WebWorld, uri: String) {
     world.response_content_type = content_type;
     world.response_content_disposition = content_disposition;
     world.response_last_modified = last_modified;
+    world.response_location = location;
     world.response_body = Some(String::from_utf8_lossy(&bytes).into_owned());
 }
 
@@ -753,6 +770,23 @@ fn then_response_last_modified_is(world: &mut WebWorld, expected: String) {
     assert_eq!(
         world.response_last_modified.as_deref(),
         Some(expected.as_str())
+    );
+}
+
+#[then(regex = r#"^the response redirects to "([^"]*)"$"#)]
+fn then_response_redirects_to(world: &mut WebWorld, expected: String) {
+    assert_eq!(world.response_location.as_deref(), Some(expected.as_str()));
+}
+
+#[then(regex = r#"^the response location contains "([^"]*)"$"#)]
+fn then_response_location_contains(world: &mut WebWorld, needle: String) {
+    let location: &str = world
+        .response_location
+        .as_deref()
+        .expect("a redirect location must have been captured");
+    assert!(
+        location.contains(&needle),
+        "location did not contain {needle:?}: {location}"
     );
 }
 

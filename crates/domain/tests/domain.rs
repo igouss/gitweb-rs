@@ -30,6 +30,7 @@ use gitweb_domain::model::grep::{GrepMatch, file_matches};
 use gitweb_domain::model::message_body::{LogLine, log_lines};
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
+use gitweb_domain::model::object_redirect::{Resolution, resolution, target_action};
 use gitweb_domain::model::patch::{FileContent, FilePatch, Hunk, HunkLine, Patch};
 use gitweb_domain::model::path_info::PathInfo;
 use gitweb_domain::model::project_info::{CategoryGroup, ProjectInfo, group_by_category};
@@ -156,6 +157,12 @@ struct DomainWorld {
     feed_kept: Option<usize>,
     feed_title: Option<String>,
     feed_comment: Option<Vec<String>>,
+    obj_hash: Option<String>,
+    obj_base: Option<String>,
+    obj_file: Option<String>,
+    obj_lookup: Option<Result<Resolution, DomainError>>,
+    obj_kind_in: Option<ObjectKind>,
+    obj_action_out: Option<Action>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -2591,6 +2598,92 @@ fn then_routing_fails_project_needed(world: &mut DomainWorld) {
         Err(error) => error,
     };
     assert_eq!(error, DomainError::Invalid("Project needed".to_owned()));
+}
+
+// --- object action: the two pure rules (git_object) --------------------------
+
+#[given(regex = r#"^the object hash is "([^"]*)"$"#)]
+fn given_object_hash(world: &mut DomainWorld, hash: String) {
+    world.obj_hash = Some(hash);
+}
+
+#[given(regex = r#"^the object base ref is "([^"]*)"$"#)]
+fn given_object_base(world: &mut DomainWorld, base: String) {
+    world.obj_base = Some(base);
+}
+
+#[given(regex = r#"^the object file name is "([^"]*)"$"#)]
+fn given_object_file(world: &mut DomainWorld, file: String) {
+    world.obj_file = Some(file);
+}
+
+#[when("I classify the object request")]
+fn when_classify_object_request(world: &mut DomainWorld) {
+    world.obj_lookup = Some(resolution(
+        world.obj_hash.as_deref(),
+        world.obj_base.as_deref(),
+        world.obj_file.as_deref(),
+    ));
+}
+
+#[then(regex = r#"^the lookup is by id "([^"]*)"$"#)]
+fn then_lookup_by_id(world: &mut DomainWorld, expected: String) {
+    let lookup: Resolution = world
+        .obj_lookup
+        .clone()
+        .expect("classify the object request first")
+        .expect("classification succeeded");
+    assert_eq!(lookup, Resolution::ById { id: expected });
+}
+
+#[then(regex = r#"^the lookup is by base "([^"]*)" and file "([^"]*)"$"#)]
+fn then_lookup_by_base_and_file(world: &mut DomainWorld, base: String, file: String) {
+    let lookup: Resolution = world
+        .obj_lookup
+        .clone()
+        .expect("classify the object request first")
+        .expect("classification succeeded");
+    assert_eq!(
+        lookup,
+        Resolution::ByBasePath {
+            base,
+            file_name: file,
+        }
+    );
+}
+
+#[then("classification fails as not enough information")]
+fn then_classification_not_enough_info(world: &mut DomainWorld) {
+    let error: DomainError = match world
+        .obj_lookup
+        .clone()
+        .expect("classify the object request first")
+    {
+        Ok(_) => panic!("expected classification to fail"),
+        Err(error) => error,
+    };
+    assert_eq!(
+        error,
+        DomainError::Invalid("Not enough information to find object".to_owned())
+    );
+}
+
+#[given(regex = r#"^the resolved object kind is "([^"]*)"$"#)]
+fn given_resolved_object_kind(world: &mut DomainWorld, kind: String) {
+    world.obj_kind_in = Some(ObjectKind::parse(&kind).expect("a valid object kind name"));
+}
+
+#[when("I map the object kind to its action")]
+fn when_map_object_kind(world: &mut DomainWorld) {
+    let kind: ObjectKind = world.obj_kind_in.expect("a resolved object kind first");
+    world.obj_action_out = Some(target_action(kind));
+}
+
+#[then(regex = r#"^the redirect action is "([^"]*)"$"#)]
+fn then_redirect_action_is(world: &mut DomainWorld, expected: String) {
+    let action: Action = world.obj_action_out.expect("map the object kind first");
+    let want: Action = Action::parse(&expected).expect("a valid action name");
+    assert_eq!(action, want);
 }
 
 // --- section: the summary-section cap rule -----------------------------------

@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use cucumber::{World, given, then, when};
 
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::action::Action;
 use gitweb_domain::model::blame::Blame;
 use gitweb_domain::model::blob::{Blob, BlobDisplay};
 use gitweb_domain::model::change::{ChangeKind, ChangeStatus};
@@ -52,6 +53,7 @@ use gitweb_domain::usecase::feed::assemble_feed;
 use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
 use gitweb_domain::usecase::history::{HistoryRow, HistoryView, assemble_history};
 use gitweb_domain::usecase::log::{LogRow, LogView, assemble_log};
+use gitweb_domain::usecase::object::{ObjectRedirect, assemble_object_redirect};
 use gitweb_domain::usecase::opml::{Opml, OpmlProject, assemble_opml};
 use gitweb_domain::usecase::project_index::{
     ProjectIndex, ProjectIndexRow, assemble_project_index,
@@ -187,6 +189,7 @@ struct UsecaseWorld {
     commit_result: Option<Result<CommitView, DomainError>>,
     commitdiff_result: Option<Result<String, DomainError>>,
     commitdiff_plain_result: Option<Result<CommitdiffPlain, DomainError>>,
+    object_result: Option<Result<ObjectRedirect, DomainError>>,
 }
 
 /// One directory in the fake repository's tree, listed by the `tree` use case.
@@ -2774,6 +2777,108 @@ fn raw_blob_fails_invalid(world: &mut UsecaseWorld) {
 #[then("serving the raw blob fails as not found")]
 fn raw_blob_fails_not_found(world: &mut UsecaseWorld) {
     assert!(matches!(raw_blob_error(world), DomainError::NotFound(_)));
+}
+
+// --- object: the generic dispatch redirect (git_object) ----------------------
+
+/// The resolved redirect target, or a panic if the scenario produced an error.
+fn object_redirect(world: &UsecaseWorld) -> &ObjectRedirect {
+    world
+        .object_result
+        .as_ref()
+        .expect("assemble the object redirect first")
+        .as_ref()
+        .expect("assembly succeeded")
+}
+
+/// The redirect failure, or a panic if the scenario produced a success.
+fn object_error(world: &UsecaseWorld) -> &DomainError {
+    match world
+        .object_result
+        .as_ref()
+        .expect("assemble the object redirect first")
+    {
+        Ok(_) => panic!("expected assembling the object to fail"),
+        Err(failure) => failure,
+    }
+}
+
+#[when(regex = r#"^I assemble the object redirect for hash "([^"]*)"$"#)]
+fn assemble_object_for_hash(world: &mut UsecaseWorld, hash: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.object_result = Some(assemble_object_redirect(&repo, Some(&hash), None, None));
+}
+
+#[when(regex = r#"^I assemble the object redirect for base "([^"]*)" and file "([^"]*)"$"#)]
+fn assemble_object_for_base_path(world: &mut UsecaseWorld, base: String, file: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.object_result = Some(assemble_object_redirect(
+        &repo,
+        None,
+        Some(&base),
+        Some(&file),
+    ));
+}
+
+#[when("I assemble the object redirect with neither a hash nor a base")]
+fn assemble_object_with_neither(world: &mut UsecaseWorld) {
+    let repo: FakeRepository = fake_repo(world);
+    world.object_result = Some(assemble_object_redirect(&repo, None, None, None));
+}
+
+#[then(regex = r#"^the redirect action is "([^"]*)"$"#)]
+fn redirect_action_is(world: &mut UsecaseWorld, expected: String) {
+    let want: Action = Action::parse(&expected).expect("a valid action name");
+    assert_eq!(object_redirect(world).action, want);
+}
+
+#[then(regex = r#"^the redirect hash is "([^"]*)"$"#)]
+fn redirect_hash_is(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(
+        object_redirect(world).hash.as_deref(),
+        Some(expected.as_str())
+    );
+}
+
+#[then("the redirect has a hash")]
+fn redirect_has_a_hash(world: &mut UsecaseWorld) {
+    assert!(object_redirect(world).hash.is_some());
+}
+
+#[then("the redirect has no hash")]
+fn redirect_has_no_hash(world: &mut UsecaseWorld) {
+    assert_eq!(object_redirect(world).hash, None);
+}
+
+#[then(regex = r#"^the redirect base is "([^"]*)"$"#)]
+fn redirect_base_is(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(
+        object_redirect(world).hash_base.as_deref(),
+        Some(expected.as_str())
+    );
+}
+
+#[then("the redirect has no base")]
+fn redirect_has_no_base(world: &mut UsecaseWorld) {
+    assert_eq!(object_redirect(world).hash_base, None);
+}
+
+#[then(regex = r#"^the redirect file is "([^"]*)"$"#)]
+fn redirect_file_is(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(
+        object_redirect(world).file_name.as_deref(),
+        Some(expected.as_str())
+    );
+}
+
+#[then("the redirect has no file")]
+fn redirect_has_no_file(world: &mut UsecaseWorld) {
+    assert_eq!(object_redirect(world).file_name, None);
+}
+
+#[then(regex = r#"^assembling the object fails with "([^"]*)"$"#)]
+fn assembling_object_fails_with(world: &mut UsecaseWorld, message: String) {
+    assert_eq!(object_error(world).message(), message);
 }
 
 // --- feed: Whens -------------------------------------------------------------
