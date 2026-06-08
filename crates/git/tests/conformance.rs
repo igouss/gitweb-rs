@@ -36,6 +36,7 @@ struct AdapterWorld {
     commit: Option<Result<Commit, DomainError>>,
     tree: Option<Result<Tree, DomainError>>,
     blob: Option<Result<Blob, DomainError>>,
+    size: Option<Result<u64, DomainError>>,
     tag: Option<Result<Tag, DomainError>>,
     path: Option<Result<Option<ObjectId>, DomainError>>,
 }
@@ -323,6 +324,12 @@ fn read_tag(world: &mut AdapterWorld, name: String) {
     world.tag = Some(repo(world).find_tag(&target));
 }
 
+#[when(regex = r#"^I read the size of "([^"]*)"$"#)]
+fn read_size(world: &mut AdapterWorld, name: String) {
+    let target: ObjectId = oid(world, &name);
+    world.size = Some(repo(world).object_size(&target));
+}
+
 #[when(regex = r#"^I read the path "([^"]*)" at "([^"]*)"$"#)]
 fn read_path(world: &mut AdapterWorld, path: String, name: String) {
     let at: ObjectId = oid(world, &name);
@@ -477,6 +484,12 @@ fn blob_size_is(world: &mut AdapterWorld, size: usize) {
 #[then("the blob is binary")]
 fn blob_is_binary(world: &mut AdapterWorld) {
     assert!(ok_blob(world).is_binary());
+}
+
+#[then(regex = r"^the object size is (\d+) bytes$")]
+fn object_size_is(world: &mut AdapterWorld, size: u64) {
+    let read: &Result<u64, DomainError> = world.size.as_ref().expect("read a size first");
+    assert_eq!(*read.as_ref().expect("the size read succeeded"), size);
 }
 
 #[then("the blob is text")]

@@ -168,6 +168,12 @@ pub trait Repository {
     /// Reads the blob named by `oid`.
     fn find_blob(&self, oid: &ObjectId) -> Result<Blob, DomainError>;
 
+    /// The byte size of the object named by `oid`, read from its header without
+    /// inflating its content — gitweb's `git ls-tree -l` size column, which
+    /// reports each blob's size. The tree view asks this per file entry; it is the
+    /// cheap size lookup, not a `find_blob` that would decode the whole object.
+    fn object_size(&self, oid: &ObjectId) -> Result<u64, DomainError>;
+
     /// Reads the annotated tag named by `oid`.
     fn find_tag(&self, oid: &ObjectId) -> Result<Tag, DomainError>;
 

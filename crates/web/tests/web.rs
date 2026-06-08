@@ -26,7 +26,7 @@ use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
     HeadsHandler, HistoryHandler, LogHandler, ProjectListHandler, RemotesHandler, ShortlogHandler,
-    SummaryHandler, TagHandler, TagsHandler,
+    SummaryHandler, TagHandler, TagsHandler, TreeHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -371,6 +371,22 @@ fn given_history_served(world: &mut WebWorld) {
     let settings: Arc<Settings> = Arc::new(Settings::builtin());
     let handler: Arc<dyn Handler> = Arc::new(HistoryHandler::new(store, settings));
     world.dispatcher.register(Action::History, handler);
+}
+
+#[given(regex = r#"^a repository "([^"]*)" with a tree$"#)]
+fn given_repo_with_tree(world: &mut WebWorld, name: String) {
+    ensure_root(world);
+    root(world).add_tree_repo(&name);
+}
+
+#[given("the tree action is served")]
+fn given_tree_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(Settings::builtin());
+    let handler: Arc<dyn Handler> = Arc::new(TreeHandler::new(store, settings));
+    world.dispatcher.register(Action::Tree, handler);
 }
 
 #[given("the tags action is served")]

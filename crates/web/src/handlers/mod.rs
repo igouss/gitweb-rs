@@ -22,6 +22,7 @@ pub mod shortlog;
 pub mod summary;
 pub mod tag;
 pub mod tags;
+pub mod tree;
 
 pub use heads::HeadsHandler;
 pub use history::HistoryHandler;
@@ -32,3 +33,4 @@ pub use shortlog::ShortlogHandler;
 pub use summary::SummaryHandler;
 pub use tag::TagHandler;
 pub use tags::TagsHandler;
+pub use tree::TreeHandler;

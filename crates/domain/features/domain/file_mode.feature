@@ -23,6 +23,19 @@ Feature: Git file modes
       | 100644 | file      | file       | -rw-r--r-- |
       | 030000 | unknown   | unknown    | ---------- |
 
+  Scenario Outline: A mode names the git object type of its tree entry
+    Given a file mode "<mode>"
+    When I read the file mode
+    Then the mode's object kind is "<kind>"
+
+    Examples:
+      | mode   | kind   |
+      | 040000 | tree   |
+      | 160000 | commit |
+      | 100644 | blob   |
+      | 100755 | blob   |
+      | 120000 | blob   |
+
   Scenario: A mode string that is not octal is rejected
     Given a file mode "100abc"
     When I read the file mode

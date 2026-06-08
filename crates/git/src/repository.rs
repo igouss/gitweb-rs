@@ -505,6 +505,14 @@ impl Repository for GixRepository {
         Ok(Blob::new(object.detach().data))
     }
 
+    fn object_size(&self, oid: &ObjectId) -> Result<u64, DomainError> {
+        // `find_header` reads only the object's type and length from the odb — no
+        // inflation of the content, mirroring `git ls-tree -l`'s size column.
+        let gix_oid: gix::ObjectId = to_gix_oid(oid)?;
+        let header: gix::odb::find::Header = self.repo.find_header(gix_oid).map_err(backend)?;
+        Ok(header.size())
+    }
+
     fn find_tag(&self, oid: &ObjectId) -> Result<Tag, DomainError> {
         let object: gix::Object<'_> = self.require_object(oid)?;
         let tag: gix::Tag<'_> =

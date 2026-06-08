@@ -18,6 +18,7 @@ use gitweb_domain::model::blame::Blame;
 use gitweb_domain::model::blob::Blob;
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::diff::{CombinedDiff, Diff};
+use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::grep::GrepResults;
 use gitweb_domain::model::message_body::LogLine;
 use gitweb_domain::model::object_id::ObjectId;
@@ -31,7 +32,7 @@ use gitweb_domain::model::remote::{Remote, RemoteUrl};
 use gitweb_domain::model::settings::{FeatureLayer, FeatureName, Settings, SettingsLayer};
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::tag::Tag;
-use gitweb_domain::model::tree::Tree;
+use gitweb_domain::model::tree::{Tree, TreeEntry};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::{
     ArchiveFormat, Page, RenameDetection, Repository, SearchQuery,
@@ -47,6 +48,7 @@ use gitweb_domain::usecase::shortlog::{ShortlogRow, ShortlogView, assemble_short
 use gitweb_domain::usecase::summary::{SummaryView, assemble_summary};
 use gitweb_domain::usecase::tag::{TagView, show_tag};
 use gitweb_domain::usecase::tags::{TagRow, TagsView, assemble_tags};
+use gitweb_domain::usecase::tree::{TreeRow, TreeView, assemble_tree};
 
 /// An in-memory [`ProjectStore`] over a fixed set of projects. It serves
 /// `list` and `info` from its metadata; `open` is never reached by the
@@ -113,6 +115,47 @@ struct UsecaseWorld {
     remote_branches: Vec<FakeRemoteBranch>,
     remote_heads_enabled: bool,
     remotes_result: Option<Result<RemotesView, DomainError>>,
+    tree_commit_title: Option<String>,
+    tree_nodes: Vec<FakeTreeNode>,
+    tree_show_sizes: bool,
+    tree_result: Option<Result<TreeView, DomainError>>,
+}
+
+/// One directory in the fake repository's tree, listed by the `tree` use case.
+/// `path` is the path that resolves to this node (gitweb's
+/// `git_get_hash_by_path`); the root directory has `None`. Its object id is
+/// derived from its `label`, and `entries` are its children.
+#[derive(Debug, Clone)]
+struct FakeTreeNode {
+    label: String,
+    path: Option<String>,
+    entries: Vec<FakeTreeEntry>,
+}
+
+/// One entry of a fake tree node: its octal mode, leaf name, the `ls-tree -l`
+/// byte size (used for file entries), and, for a symlink, the path its blob
+/// points to.
+#[derive(Debug, Clone)]
+struct FakeTreeEntry {
+    mode: String,
+    name: String,
+    size: u64,
+    target: Option<String>,
+}
+
+/// The fixed id the fake's `HEAD` (a commit) resolves to when a tree is declared.
+fn tree_head_oid() -> ObjectId {
+    fake_oid("tree-head")
+}
+
+/// The id of the tree node labelled `label`.
+fn tree_node_oid(label: &str) -> ObjectId {
+    fake_oid(&format!("treenode-{label}"))
+}
+
+/// The id of the entry named `name` within the node labelled `label`.
+fn tree_entry_oid(label: &str, name: &str) -> ObjectId {
+    fake_oid(&format!("treeentry-{label}-{name}"))
 }
 
 /// One remote-tracking branch in the fake repository: which remote it belongs to,
@@ -203,9 +246,33 @@ struct FakeRepository {
     commits: Vec<FakeCommit>,
     remotes: Vec<Remote>,
     remote_branches: Vec<FakeRemoteBranch>,
+    tree_commit_title: Option<String>,
+    tree_nodes: Vec<FakeTreeNode>,
 }
 
 impl FakeRepository {
+    /// Whether a tree is declared (so `HEAD` resolves to the tree's commit).
+    fn has_tree(&self) -> bool {
+        self.tree_commit_title.is_some()
+    }
+
+    /// The node whose id is `oid`, if any.
+    fn tree_node_by_oid(&self, oid: &ObjectId) -> Option<&FakeTreeNode> {
+        self.tree_nodes
+            .iter()
+            .find(|node: &&FakeTreeNode| &tree_node_oid(&node.label) == oid)
+    }
+
+    /// The entry whose id is `oid`, if any. The id is derived from its node's
+    /// label and the entry's name, so the search walks every (node, entry) pair.
+    fn tree_entry_by_oid(&self, oid: &ObjectId) -> Option<&FakeTreeEntry> {
+        self.tree_nodes.iter().find_map(|node: &FakeTreeNode| {
+            node.entries
+                .iter()
+                .find(|entry: &&FakeTreeEntry| &tree_entry_oid(&node.label, &entry.name) == oid)
+        })
+    }
+
     fn branch_ref(branch: &FakeBranch) -> Reference {
         Reference::new(
             RefName::new(format!("refs/heads/{}", branch.name)),
@@ -292,6 +359,22 @@ impl Repository for FakeRepository {
     }
 
     fn find_commit(&self, oid: &ObjectId) -> Result<Commit, DomainError> {
+        if self.has_tree() && oid == &tree_head_oid() {
+            let title: &str = self
+                .tree_commit_title
+                .as_deref()
+                .expect("a tree commit title");
+            let who: Signature = Signature::parse("Tester <t@example.com> 1000 +0000")
+                .expect("a valid fixture signature");
+            return Ok(Commit::new(
+                oid.clone(),
+                tree_node_oid("root"),
+                Vec::new(),
+                who.clone(),
+                who,
+                format!("{title}\n"),
+            ));
+        }
         let epoch: i64 = self
             .commit_epoch(oid)
             .ok_or_else(|| DomainError::NotFound(oid.as_str().to_owned()))?;
@@ -308,6 +391,9 @@ impl Repository for FakeRepository {
     }
 
     fn resolve(&self, rev: &str) -> Result<ObjectId, DomainError> {
+        if rev == "HEAD" && self.has_tree() {
+            return Ok(tree_head_oid());
+        }
         let full: String = format!("refs/tags/{rev}");
         if let Some(tag) = self
             .tags
@@ -327,6 +413,16 @@ impl Repository for FakeRepository {
     }
 
     fn object_kind(&self, oid: &ObjectId) -> Result<ObjectKind, DomainError> {
+        if self.has_tree() && oid == &tree_head_oid() {
+            return Ok(ObjectKind::Commit);
+        }
+        if self.tree_node_by_oid(oid).is_some() {
+            return Ok(ObjectKind::Tree);
+        }
+        if let Some(entry) = self.tree_entry_by_oid(oid) {
+            let mode: FileMode = FileMode::from_octal(&entry.mode).expect("a valid octal mode");
+            return Ok(mode.object_kind());
+        }
         if let Some(tag) = self
             .tags
             .iter()
@@ -356,12 +452,41 @@ impl Repository for FakeRepository {
         Err(DomainError::NotFound(oid.as_str().to_owned()))
     }
 
-    fn find_tree(&self, _oid: &ObjectId) -> Result<Tree, DomainError> {
-        unimplemented!("the heads use case never reads a tree")
+    fn find_tree(&self, oid: &ObjectId) -> Result<Tree, DomainError> {
+        let node: &FakeTreeNode = self
+            .tree_node_by_oid(oid)
+            .ok_or_else(|| DomainError::NotFound(oid.as_str().to_owned()))?;
+        let entries: Vec<TreeEntry> = node
+            .entries
+            .iter()
+            .map(|entry: &FakeTreeEntry| {
+                let mode: FileMode = FileMode::from_octal(&entry.mode).expect("a valid octal mode");
+                TreeEntry::new(
+                    mode,
+                    entry.name.clone(),
+                    tree_entry_oid(&node.label, &entry.name),
+                )
+            })
+            .collect();
+        Ok(Tree::new(entries))
     }
 
-    fn find_blob(&self, _oid: &ObjectId) -> Result<Blob, DomainError> {
-        unimplemented!("the heads use case never reads a blob")
+    fn find_blob(&self, oid: &ObjectId) -> Result<Blob, DomainError> {
+        let entry: &FakeTreeEntry = self
+            .tree_entry_by_oid(oid)
+            .ok_or_else(|| DomainError::NotFound(oid.as_str().to_owned()))?;
+        let target: &str = entry
+            .target
+            .as_deref()
+            .ok_or_else(|| DomainError::Invalid(format!("not a symlink: {}", oid.as_str())))?;
+        Ok(Blob::new(target.as_bytes().to_vec()))
+    }
+
+    fn object_size(&self, oid: &ObjectId) -> Result<u64, DomainError> {
+        let entry: &FakeTreeEntry = self
+            .tree_entry_by_oid(oid)
+            .ok_or_else(|| DomainError::NotFound(oid.as_str().to_owned()))?;
+        Ok(entry.size)
     }
 
     fn find_tag(&self, oid: &ObjectId) -> Result<Tag, DomainError> {
@@ -420,6 +545,26 @@ impl Repository for FakeRepository {
     }
 
     fn path_id(&self, at: &ObjectId, path: &str) -> Result<Option<ObjectId>, DomainError> {
+        if self.has_tree() && at == &tree_head_oid() {
+            if let Some(node) = self
+                .tree_nodes
+                .iter()
+                .find(|node: &&FakeTreeNode| node.path.as_deref() == Some(path))
+            {
+                return Ok(Some(tree_node_oid(&node.label)));
+            }
+            let root_entry: Option<ObjectId> = self
+                .tree_nodes
+                .iter()
+                .find(|node: &&FakeTreeNode| node.label == "root")
+                .and_then(|root: &FakeTreeNode| {
+                    root.entries
+                        .iter()
+                        .find(|entry: &&FakeTreeEntry| entry.name == path)
+                        .map(|entry: &FakeTreeEntry| tree_entry_oid("root", &entry.name))
+                });
+            return Ok(root_entry);
+        }
         let entry: Option<ObjectId> = self
             .commits
             .iter()
@@ -1145,6 +1290,8 @@ fn fake_repo(world: &UsecaseWorld) -> FakeRepository {
         commits: world.commits.clone(),
         remotes: world.remotes.clone(),
         remote_branches: world.remote_branches.clone(),
+        tree_commit_title: world.tree_commit_title.clone(),
+        tree_nodes: world.tree_nodes.clone(),
     }
 }
 
@@ -1813,6 +1960,224 @@ fn history_row_offers_diff(world: &mut UsecaseWorld, name: String, blob: String)
 #[then(regex = r#"^the history row "([^"]*)" offers no diff to current$"#)]
 fn history_row_offers_no_diff(world: &mut UsecaseWorld, name: String) {
     assert_eq!(history_row(world, &name).diff_to_current(), None);
+}
+
+// --- tree: accessors ---------------------------------------------------------
+
+/// The assembled tree view, or a panic if the scenario produced an error.
+fn tree_view(world: &UsecaseWorld) -> &TreeView {
+    world
+        .tree_result
+        .as_ref()
+        .expect("assemble the tree first")
+        .as_ref()
+        .expect("assembly succeeded")
+}
+
+/// The tree failure, or a panic if the scenario produced a success.
+fn tree_error(world: &UsecaseWorld) -> &DomainError {
+    match world.tree_result.as_ref().expect("assemble the tree first") {
+        Ok(_) => panic!("expected assembling the tree to fail"),
+        Err(failure) => failure,
+    }
+}
+
+/// The listed tree row for `name`, or a panic if it is absent.
+fn tree_row<'a>(world: &'a UsecaseWorld, name: &str) -> &'a TreeRow {
+    tree_view(world)
+        .rows()
+        .iter()
+        .find(|row: &&TreeRow| row.name() == name)
+        .unwrap_or_else(|| panic!("no tree row for {name}"))
+}
+
+/// The mutable root tree node, or a panic if the base was not declared yet.
+fn tree_root_mut(world: &mut UsecaseWorld) -> &mut FakeTreeNode {
+    world
+        .tree_nodes
+        .iter_mut()
+        .find(|node: &&mut FakeTreeNode| node.label == "root")
+        .expect("declare the tree base first")
+}
+
+// --- tree: Givens ------------------------------------------------------------
+
+#[given(regex = r#"^the tree base is commit "(.*)"$"#)]
+fn tree_base_is_commit(world: &mut UsecaseWorld, title: String) {
+    world.tree_commit_title = Some(title);
+    world.tree_show_sizes = true;
+    world.tree_nodes.push(FakeTreeNode {
+        label: "root".to_owned(),
+        path: None,
+        entries: Vec::new(),
+    });
+}
+
+#[given(regex = r#"^the tree has file "([^"]*)" of (\d+) bytes$"#)]
+fn tree_has_file(world: &mut UsecaseWorld, name: String, size: u64) {
+    tree_root_mut(world).entries.push(FakeTreeEntry {
+        mode: "100644".to_owned(),
+        name,
+        size,
+        target: None,
+    });
+}
+
+#[given(regex = r#"^the tree has executable "([^"]*)" of (\d+) bytes$"#)]
+fn tree_has_executable(world: &mut UsecaseWorld, name: String, size: u64) {
+    tree_root_mut(world).entries.push(FakeTreeEntry {
+        mode: "100755".to_owned(),
+        name,
+        size,
+        target: None,
+    });
+}
+
+#[given(regex = r#"^the tree has symlink "([^"]*)" pointing to "([^"]*)"$"#)]
+fn tree_has_symlink(world: &mut UsecaseWorld, name: String, target: String) {
+    tree_root_mut(world).entries.push(FakeTreeEntry {
+        mode: "120000".to_owned(),
+        name,
+        size: target.len() as u64,
+        target: Some(target),
+    });
+}
+
+#[given(regex = r#"^the tree has directory "([^"]*)"$"#)]
+fn tree_has_directory(world: &mut UsecaseWorld, name: String) {
+    tree_root_mut(world).entries.push(FakeTreeEntry {
+        mode: "040000".to_owned(),
+        name,
+        size: 0,
+        target: None,
+    });
+}
+
+#[given(regex = r#"^the tree has submodule "([^"]*)"$"#)]
+fn tree_has_submodule(world: &mut UsecaseWorld, name: String) {
+    tree_root_mut(world).entries.push(FakeTreeEntry {
+        mode: "160000".to_owned(),
+        name,
+        size: 0,
+        target: None,
+    });
+}
+
+#[given(regex = r#"^the directory "([^"]*)" lists file "([^"]*)" of (\d+) bytes$"#)]
+fn directory_lists_file(world: &mut UsecaseWorld, path: String, name: String, size: u64) {
+    world.tree_nodes.push(FakeTreeNode {
+        label: path.clone(),
+        path: Some(path),
+        entries: vec![FakeTreeEntry {
+            mode: "100644".to_owned(),
+            name,
+            size,
+            target: None,
+        }],
+    });
+}
+
+#[given("the show-sizes feature is off")]
+fn tree_show_sizes_off(world: &mut UsecaseWorld) {
+    world.tree_show_sizes = false;
+}
+
+// --- tree: Whens -------------------------------------------------------------
+
+#[when("I assemble the tree")]
+fn assemble_the_tree(world: &mut UsecaseWorld) {
+    let repo: FakeRepository = fake_repo(world);
+    world.tree_result = Some(assemble_tree(&repo, None, None, world.tree_show_sizes));
+}
+
+#[when(regex = r#"^I assemble the tree of "([^"]*)"$"#)]
+fn assemble_the_tree_of(world: &mut UsecaseWorld, path: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.tree_result = Some(assemble_tree(
+        &repo,
+        None,
+        Some(&path),
+        world.tree_show_sizes,
+    ));
+}
+
+// --- tree: Thens -------------------------------------------------------------
+
+#[then("no tree entries are listed")]
+fn no_tree_entries(world: &mut UsecaseWorld) {
+    assert!(tree_view(world).rows().is_empty());
+}
+
+#[then(regex = r#"^the listed tree entries are "(.*)"$"#)]
+fn listed_tree_entries_are(world: &mut UsecaseWorld, expected: String) {
+    let names: Vec<&str> = tree_view(world)
+        .rows()
+        .iter()
+        .map(|row: &TreeRow| row.name())
+        .collect();
+    assert_eq!(names.join(", "), expected);
+}
+
+#[then(regex = r#"^the tree entry "([^"]*)" is a "([^"]*)"$"#)]
+fn tree_entry_is_a(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(tree_row(world, &name).object_kind().as_str(), expected);
+}
+
+#[then(regex = r#"^the tree entry "([^"]*)" has size (\d+)$"#)]
+fn tree_entry_has_size(world: &mut UsecaseWorld, name: String, expected: u64) {
+    assert_eq!(tree_row(world, &name).size(), Some(expected));
+}
+
+#[then(regex = r#"^the tree entry "([^"]*)" has no size$"#)]
+fn tree_entry_has_no_size(world: &mut UsecaseWorld, name: String) {
+    assert_eq!(tree_row(world, &name).size(), None);
+}
+
+#[then(regex = r#"^the tree entry "([^"]*)" permission string is "([^"]*)"$"#)]
+fn tree_entry_permission_string(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(tree_row(world, &name).mode().permission_string(), expected);
+}
+
+#[then(regex = r#"^the tree entry "([^"]*)" points to "([^"]*)"$"#)]
+fn tree_entry_points_to(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(
+        tree_row(world, &name).symlink_target(),
+        Some(expected.as_str())
+    );
+}
+
+#[then(regex = r#"^the tree shows the commit subject "(.*)"$"#)]
+fn tree_shows_commit_subject(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(tree_view(world).commit_title(), Some(expected.as_str()));
+}
+
+#[then("the tree size column is hidden")]
+fn tree_size_column_hidden(world: &mut UsecaseWorld) {
+    assert!(!tree_view(world).show_sizes());
+}
+
+#[then("the tree offers a parent row to the root")]
+fn tree_parent_to_root(world: &mut UsecaseWorld) {
+    let parent: &gitweb_domain::usecase::tree::TreeParent =
+        tree_view(world).parent().expect("a parent row");
+    assert_eq!(parent.path(), None);
+}
+
+#[then(regex = r#"^the tree offers a parent row to "([^"]*)"$"#)]
+fn tree_parent_to_path(world: &mut UsecaseWorld, expected: String) {
+    let parent: &gitweb_domain::usecase::tree::TreeParent =
+        tree_view(world).parent().expect("a parent row");
+    assert_eq!(parent.path(), Some(expected.as_str()));
+}
+
+#[then("the tree offers no parent row")]
+fn tree_offers_no_parent(world: &mut UsecaseWorld) {
+    assert!(tree_view(world).parent().is_none());
+}
+
+#[then("assembling the tree fails as not found")]
+fn tree_fails_not_found(world: &mut UsecaseWorld) {
+    assert!(matches!(tree_error(world), DomainError::NotFound(_)));
 }
 
 #[tokio::main]

@@ -4,6 +4,8 @@
 //! entry carries an octal mode (e.g. `100644`); from it we derive the entry's
 //! kind and the `ls -l`-style permission string shown in the tree view.
 
+use crate::model::object_kind::ObjectKind;
+
 // Standard `st_mode` type bits (POSIX `S_IF*`), plus git's gitlink type.
 // gitweb pulls these from Fcntl `:mode`; we name them inline to keep the
 // domain dependency-free.
@@ -100,6 +102,24 @@ impl FileMode {
             }
         } else {
             FileKind::Unknown
+        }
+    }
+
+    /// The git object *type* this entry names, the value `git ls-tree` reports
+    /// and gitweb's `git_print_tree_entry` branches on (`$t->{'type'}`): a
+    /// directory is a [`Tree`](ObjectKind::Tree), a gitlink is the
+    /// [`Commit`](ObjectKind::Commit) it references, and every file kind
+    /// (regular, executable, symlink) is a [`Blob`](ObjectKind::Blob). A mode no
+    /// legal tree entry carries falls through to `Blob`; such modes never reach a
+    /// real tree, so the choice is a don't-care the render never exercises.
+    #[must_use]
+    pub fn object_kind(self) -> ObjectKind {
+        match self.kind() {
+            FileKind::Directory => ObjectKind::Tree,
+            FileKind::Submodule => ObjectKind::Commit,
+            FileKind::Symlink | FileKind::Executable | FileKind::Regular | FileKind::Unknown => {
+                ObjectKind::Blob
+            }
         }
     }
 

@@ -146,6 +146,69 @@ impl ProjectRoot {
         builder.set_head("main");
     }
 
+    /// Lays down a bare repository at `name` whose `HEAD` commit holds one tree
+    /// exercising every entry kind the tree view distinguishes: a regular file
+    /// `README` (12 bytes), an executable `build.sh`, a symlink `latest` pointing
+    /// to `src/main.rs`, a subdirectory `src` containing `main.rs`, and a
+    /// gitlink/submodule `vendor`. The subdirectory lets a spec browse one level
+    /// down and exercise the `..` parent row.
+    pub fn add_tree_repo(&self, name: &str) {
+        let full: PathBuf = self.dir.path().join(name);
+        let builder: RepoBuilder = RepoBuilder::init_at(&full);
+        let who: Identity = ada();
+
+        let readme: gix::ObjectId = builder.blob(b"hello world\n");
+        let build: gix::ObjectId = builder.blob(b"#!/bin/sh\necho build\n");
+        let link: gix::ObjectId = builder.blob(b"src/main.rs");
+        let main_rs: gix::ObjectId = builder.blob(b"fn main() {}\n");
+        let src_tree: gix::ObjectId = builder.tree(&[TreeEntry {
+            name: "main.rs".to_owned(),
+            mode: Mode::File,
+            oid: main_rs,
+        }]);
+        // A gitlink points at a commit that need not exist in this repository.
+        let submodule: gix::ObjectId =
+            gix::ObjectId::from_hex(b"1111111111111111111111111111111111111111")
+                .expect("a valid fixture gitlink id");
+
+        let root_tree: gix::ObjectId = builder.tree(&[
+            TreeEntry {
+                name: "README".to_owned(),
+                mode: Mode::File,
+                oid: readme,
+            },
+            TreeEntry {
+                name: "build.sh".to_owned(),
+                mode: Mode::Executable,
+                oid: build,
+            },
+            TreeEntry {
+                name: "latest".to_owned(),
+                mode: Mode::Symlink,
+                oid: link,
+            },
+            TreeEntry {
+                name: "src".to_owned(),
+                mode: Mode::Directory,
+                oid: src_tree,
+            },
+            TreeEntry {
+                name: "vendor".to_owned(),
+                mode: Mode::Gitlink,
+                oid: submodule,
+            },
+        ]);
+        let commit: gix::ObjectId = builder.commit(&CommitSpec {
+            tree: root_tree,
+            parents: Vec::new(),
+            author: who.clone(),
+            committer: who,
+            message: "tree fixture\n".to_owned(),
+        });
+        builder.branch("main", commit);
+        builder.set_head("main");
+    }
+
     /// Creates a plain directory at the store-relative `name` with no git
     /// repository inside it, to be ignored by discovery.
     pub fn add_dir(&self, name: &str) {

@@ -371,6 +371,12 @@ fn permission_string_is(world: &mut DomainWorld, expected: String) {
     assert_eq!(mode.permission_string(), expected);
 }
 
+#[then(regex = r#"^the mode's object kind is "(.*)"$"#)]
+fn mode_object_kind_is(world: &mut DomainWorld, expected: String) {
+    let mode: FileMode = world.file_mode.expect("a valid mode");
+    assert_eq!(mode.object_kind().as_str(), expected);
+}
+
 #[then("the file mode is invalid")]
 fn file_mode_is_invalid(world: &mut DomainWorld) {
     assert_eq!(world.file_mode, None);

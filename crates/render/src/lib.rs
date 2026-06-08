@@ -27,3 +27,4 @@ pub mod summary;
 pub mod tag;
 pub mod tags;
 pub mod timestamp;
+pub mod tree;

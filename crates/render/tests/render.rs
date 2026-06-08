@@ -32,6 +32,7 @@ use gitweb_render::summary::{
 };
 use gitweb_render::tag::{TagAuthorView, TagPage, TaggedObjectView, tag_body};
 use gitweb_render::tags::{TagEntryView, TagReftype, TagsPage, TagsTable, tags_body, tags_table};
+use gitweb_render::tree::{TreeLink, TreeParentRow, TreeRowView, TreeTable, tree_table};
 
 #[derive(Debug, Default, World)]
 struct RenderWorld {
@@ -63,6 +64,9 @@ struct RenderWorld {
     summary_heads_href: Option<String>,
     remotes_title: Option<String>,
     remote_blocks: Vec<RemoteBlockView>,
+    tree_rows: Vec<TreeRowView>,
+    tree_parent: Option<TreeParentRow>,
+    tree_size_off: bool,
     domain_error: Option<DomainError>,
     status: Option<HttpStatus>,
     output: Option<String>,
@@ -1173,6 +1177,101 @@ fn then_result_is(world: &mut RenderWorld, expected: String) {
 #[then("the result is a single tab character")]
 fn then_result_is_tab(world: &mut RenderWorld) {
     assert_eq!(world.output.as_deref(), Some("\t"));
+}
+
+// ---- tree table -------------------------------------------------------------
+
+/// Builds a file row from its name, size, and a base href: the name links to the
+/// blob view, and the links cell offers blob | history | raw off the same base.
+fn tree_file_row(name: &str, size: &str, base: &str) -> TreeRowView {
+    TreeRowView {
+        mode: "-rw-r--r--".to_owned(),
+        size: Some(size.to_owned()),
+        name: name.to_owned(),
+        name_href: Some(format!("{base}/blob")),
+        symlink_target: None,
+        links: vec![
+            TreeLink {
+                label: "blob".to_owned(),
+                href: format!("{base}/blob"),
+            },
+            TreeLink {
+                label: "history".to_owned(),
+                href: format!("{base}/history"),
+            },
+            TreeLink {
+                label: "raw".to_owned(),
+                href: format!("{base}/raw"),
+            },
+        ],
+    }
+}
+
+#[given(regex = r#"^a tree file row "([^"]*)" sized "([^"]*)" at "([^"]*)"$"#)]
+fn given_tree_file_row(world: &mut RenderWorld, name: String, size: String, base: String) {
+    world.tree_rows.push(tree_file_row(&name, &size, &base));
+}
+
+#[given(regex = r#"^a tree symlink row "([^"]*)" pointing to "([^"]*)" at "([^"]*)"$"#)]
+fn given_tree_symlink_row(world: &mut RenderWorld, name: String, target: String, base: String) {
+    world.tree_rows.push(TreeRowView {
+        mode: "lrwxrwxrwx".to_owned(),
+        size: Some(target.len().to_string()),
+        name,
+        name_href: Some(format!("{base}/blob")),
+        symlink_target: Some(target),
+        links: vec![TreeLink {
+            label: "blob".to_owned(),
+            href: format!("{base}/blob"),
+        }],
+    });
+}
+
+#[given(regex = r#"^a tree directory row "([^"]*)" at "([^"]*)"$"#)]
+fn given_tree_directory_row(world: &mut RenderWorld, name: String, base: String) {
+    world.tree_rows.push(TreeRowView {
+        mode: "drwxr-xr-x".to_owned(),
+        size: Some("-".to_owned()),
+        name,
+        name_href: Some(format!("{base}/tree")),
+        symlink_target: None,
+        links: vec![TreeLink {
+            label: "tree".to_owned(),
+            href: format!("{base}/tree"),
+        }],
+    });
+}
+
+#[given(regex = r#"^a tree submodule row "([^"]*)"$"#)]
+fn given_tree_submodule_row(world: &mut RenderWorld, name: String) {
+    world.tree_rows.push(TreeRowView {
+        mode: "m---------".to_owned(),
+        size: Some("-".to_owned()),
+        name,
+        name_href: None,
+        symlink_target: None,
+        links: Vec::new(),
+    });
+}
+
+#[given("the tree size column is off")]
+fn given_tree_size_off(world: &mut RenderWorld) {
+    world.tree_size_off = true;
+}
+
+#[given(regex = r#"^the tree offers a parent row at "([^"]*)"$"#)]
+fn given_tree_parent(world: &mut RenderWorld, href: String) {
+    world.tree_parent = Some(TreeParentRow { href });
+}
+
+#[when("I render the tree table")]
+fn when_render_tree_table(world: &mut RenderWorld) {
+    let table: TreeTable = TreeTable {
+        show_sizes: !world.tree_size_off,
+        parent: world.tree_parent.take(),
+        rows: std::mem::take(&mut world.tree_rows),
+    };
+    world.output = Some(tree_table(&table).into_string());
 }
 
 #[then(regex = r#"^the result contains "(.*)"$"#)]

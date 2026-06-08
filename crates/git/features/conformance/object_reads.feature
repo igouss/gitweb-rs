@@ -129,6 +129,17 @@ Feature: Reading git objects through the gix adapter
     When I read the blob "t_full"
     Then reading the blob fails as invalid
 
+  # --- object_size(oid): the ls-tree -l size, read from the header ---
+
+  Scenario Outline: a blob's size is read from its header
+    When I read the size of "<blob>"
+    Then the object size is <size> bytes
+
+    Examples:
+      | blob  | size |
+      | hello | 6    |
+      | bin   | 3    |
+
   # --- find_tag(oid): annotated-tag fields, wrong-kind edge ---
 
   Scenario: an annotated tag exposes its target and tagger
