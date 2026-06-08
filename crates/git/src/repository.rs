@@ -526,6 +526,17 @@ impl Repository for GixRepository {
         Ok(Tag::new(id, target, object_kind, name, tagger, message))
     }
 
+    fn path_id(&self, at: &ObjectId, path: &str) -> Result<Option<ObjectId>, DomainError> {
+        // gitweb's `git_get_hash_by_path` / `git ls-tree <at> -- <path>`: peel the
+        // tree-ish to its tree, then look the path up. An absent path is `None`,
+        // not an error — the per-path history walk relies on that to skip the
+        // commits that deleted the file.
+        let tree: gix::Tree<'_> = self.require_tree(at)?;
+        let entry: Option<gix::object::tree::Entry<'_>> =
+            tree.lookup_entry_by_path(path).map_err(backend)?;
+        Ok(entry.map(|found: gix::object::tree::Entry<'_>| to_domain_oid(found.id().detach())))
+    }
+
     // --- Later slices of gitweb_in_rust-a10 ----------------------------------
     // History, diff, blame, archive, and search are the remaining adapter
     // operations. They are not yet implemented; no conformance scenario calls

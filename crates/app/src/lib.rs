@@ -25,8 +25,8 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_git::GixProjectStore;
 use gitweb_web::{
-    Dispatcher, Handler, HeadsHandler, LogHandler, ProjectListHandler, RemotesHandler,
-    ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, router,
+    Dispatcher, Handler, HeadsHandler, HistoryHandler, LogHandler, ProjectListHandler,
+    RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, router,
 };
 
 /// Assembles the full gitweb-rs router: a gix project store rooted at
@@ -75,6 +75,12 @@ fn build_dispatcher(
     let log: Arc<dyn Handler> =
         Arc::new(LogHandler::new(Arc::clone(&store), Arc::clone(&settings)));
     dispatcher.register(Action::Log, log);
+
+    let history: Arc<dyn Handler> = Arc::new(HistoryHandler::new(
+        Arc::clone(&store),
+        Arc::clone(&settings),
+    ));
+    dispatcher.register(Action::History, history);
 
     let tags: Arc<dyn Handler> =
         Arc::new(TagsHandler::new(Arc::clone(&store), Arc::clone(&settings)));

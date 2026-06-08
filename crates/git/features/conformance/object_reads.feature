@@ -141,3 +141,28 @@ Feature: Reading git objects through the gix adapter
   Scenario: reading a commit as a tag is invalid
     When I read the tag "c1"
     Then reading the tag fails as invalid
+
+  # --- path_id(tree-ish, path): file, subtree, absent, peels a commit ---
+  # gitweb's git_get_hash_by_path: the per-path history walk resolves a file's
+  # type and its blob at each commit through this. c1 snapshots the full tree;
+  # c2 snapshots the empty tree, so the same path is absent there.
+
+  Scenario: a file path in a commit resolves to its blob
+    When I read the path "file.txt" at "c1"
+    Then the path resolves to "hello"
+
+  Scenario: a directory path in a commit resolves to its subtree
+    When I read the path "sub" at "c1"
+    Then the path resolves to "empty"
+
+  Scenario: a tree-ish that is a tree is peeled and looked up directly
+    When I read the path "file.txt" at "t_full"
+    Then the path resolves to "hello"
+
+  Scenario: a path absent from the tree resolves to nothing
+    When I read the path "file.txt" at "c2"
+    Then the path resolves to nothing
+
+  Scenario: a path that never existed resolves to nothing
+    When I read the path "nope.txt" at "c1"
+    Then the path resolves to nothing

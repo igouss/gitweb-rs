@@ -113,7 +113,7 @@ pub fn assemble_shortlog(
     now: i64,
     page: Page,
 ) -> Result<ShortlogView, DomainError> {
-    let window: CommitWindow = walk_commits(repo, rev, page)?;
+    let window: CommitWindow = walk_commits(repo, rev, None, page)?;
     let rows: Vec<ShortlogRow> = window
         .commits
         .into_iter()

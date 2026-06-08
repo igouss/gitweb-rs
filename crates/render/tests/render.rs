@@ -19,6 +19,7 @@ use gitweb_render::escape::{
     esc_attr, esc_html, esc_html_nbsp, esc_param, esc_path, esc_path_info, esc_url,
 };
 use gitweb_render::heads::{HeadEntryView, HeadsTable, heads_table};
+use gitweb_render::history::{HistoryEntryView, HistoryTable, history_table};
 use gitweb_render::log::{LogEntryView, log_entries};
 use gitweb_render::markup::{Markup, html, raw};
 use gitweb_render::project_list::{
@@ -45,6 +46,9 @@ struct RenderWorld {
     tags_more: Option<MoreLink>,
     shortlog_entries: Vec<ShortlogEntryView>,
     shortlog_more: Option<MoreLink>,
+    history_entries: Vec<HistoryEntryView>,
+    history_object_label: Option<String>,
+    history_more: Option<MoreLink>,
     log_entries: Vec<LogEntryView>,
     log_more: Option<MoreLink>,
     tag_entries: Vec<TagEntryView>,
@@ -610,6 +614,159 @@ fn when_render_shortlog_table(world: &mut RenderWorld) {
         more: world.shortlog_more.take(),
     };
     world.output = Some(shortlog_table(&table).into_string());
+}
+
+// ---- history table ----------------------------------------------------------
+
+/// Builds a history *blob* row from its display fields and a base href: the
+/// ftype link and raw hang off the base. The tree shape (no raw) is built by its
+/// own step; the diff-to-current link is added by a later step.
+fn history_blob_entry(
+    author: &str,
+    author_short: &str,
+    title: &str,
+    title_short: &str,
+    displayed: &str,
+    tooltip: &str,
+    base: &str,
+) -> HistoryEntryView {
+    HistoryEntryView {
+        date_displayed: displayed.to_owned(),
+        date_tooltip: tooltip.to_owned(),
+        author: author.to_owned(),
+        author_short: author_short.to_owned(),
+        title: title.to_owned(),
+        title_short: title_short.to_owned(),
+        commit: base.to_owned(),
+        object: format!("{base}/blob"),
+        commitdiff: format!("{base}/diff"),
+        raw: Some(format!("{base}/raw")),
+        diff_to_current: None,
+    }
+}
+
+#[given(
+    regex = r#"^a history blob row by "([^"]*)" titled "([^"]*)" dated "([^"]*)" at "([^"]*)"$"#
+)]
+fn given_history_blob_row(
+    world: &mut RenderWorld,
+    author: String,
+    title: String,
+    displayed: String,
+    base: String,
+) {
+    world.history_object_label = Some("blob".to_owned());
+    world.history_entries.push(history_blob_entry(
+        &author, &author, &title, &title, &displayed, &displayed, &base,
+    ));
+}
+
+#[given(
+    regex = r#"^a history blob row by "([^"]*)" titled "([^"]*)" dated "([^"]*)" tooltip "([^"]*)" at "([^"]*)"$"#
+)]
+fn given_history_blob_row_tooltip(
+    world: &mut RenderWorld,
+    author: String,
+    title: String,
+    displayed: String,
+    tooltip: String,
+    base: String,
+) {
+    world.history_object_label = Some("blob".to_owned());
+    world.history_entries.push(history_blob_entry(
+        &author, &author, &title, &title, &displayed, &tooltip, &base,
+    ));
+}
+
+#[given(regex = r#"^a history blob row authored "([^"]*)" shortened to "(.*)" at "([^"]*)"$"#)]
+fn given_history_chopped_author(
+    world: &mut RenderWorld,
+    author: String,
+    author_short: String,
+    base: String,
+) {
+    world.history_object_label = Some("blob".to_owned());
+    world.history_entries.push(history_blob_entry(
+        &author,
+        &author_short,
+        "x",
+        "x",
+        "now",
+        "now",
+        &base,
+    ));
+}
+
+#[given(regex = r#"^a history blob row subject "([^"]*)" shortened to "(.*)" at "([^"]*)"$"#)]
+fn given_history_chopped_subject(
+    world: &mut RenderWorld,
+    title: String,
+    title_short: String,
+    base: String,
+) {
+    world.history_object_label = Some("blob".to_owned());
+    world.history_entries.push(history_blob_entry(
+        "Alice",
+        "Alice",
+        &title,
+        &title_short,
+        "now",
+        "now",
+        &base,
+    ));
+}
+
+#[given(
+    regex = r#"^a history tree row by "([^"]*)" titled "([^"]*)" dated "([^"]*)" at "([^"]*)"$"#
+)]
+fn given_history_tree_row(
+    world: &mut RenderWorld,
+    author: String,
+    title: String,
+    displayed: String,
+    base: String,
+) {
+    world.history_object_label = Some("tree".to_owned());
+    world.history_entries.push(HistoryEntryView {
+        date_displayed: displayed.clone(),
+        date_tooltip: displayed,
+        author: author.clone(),
+        author_short: author,
+        title: title.clone(),
+        title_short: title,
+        commit: base.clone(),
+        object: format!("{base}/tree"),
+        commitdiff: format!("{base}/diff"),
+        raw: None,
+        diff_to_current: None,
+    });
+}
+
+#[given(regex = r#"^the history row offers a diff to current at "([^"]*)"$"#)]
+fn given_history_diff_to_current(world: &mut RenderWorld, href: String) {
+    world
+        .history_entries
+        .last_mut()
+        .expect("a history row to attach the diff to")
+        .diff_to_current = Some(href);
+}
+
+#[given(regex = r#"^the history offers more at "([^"]*)" labelled "([^"]*)"$"#)]
+fn given_history_more(world: &mut RenderWorld, href: String, label: String) {
+    world.history_more = Some(MoreLink { href, label });
+}
+
+#[when("I render the history table")]
+fn when_render_history_table(world: &mut RenderWorld) {
+    let table: HistoryTable = HistoryTable {
+        object_label: world
+            .history_object_label
+            .take()
+            .unwrap_or_else(|| "blob".to_owned()),
+        rows: std::mem::take(&mut world.history_entries),
+        more: world.history_more.take(),
+    };
+    world.output = Some(history_table(&table).into_string());
 }
 
 // ---- Verbose log ------------------------------------------------------------

@@ -37,6 +37,7 @@ struct AdapterWorld {
     tree: Option<Result<Tree, DomainError>>,
     blob: Option<Result<Blob, DomainError>>,
     tag: Option<Result<Tag, DomainError>>,
+    path: Option<Result<Option<ObjectId>, DomainError>>,
 }
 
 // --- fixture construction ----------------------------------------------------
@@ -322,6 +323,12 @@ fn read_tag(world: &mut AdapterWorld, name: String) {
     world.tag = Some(repo(world).find_tag(&target));
 }
 
+#[when(regex = r#"^I read the path "([^"]*)" at "([^"]*)"$"#)]
+fn read_path(world: &mut AdapterWorld, path: String, name: String) {
+    let at: ObjectId = oid(world, &name);
+    world.path = Some(repo(world).path_id(&at, &path));
+}
+
 // --- Thens: HEAD -------------------------------------------------------------
 
 #[then(regex = r#"^the head ref is "([^"]*)"$"#)]
@@ -513,6 +520,29 @@ fn tag_tagger_is(world: &mut AdapterWorld, expected: String) {
 fn tag_invalid(world: &mut AdapterWorld) {
     let result: &Result<Tag, DomainError> = world.tag.as_ref().expect("read the tag first");
     assert!(matches!(result, Err(DomainError::Invalid(_))));
+}
+
+// --- Thens: path_id ----------------------------------------------------------
+
+/// The resolved path id, or a panic if the read failed.
+fn ok_path(world: &AdapterWorld) -> &Option<ObjectId> {
+    world
+        .path
+        .as_ref()
+        .expect("read a path first")
+        .as_ref()
+        .expect("resolving the path succeeded")
+}
+
+#[then(regex = r#"^the path resolves to "([^"]*)"$"#)]
+fn path_resolves_to(world: &mut AdapterWorld, name: String) {
+    let target: ObjectId = oid(world, &name);
+    assert_eq!(ok_path(world).as_ref(), Some(&target));
+}
+
+#[then("the path resolves to nothing")]
+fn path_resolves_to_nothing(world: &mut AdapterWorld) {
+    assert_eq!(ok_path(world), &None);
 }
 
 #[tokio::main]

@@ -9,6 +9,7 @@
 //! without the domain knowing they exist.
 
 pub mod heads;
+pub mod history;
 pub mod log;
 pub mod log_generic;
 pub mod project_list;

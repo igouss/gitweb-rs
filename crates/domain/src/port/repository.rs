@@ -171,6 +171,15 @@ pub trait Repository {
     /// Reads the annotated tag named by `oid`.
     fn find_tag(&self, oid: &ObjectId) -> Result<Tag, DomainError>;
 
+    /// The object id recorded at `path` within the tree of the tree-ish `at`
+    /// (gitweb's `git_get_hash_by_path` / `git ls-tree <at> -- <path>`), or
+    /// `None` when `path` is absent there. `at` may name a commit or a tree; it
+    /// is peeled to its tree first. The id of a directory `path` is its subtree,
+    /// of a file its blob — the caller asks [`Self::object_kind`] for which it
+    /// got. This is the seam the per-path history walk resolves a file's type and
+    /// its blob at each commit through.
+    fn path_id(&self, at: &ObjectId, path: &str) -> Result<Option<ObjectId>, DomainError>;
+
     /// History reachable from `start`, optionally filtered to commits touching
     /// `path`, windowed by `page` (gitweb's `git rev-list` with `--skip` /
     /// `--max-count`).

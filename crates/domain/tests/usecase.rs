@@ -37,6 +37,7 @@ use gitweb_domain::port::repository::{
     ArchiveFormat, Page, RenameDetection, Repository, SearchQuery,
 };
 use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
+use gitweb_domain::usecase::history::{HistoryRow, HistoryView, assemble_history};
 use gitweb_domain::usecase::log::{LogRow, LogView, assemble_log};
 use gitweb_domain::usecase::project_list::{
     ProjectListRow, ProjectListView, assemble_project_list,
@@ -98,6 +99,7 @@ struct UsecaseWorld {
     head_commit: Option<ObjectId>,
     shortlog_result: Option<Result<ShortlogView, DomainError>>,
     log_result: Option<Result<LogView, DomainError>>,
+    history_result: Option<Result<HistoryView, DomainError>>,
     summary_name: Option<String>,
     summary_description: Option<String>,
     summary_owner: Option<String>,
@@ -154,13 +156,27 @@ struct FakeTag {
 }
 
 /// One commit in the fake repository's linear history (newest first as declared):
-/// its id, its committer epoch, the author name, and the subject line.
+/// its id, its committer epoch, the author name, and the subject line. For the
+/// per-path history, `touches` names the paths this commit changed (the
+/// path-limited walk keeps it for any of these) and `present` is the object each
+/// path resolves to in this commit's tree — a deleted path is touched but absent.
 #[derive(Debug, Clone)]
 struct FakeCommit {
     id: ObjectId,
     epoch: i64,
     author: String,
     title: String,
+    touches: Vec<String>,
+    present: Vec<FakePathEntry>,
+}
+
+/// One path present in a fake commit's tree: the path, the object it resolves to,
+/// and that object's kind (a blob for a file, a tree for a directory).
+#[derive(Debug, Clone)]
+struct FakePathEntry {
+    path: String,
+    oid: ObjectId,
+    kind: ObjectKind,
 }
 
 /// A deterministic 40-hex object id derived from `seed`, so distinct branch
@@ -329,6 +345,14 @@ impl Repository for FakeRepository {
         {
             return Ok(ObjectKind::Commit);
         }
+        if let Some(entry) = self
+            .commits
+            .iter()
+            .flat_map(|commit: &FakeCommit| &commit.present)
+            .find(|entry: &&FakePathEntry| &entry.oid == oid)
+        {
+            return Ok(entry.kind);
+        }
         Err(DomainError::NotFound(oid.as_str().to_owned()))
     }
 
@@ -364,12 +388,16 @@ impl Repository for FakeRepository {
     fn history(
         &self,
         _start: &ObjectId,
-        _path: Option<&str>,
+        path: Option<&str>,
         page: Page,
     ) -> Result<Vec<Commit>, DomainError> {
         let commits: Vec<Commit> = self
             .commits
             .iter()
+            .filter(|commit: &&FakeCommit| match path {
+                None => true,
+                Some(wanted) => commit.touches.iter().any(|p: &String| p == wanted),
+            })
             .skip(page.skip)
             .take(page.limit)
             .map(|commit: &FakeCommit| {
@@ -389,6 +417,21 @@ impl Repository for FakeRepository {
             })
             .collect();
         Ok(commits)
+    }
+
+    fn path_id(&self, at: &ObjectId, path: &str) -> Result<Option<ObjectId>, DomainError> {
+        let entry: Option<ObjectId> = self
+            .commits
+            .iter()
+            .find(|commit: &&FakeCommit| &commit.id == at)
+            .and_then(|commit: &FakeCommit| {
+                commit
+                    .present
+                    .iter()
+                    .find(|entry: &&FakePathEntry| entry.path == path)
+                    .map(|entry: &FakePathEntry| entry.oid.clone())
+            });
+        Ok(entry)
     }
 
     fn diff(
@@ -989,6 +1032,8 @@ fn repo_has_commit(
         epoch,
         author,
         title,
+        touches: Vec::new(),
+        present: Vec::new(),
     });
 }
 
@@ -1585,6 +1630,189 @@ fn remotes_fails_forbidden(world: &mut UsecaseWorld) {
 #[then("assembling the remotes fails as not found")]
 fn remotes_fails_not_found(world: &mut UsecaseWorld) {
     assert!(matches!(remotes_error(world), DomainError::NotFound(_)));
+}
+
+// --- history: accessors ------------------------------------------------------
+
+/// The assembled history view, or a panic if the scenario produced an error.
+fn history_view(world: &UsecaseWorld) -> &HistoryView {
+    world
+        .history_result
+        .as_ref()
+        .expect("assemble the history first")
+        .as_ref()
+        .expect("assembly succeeded")
+}
+
+/// The history failure, or a panic if the scenario produced a success.
+fn history_error(world: &UsecaseWorld) -> &DomainError {
+    match world
+        .history_result
+        .as_ref()
+        .expect("assemble the history first")
+    {
+        Ok(_) => panic!("expected assembling the history to fail"),
+        Err(failure) => failure,
+    }
+}
+
+/// The history row for the commit declared as `name`, or a panic if it is absent.
+fn history_row<'a>(world: &'a UsecaseWorld, name: &str) -> &'a HistoryRow {
+    let id: ObjectId = fake_oid(name);
+    history_view(world)
+        .rows()
+        .iter()
+        .find(|row: &&HistoryRow| row.id() == id.as_str())
+        .unwrap_or_else(|| panic!("no history row for {name}"))
+}
+
+/// The fake commit declared as `name`, mutable so a later step can record the
+/// paths it changed.
+fn commit_named_mut<'a>(world: &'a mut UsecaseWorld, name: &str) -> &'a mut FakeCommit {
+    let id: ObjectId = fake_oid(name);
+    world
+        .commits
+        .iter_mut()
+        .find(|commit: &&mut FakeCommit| commit.id == id)
+        .unwrap_or_else(|| panic!("no commit named {name}"))
+}
+
+// --- history: Givens ---------------------------------------------------------
+
+#[given(regex = r#"^commit "([^"]*)" changes file "([^"]*)" to blob "([^"]*)"$"#)]
+fn commit_changes_file(world: &mut UsecaseWorld, name: String, path: String, blob: String) {
+    let oid: ObjectId = fake_oid(&blob);
+    let commit: &mut FakeCommit = commit_named_mut(world, &name);
+    commit.touches.push(path.clone());
+    commit.present.push(FakePathEntry {
+        path,
+        oid,
+        kind: ObjectKind::Blob,
+    });
+}
+
+#[given(regex = r#"^commit "([^"]*)" changes directory "([^"]*)" to tree "([^"]*)"$"#)]
+fn commit_changes_directory(world: &mut UsecaseWorld, name: String, path: String, tree: String) {
+    let oid: ObjectId = fake_oid(&tree);
+    let commit: &mut FakeCommit = commit_named_mut(world, &name);
+    commit.touches.push(path.clone());
+    commit.present.push(FakePathEntry {
+        path,
+        oid,
+        kind: ObjectKind::Tree,
+    });
+}
+
+#[given(regex = r#"^commit "([^"]*)" deletes "([^"]*)"$"#)]
+fn commit_deletes(world: &mut UsecaseWorld, name: String, path: String) {
+    commit_named_mut(world, &name).touches.push(path);
+}
+
+// --- history: Whens ----------------------------------------------------------
+
+#[when(
+    regex = r#"^I assemble the history of "([^"]*)" from the default branch with page size (\d+)$"#
+)]
+fn assemble_default_history(world: &mut UsecaseWorld, path: String, size: usize) {
+    let repo: FakeRepository = fake_repo(world);
+    world.history_result = Some(assemble_history(
+        &repo,
+        None,
+        &path,
+        world.now,
+        Page::new(0, size),
+    ));
+}
+
+#[when(regex = r#"^I assemble the history of "([^"]*)" from "([^"]*)" with page size (\d+)$"#)]
+fn assemble_rev_history(world: &mut UsecaseWorld, path: String, rev: String, size: usize) {
+    let repo: FakeRepository = fake_repo(world);
+    world.history_result = Some(assemble_history(
+        &repo,
+        Some(&rev),
+        &path,
+        world.now,
+        Page::new(0, size),
+    ));
+}
+
+// --- history: Thens ----------------------------------------------------------
+
+#[then("assembling the history fails")]
+fn history_fails(world: &mut UsecaseWorld) {
+    assert!(matches!(history_error(world), DomainError::Backend(_)));
+}
+
+#[then(regex = r#"^the history lists "(.*)"$"#)]
+fn history_lists(world: &mut UsecaseWorld, expected: String) {
+    let actual: Vec<String> = history_view(world)
+        .rows()
+        .iter()
+        .map(|row: &HistoryRow| row.id().to_owned())
+        .collect();
+    let wanted: Vec<String> = expected
+        .split(", ")
+        .map(|name: &str| fake_oid(name).as_str().to_owned())
+        .collect();
+    assert_eq!(actual, wanted);
+}
+
+#[then(regex = r#"^the history file name is "([^"]*)"$"#)]
+fn history_file_name_is(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(history_view(world).file_name(), expected);
+}
+
+#[then(regex = r#"^the history file type is "([^"]*)"$"#)]
+fn history_file_type_is(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(history_view(world).file_type().as_str(), expected);
+}
+
+#[then(regex = r#"^the history current blob is "([^"]*)"$"#)]
+fn history_current_blob_is(world: &mut UsecaseWorld, blob: String) {
+    assert_eq!(history_view(world).file_hash(), fake_oid(&blob).as_str());
+}
+
+#[then("the history has a further page")]
+fn history_has_further_page(world: &mut UsecaseWorld) {
+    assert!(history_view(world).has_more());
+}
+
+#[then("the history has no further page")]
+fn history_has_no_further_page(world: &mut UsecaseWorld) {
+    assert!(!history_view(world).has_more());
+}
+
+#[then(regex = r#"^the history row "([^"]*)" is by "([^"]*)"$"#)]
+fn history_row_is_by(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(history_row(world, &name).author(), expected);
+}
+
+#[then(regex = r#"^the history row "([^"]*)" shows the subject "(.*)"$"#)]
+fn history_row_shows_subject(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(history_row(world, &name).title(), expected);
+}
+
+#[then(regex = r#"^the history row "([^"]*)" date cell shows "(.*)"$"#)]
+fn history_row_date_cell_shows(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(history_row(world, &name).date().displayed(), expected);
+}
+
+#[then(regex = r#"^the history row "([^"]*)" author shortens to "(.*)"$"#)]
+fn history_row_author_shortens_to(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(history_row(world, &name).author_short(), expected);
+}
+
+#[then(regex = r#"^the history row "([^"]*)" offers a diff to current "([^"]*)"$"#)]
+fn history_row_offers_diff(world: &mut UsecaseWorld, name: String, blob: String) {
+    assert_eq!(
+        history_row(world, &name).diff_to_current(),
+        Some(fake_oid(&blob).as_str())
+    );
+}
+
+#[then(regex = r#"^the history row "([^"]*)" offers no diff to current$"#)]
+fn history_row_offers_no_diff(world: &mut UsecaseWorld, name: String) {
+    assert_eq!(history_row(world, &name).diff_to_current(), None);
 }
 
 #[tokio::main]

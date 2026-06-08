@@ -107,7 +107,7 @@ pub fn assemble_log(
     now: i64,
     page: Page,
 ) -> Result<LogView, DomainError> {
-    let window: CommitWindow = walk_commits(repo, rev, page)?;
+    let window: CommitWindow = walk_commits(repo, rev, None, page)?;
     let rows: Vec<LogRow> = window
         .commits
         .into_iter()

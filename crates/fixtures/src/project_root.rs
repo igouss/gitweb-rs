@@ -97,6 +97,55 @@ impl ProjectRoot {
         builder.set_head("main");
     }
 
+    /// Lays down a bare repository at `name` whose single file `file.txt` is
+    /// created and then modified across two commits on branch `main`, so the
+    /// per-path history of `file.txt` has two rows: the newer "edit file.txt"
+    /// (the current version) and the older "add file.txt" (whose differing blob
+    /// earns a "diff to current"). Both commits sit before the two-week window, so
+    /// their date cells show absolute dates (2023-11-14 / 2023-11-15).
+    pub fn add_file_history(&self, name: &str) {
+        let full: PathBuf = self.dir.path().join(name);
+        let builder: RepoBuilder = RepoBuilder::init_at(&full);
+
+        let added: Identity = Identity {
+            epoch_seconds: 1_700_000_000,
+            ..ada()
+        };
+        let edited: Identity = Identity {
+            epoch_seconds: 1_700_086_400,
+            ..ada()
+        };
+
+        let first_tree: gix::ObjectId = builder.tree(&[TreeEntry {
+            name: "file.txt".to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(b"v1\n"),
+        }]);
+        let first: gix::ObjectId = builder.commit(&CommitSpec {
+            tree: first_tree,
+            parents: Vec::new(),
+            author: added.clone(),
+            committer: added,
+            message: "add file.txt\n".to_owned(),
+        });
+
+        let second_tree: gix::ObjectId = builder.tree(&[TreeEntry {
+            name: "file.txt".to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(b"v2\n"),
+        }]);
+        let second: gix::ObjectId = builder.commit(&CommitSpec {
+            tree: second_tree,
+            parents: vec![first],
+            author: edited.clone(),
+            committer: edited,
+            message: "edit file.txt\n".to_owned(),
+        });
+
+        builder.branch("main", second);
+        builder.set_head("main");
+    }
+
     /// Creates a plain directory at the store-relative `name` with no git
     /// repository inside it, to be ignored by discovery.
     pub fn add_dir(&self, name: &str) {

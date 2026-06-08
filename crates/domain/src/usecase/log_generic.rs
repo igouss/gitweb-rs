@@ -30,8 +30,10 @@ pub(crate) struct CommitWindow {
 }
 
 /// Walks one page of history from `rev` (or HEAD when `None`), viewed through the
-/// [`Repository`] port. `page`'s `limit` is the page size; the walk asks for one
-/// more so the surplus reveals a further page without a second round trip.
+/// [`Repository`] port and optionally limited to commits that touch `path`
+/// (gitweb's per-path `history` action; `None` is the unfiltered log/shortlog
+/// walk). `page`'s `limit` is the page size; the walk asks for one more so the
+/// surplus reveals a further page without a second round trip.
 ///
 /// # Errors
 ///
@@ -41,6 +43,7 @@ pub(crate) struct CommitWindow {
 pub(crate) fn walk_commits(
     repo: &dyn Repository,
     rev: Option<&str>,
+    path: Option<&str>,
     page: Page,
 ) -> Result<CommitWindow, DomainError> {
     let start: ObjectId = match resolve_start(repo, rev)? {
@@ -53,7 +56,7 @@ pub(crate) fn walk_commits(
         }
     };
     let probe: Page = Page::new(page.skip, page.limit + 1);
-    let mut commits: Vec<Commit> = repo.history(&start, None, probe)?;
+    let mut commits: Vec<Commit> = repo.history(&start, path, probe)?;
     let has_more: bool = commits.len() > page.limit;
     commits.truncate(page.limit);
     Ok(CommitWindow { commits, has_more })
