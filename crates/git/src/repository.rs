@@ -543,6 +543,51 @@ impl Repository for GixRepository {
         Ok(Tag::new(id, target, object_kind, name, tagger, message))
     }
 
+    fn rev_name_tag(&self, oid: &ObjectId) -> Result<Option<String>, DomainError> {
+        // gitweb's `git_get_rev_name_tags`: `git name-rev --tags <oid>`, keeping
+        // the captured `tags/<name>`. We implement name-rev's distance-zero case
+        // — a tag whose tip is exactly this commit. A lightweight tag points
+        // straight at the commit (its ref id is the commit), so it names it by the
+        // bare `<name>`; an annotated tag's ref points at a tag object that peels
+        // to the commit, which name-rev marks with one dereference, `<name>^0`.
+        // Ancestor-distance naming (`<name>~N`) and git's multi-tag tie-break are
+        // out of scope (see the port doc); candidates are gathered in ref-name
+        // order so the first match is deterministic.
+        let target: gix::ObjectId = to_gix_oid(oid)?;
+        let platform: gix::reference::iter::Platform<'_> =
+            self.repo.references().map_err(backend)?;
+        // The winning tag, keyed by its short ref name so ties break in ref-name
+        // order regardless of gix's iteration order.
+        let mut best: Option<(String, String)> = None;
+        for item in platform.all().map_err(backend)? {
+            let reference: gix::Reference<'_> = item.map_err(backend)?;
+            let full: String = reference.name().as_bstr().to_string();
+            let Some(short) = full.strip_prefix("refs/tags/") else {
+                continue;
+            };
+            // The ref's own target distinguishes the tag shape: equal to the
+            // peeled commit means lightweight; a tag object in between means
+            // annotated.
+            let direct: Option<gix::ObjectId> =
+                reference.try_id().map(|id: gix::Id<'_>| id.detach());
+            let peeled: gix::ObjectId = reference.into_fully_peeled_id().map_err(backend)?.detach();
+            if peeled != target {
+                continue;
+            }
+            let annotated: bool = direct != Some(peeled);
+            let name: String = if annotated {
+                format!("{short}^0")
+            } else {
+                short.to_owned()
+            };
+            match &best {
+                Some((best_short, _)) if best_short.as_str() <= short => {}
+                _ => best = Some((short.to_owned(), name)),
+            }
+        }
+        Ok(best.map(|(_, name): (String, String)| name))
+    }
+
     fn path_id(&self, at: &ObjectId, path: &str) -> Result<Option<ObjectId>, DomainError> {
         // gitweb's `git_get_hash_by_path` / `git ls-tree <at> -- <path>`: peel the
         // tree-ish to its tree, then look the path up. An absent path is `None`,

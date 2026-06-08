@@ -377,6 +377,9 @@ struct FakeCommitFixture {
     diff: Vec<DiffEntry>,
     combined: Vec<CombinedDiffEntry>,
     patch: Patch,
+    /// The `name-rev --tags` name of this commit, when tag-named; drives the
+    /// commitdiff_plain `X-Git-Tag` line through [`Repository::rev_name_tag`].
+    rev_name_tag: Option<String>,
 }
 
 impl FakeRepository {
@@ -697,6 +700,14 @@ impl Repository for FakeRepository {
             tagger,
             tag.message.clone(),
         ))
+    }
+
+    fn rev_name_tag(&self, oid: &ObjectId) -> Result<Option<String>, DomainError> {
+        Ok(self
+            .commit_fixture
+            .as_ref()
+            .filter(|fixture: &&FakeCommitFixture| &fixture.id == oid)
+            .and_then(|fixture: &FakeCommitFixture| fixture.rev_name_tag.clone()))
     }
 
     fn history(
@@ -3055,7 +3066,13 @@ fn given_commit(world: &mut UsecaseWorld, id: String, ident: String) {
         diff: Vec::new(),
         combined: Vec::new(),
         patch: Patch::new(Vec::new()),
+        rev_name_tag: None,
     });
+}
+
+#[given(regex = r#"^the commit is tag-named "(.*)"$"#)]
+fn given_commit_tag_named(world: &mut UsecaseWorld, name: String) {
+    commit_fixture_mut(world).rev_name_tag = Some(name);
 }
 
 #[given(regex = r#"^the commit committer is "([^"]*)"$"#)]

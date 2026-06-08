@@ -174,6 +174,26 @@ pub trait Repository {
     /// cheap size lookup, not a `find_blob` that would decode the whole object.
     fn object_size(&self, oid: &ObjectId) -> Result<u64, DomainError>;
 
+    /// The tag name that names `oid`, the way gitweb's `git_get_rev_name_tags`
+    /// (`git name-rev --tags <oid>`) supplies the `X-Git-Tag` line on
+    /// `commitdiff_plain` / `patch`. `None` when no tag names the commit.
+    ///
+    /// The returned string is the captured `tags/<name>` body — gitweb's regex
+    /// `^<hash> tags/(.*)$` — so a hierarchical tag keeps its path (`release/v1`)
+    /// and, mirroring `name-rev`'s one-dereference marker, an *annotated* tag
+    /// whose object peels to the commit reads as `<name>^0` while a *lightweight*
+    /// tag reads as the bare `<name>`.
+    ///
+    /// This is `name-rev`'s *distance-zero* case — a tag whose tip is exactly the
+    /// commit — which is what a tagged (release) commit stamps. `name-rev`'s
+    /// ancestor-distance naming (`<name>~N` for a commit some generations behind a
+    /// tag) is deliberately out of scope; an untagged commit reachable only as
+    /// such an ancestor reports `None` here rather than a suffixed name. When more
+    /// than one tag's tip is the commit, the first in ref-name order wins (git's
+    /// own multi-tag tie-break is not replicated). The corpus and the adapter
+    /// conformance exercise the lightweight, annotated and no-tag cases.
+    fn rev_name_tag(&self, oid: &ObjectId) -> Result<Option<String>, DomainError>;
+
     /// Reads the annotated tag named by `oid`.
     fn find_tag(&self, oid: &ObjectId) -> Result<Tag, DomainError>;
 

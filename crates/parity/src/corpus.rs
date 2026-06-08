@@ -11,7 +11,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use gitweb_fixtures::{CommitSpec, Identity, Mode, ObjectId, RepoBuilder, TreeEntry};
+use gitweb_fixtures::{
+    CommitSpec, Identity, Mode, ObjectId, RepoBuilder, TagSpec, TargetKind, TreeEntry,
+};
 
 /// One named blob in the corpus: its stable logical name (how features and
 /// goldens refer to it), its object id, and the path it lives at in the tree (how
@@ -276,6 +278,19 @@ pub fn build(project_root: &Path) -> Corpus {
     });
     builder.branch("main", root);
     builder.set_head("main");
+
+    // An annotated tag whose tip is the root commit, so `commitdiff_plain` of
+    // HEAD carries gitweb's `X-Git-Tag` line. `git name-rev --tags` renders an
+    // annotated tag's name with its one-dereference marker, `v1.0^0`. A tag is a
+    // ref pointing at an existing commit (plus a tag object that lives outside the
+    // commit graph), so it leaves HEAD's id and every other golden untouched.
+    let _tag: ObjectId = builder.annotated_tag(&TagSpec {
+        name: "v1.0".to_owned(),
+        target: root,
+        target_kind: TargetKind::Commit,
+        tagger: who.clone(),
+        message: "release 1.0\n".to_owned(),
+    });
 
     // The two-commit `diffs` branch the blobdiff_plain goldens diff across. It
     // is built after HEAD is set to `main`, so HEAD stays on the root commit and

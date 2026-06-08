@@ -38,6 +38,7 @@ struct AdapterWorld {
     blob: Option<Result<Blob, DomainError>>,
     size: Option<Result<u64, DomainError>>,
     tag: Option<Result<Tag, DomainError>>,
+    name_tag: Option<Result<Option<String>, DomainError>>,
     path: Option<Result<Option<ObjectId>, DomainError>>,
 }
 
@@ -324,6 +325,12 @@ fn read_tag(world: &mut AdapterWorld, name: String) {
     world.tag = Some(repo(world).find_tag(&target));
 }
 
+#[when(regex = r#"^I read the rev-name tag of "([^"]*)"$"#)]
+fn read_rev_name_tag(world: &mut AdapterWorld, name: String) {
+    let target: ObjectId = oid(world, &name);
+    world.name_tag = Some(repo(world).rev_name_tag(&target));
+}
+
 #[when(regex = r#"^I read the size of "([^"]*)"$"#)]
 fn read_size(world: &mut AdapterWorld, name: String) {
     let target: ObjectId = oid(world, &name);
@@ -533,6 +540,28 @@ fn tag_tagger_is(world: &mut AdapterWorld, expected: String) {
 fn tag_invalid(world: &mut AdapterWorld) {
     let result: &Result<Tag, DomainError> = world.tag.as_ref().expect("read the tag first");
     assert!(matches!(result, Err(DomainError::Invalid(_))));
+}
+
+// --- Thens: rev_name_tag -----------------------------------------------------
+
+/// The resolved rev-name tag, or a panic if the read failed.
+fn ok_name_tag(world: &AdapterWorld) -> &Option<String> {
+    world
+        .name_tag
+        .as_ref()
+        .expect("read the rev-name tag first")
+        .as_ref()
+        .expect("reading the rev-name tag succeeded")
+}
+
+#[then(regex = r#"^the rev-name tag is "([^"]*)"$"#)]
+fn rev_name_tag_is(world: &mut AdapterWorld, expected: String) {
+    assert_eq!(ok_name_tag(world).as_deref(), Some(expected.as_str()));
+}
+
+#[then("there is no rev-name tag")]
+fn no_rev_name_tag(world: &mut AdapterWorld) {
+    assert_eq!(ok_name_tag(world), &None);
 }
 
 // --- Thens: path_id ----------------------------------------------------------

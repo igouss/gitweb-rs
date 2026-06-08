@@ -153,6 +153,24 @@ Feature: Reading git objects through the gix adapter
     When I read the tag "c1"
     Then reading the tag fails as invalid
 
+  # --- rev_name_tag(oid): git name-rev --tags, distance-zero subset ---
+  # gitweb's git_get_rev_name_tags stamps the commitdiff_plain X-Git-Tag line.
+  # c1 carries the lightweight tag "lw" (bare name); c2 carries the annotated tag
+  # "v1" (name-rev's one-dereference "^0"); the merge commit carries no tag, and
+  # is reachable from neither tag, so it is unnamed.
+
+  Scenario: a lightweight tag names its commit by its bare name
+    When I read the rev-name tag of "c1"
+    Then the rev-name tag is "lw"
+
+  Scenario: an annotated tag names its commit with the dereference marker
+    When I read the rev-name tag of "c2"
+    Then the rev-name tag is "v1^0"
+
+  Scenario: a commit no tag's tip names has no rev-name tag
+    When I read the rev-name tag of "merge"
+    Then there is no rev-name tag
+
   # --- path_id(tree-ish, path): file, subtree, absent, peels a commit ---
   # gitweb's git_get_hash_by_path: the per-path history walk resolves a file's
   # type and its blob at each commit through this. c1 snapshots the full tree;

@@ -30,6 +30,21 @@ Feature: The commitdiff_plain use case (mailbox-format raw diff)
     Then the commitdiff_plain body contains "diff --git a/engine.rs b/engine.rs"
     And the commitdiff_plain body has no bare commit-id line
 
+  Scenario: A tag-named commit stamps its X-Git-Tag line
+    Given a commit "c0ffee" with author "Ada Lovelace <ada@example.com> 1000 +0000"
+    And the commit message is "Release 1.0"
+    And the commit is tag-named "v1.0^0"
+    And the commit diff creates "engine.rs"
+    When I assemble the commitdiff_plain for "HEAD"
+    Then the commitdiff_plain body has a line "X-Git-Tag: v1.0^0"
+
+  Scenario: An untagged commit omits the X-Git-Tag line
+    Given a commit "c0ffee" with author "Ada Lovelace <ada@example.com> 1000 +0000"
+    And the commit message is "Work in progress"
+    And the commit diff creates "engine.rs"
+    When I assemble the commitdiff_plain for "HEAD"
+    Then the commitdiff_plain body does not contain "X-Git-Tag:"
+
   Scenario: A revision that is not a commit is unknown
     Given a commit "b10b" with author "Tester <t@example.com> 1 +0000"
     And the commit object kind is "blob"

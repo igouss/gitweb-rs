@@ -17,9 +17,10 @@
 //! with a parent — so the commit-id line rides along exactly when the base is
 //! the empty tree.
 //!
-//! The `X-Git-Tag` line (gitweb's `git_get_rev_name_tags`, a `git name-rev
-//! --tags` lookup) is not yet emitted; tag naming is tracked separately, so the
-//! tag is always `None` here.
+//! The `X-Git-Tag` line is gitweb's `git_get_rev_name_tags` — a `git name-rev
+//! --tags` lookup — supplied by the port's [`Repository::rev_name_tag`]: the
+//! `tags/<name>` body when a tag's tip is the commit (`<name>^0` for an
+//! annotated tag), else `None`, which omits the line.
 //!
 //! [`Repository`]: crate::port::repository::Repository
 
@@ -59,6 +60,7 @@ pub fn assemble_commitdiff_plain(
         return Err(DomainError::NotFound("Unknown commit object".to_owned()));
     }
     let commit: Commit = repo.find_commit(&oid)?;
+    let tag: Option<String> = repo.rev_name_tag(&oid)?;
 
     let explicit: Option<ObjectId> = match explicit_parent {
         Some(rev) => Some(repo.resolve(rev)?),
@@ -90,7 +92,7 @@ pub fn assemble_commitdiff_plain(
         commit.author().full_ident(),
         Timestamp::from_signature(commit.author()),
         commit.title(),
-        None,
+        tag,
         comment,
         commit_id,
         patch_body,
