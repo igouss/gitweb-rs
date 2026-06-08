@@ -22,6 +22,7 @@ use gitweb_render::markup::{Markup, html, raw};
 use gitweb_render::project_list::{
     ProjectLinks, ProjectList, ProjectRow, SortHeader, project_list,
 };
+use gitweb_render::shortlog::{MoreLink, ShortlogEntryView, ShortlogTable, shortlog_table};
 use gitweb_render::tag::{TagAuthorView, TagPage, TaggedObjectView, tag_body};
 use gitweb_render::tags::{TagEntryView, TagReftype, TagsPage, TagsTable, tags_body, tags_table};
 
@@ -34,6 +35,8 @@ struct RenderWorld {
     footer_links: Vec<FooterLink>,
     project_rows: Vec<ProjectRow>,
     head_entries: Vec<HeadEntryView>,
+    shortlog_entries: Vec<ShortlogEntryView>,
+    shortlog_more: Option<MoreLink>,
     tag_entries: Vec<TagEntryView>,
     tag_page: Option<TagPage>,
     domain_error: Option<DomainError>,
@@ -471,6 +474,111 @@ fn when_render_heads_table(world: &mut RenderWorld) {
         rows: std::mem::take(&mut world.head_entries),
     };
     world.output = Some(heads_table(&table).into_string());
+}
+
+/// Builds a shortlog row from its display fields and a base href: the commit
+/// link is the base, and the commitdiff / tree links hang off it.
+fn shortlog_entry(
+    author: &str,
+    author_short: &str,
+    title: &str,
+    title_short: &str,
+    displayed: &str,
+    tooltip: &str,
+    base: &str,
+) -> ShortlogEntryView {
+    ShortlogEntryView {
+        date_displayed: displayed.to_owned(),
+        date_tooltip: tooltip.to_owned(),
+        author: author.to_owned(),
+        author_short: author_short.to_owned(),
+        title: title.to_owned(),
+        title_short: title_short.to_owned(),
+        commit: base.to_owned(),
+        commitdiff: format!("{base}/diff"),
+        tree: format!("{base}/tree"),
+    }
+}
+
+#[given(
+    regex = r#"^a shortlog commit by "([^"]*)" titled "([^"]*)" dated "([^"]*)" at "([^"]*)"$"#
+)]
+fn given_shortlog_commit(
+    world: &mut RenderWorld,
+    author: String,
+    title: String,
+    displayed: String,
+    base: String,
+) {
+    world.shortlog_entries.push(shortlog_entry(
+        &author, &author, &title, &title, &displayed, &displayed, &base,
+    ));
+}
+
+#[given(
+    regex = r#"^a shortlog commit by "([^"]*)" titled "([^"]*)" dated "([^"]*)" tooltip "([^"]*)" at "([^"]*)"$"#
+)]
+fn given_shortlog_commit_tooltip(
+    world: &mut RenderWorld,
+    author: String,
+    title: String,
+    displayed: String,
+    tooltip: String,
+    base: String,
+) {
+    world.shortlog_entries.push(shortlog_entry(
+        &author, &author, &title, &title, &displayed, &tooltip, &base,
+    ));
+}
+
+#[given(regex = r#"^a shortlog commit authored "([^"]*)" shortened to "(.*)" at "([^"]*)"$"#)]
+fn given_shortlog_chopped_author(
+    world: &mut RenderWorld,
+    author: String,
+    author_short: String,
+    base: String,
+) {
+    world.shortlog_entries.push(shortlog_entry(
+        &author,
+        &author_short,
+        "x",
+        "x",
+        "now",
+        "now",
+        &base,
+    ));
+}
+
+#[given(regex = r#"^a shortlog commit subject "([^"]*)" shortened to "(.*)" at "([^"]*)"$"#)]
+fn given_shortlog_chopped_subject(
+    world: &mut RenderWorld,
+    title: String,
+    title_short: String,
+    base: String,
+) {
+    world.shortlog_entries.push(shortlog_entry(
+        "Alice",
+        "Alice",
+        &title,
+        &title_short,
+        "now",
+        "now",
+        &base,
+    ));
+}
+
+#[given(regex = r#"^the shortlog offers more at "([^"]*)" labelled "([^"]*)"$"#)]
+fn given_shortlog_more(world: &mut RenderWorld, href: String, label: String) {
+    world.shortlog_more = Some(MoreLink { href, label });
+}
+
+#[when("I render the shortlog table")]
+fn when_render_shortlog_table(world: &mut RenderWorld) {
+    let table: ShortlogTable = ShortlogTable {
+        rows: std::mem::take(&mut world.shortlog_entries),
+        more: world.shortlog_more.take(),
+    };
+    world.output = Some(shortlog_table(&table).into_string());
 }
 
 // ---- Tags table -------------------------------------------------------------

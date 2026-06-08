@@ -36,6 +36,7 @@ use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
 use gitweb_domain::usecase::project_list::{
     ProjectListRow, ProjectListView, assemble_project_list,
 };
+use gitweb_domain::usecase::shortlog::{ShortlogRow, ShortlogView, assemble_shortlog};
 use gitweb_domain::usecase::tag::{TagView, show_tag};
 use gitweb_domain::usecase::tags::{TagRow, TagsView, assemble_tags};
 
@@ -80,6 +81,9 @@ struct UsecaseWorld {
     tags: Vec<FakeTag>,
     tags_result: Option<Result<TagsView, DomainError>>,
     tag_result: Option<Result<TagView, DomainError>>,
+    commits: Vec<FakeCommit>,
+    head_commit: Option<ObjectId>,
+    shortlog_result: Option<Result<ShortlogView, DomainError>>,
 }
 
 /// One branch in the fake repository: its short name, the id of its tip commit,
@@ -111,6 +115,16 @@ struct FakeTag {
     has_tagger: bool,
 }
 
+/// One commit in the fake repository's linear history (newest first as declared):
+/// its id, its committer epoch, the author name, and the subject line.
+#[derive(Debug, Clone)]
+struct FakeCommit {
+    id: ObjectId,
+    epoch: i64,
+    author: String,
+    title: String,
+}
+
 /// A deterministic 40-hex object id derived from `seed`, so distinct branch
 /// names get distinct tips while a test can still alias two branches onto one
 /// commit by deriving both from the same seed.
@@ -129,8 +143,10 @@ fn fake_oid(seed: &str) -> ObjectId {
 /// unimplemented, since those use cases never reach them.
 struct FakeRepository {
     head: Option<String>,
+    head_commit: Option<ObjectId>,
     branches: Vec<FakeBranch>,
     tags: Vec<FakeTag>,
+    commits: Vec<FakeCommit>,
 }
 
 impl FakeRepository {
@@ -163,6 +179,9 @@ impl FakeRepository {
 
 impl Repository for FakeRepository {
     fn head(&self) -> Result<Reference, DomainError> {
+        if let Some(oid) = &self.head_commit {
+            return Ok(Reference::new(RefName::new("HEAD".to_owned()), oid.clone()));
+        }
         let name: &String = self
             .head
             .as_ref()
@@ -275,9 +294,30 @@ impl Repository for FakeRepository {
         &self,
         _start: &ObjectId,
         _path: Option<&str>,
-        _page: Page,
+        page: Page,
     ) -> Result<Vec<Commit>, DomainError> {
-        unimplemented!("the heads use case never walks history")
+        let commits: Vec<Commit> = self
+            .commits
+            .iter()
+            .skip(page.skip)
+            .take(page.limit)
+            .map(|commit: &FakeCommit| {
+                let who: Signature = Signature::parse(&format!(
+                    "{} <a@example.com> {} +0000",
+                    commit.author, commit.epoch
+                ))
+                .expect("a valid fixture signature");
+                Commit::new(
+                    commit.id.clone(),
+                    fake_oid("tree"),
+                    Vec::new(),
+                    who.clone(),
+                    who,
+                    format!("{}\n", commit.title),
+                )
+            })
+            .collect();
+        Ok(commits)
     }
 
     fn diff(
@@ -521,8 +561,10 @@ fn repo_has_aliased_branch(world: &mut UsecaseWorld, name: String, other: String
 fn assemble_the_heads(world: &mut UsecaseWorld) {
     let repo: FakeRepository = FakeRepository {
         head: world.head.clone(),
+        head_commit: world.head_commit.clone(),
         branches: world.branches.clone(),
         tags: world.tags.clone(),
+        commits: world.commits.clone(),
     };
     world.heads_result = Some(assemble_heads(&repo, world.now));
 }
@@ -691,8 +733,10 @@ fn repo_has_lightweight_object_tag(world: &mut UsecaseWorld, name: String, kind:
 fn assemble_the_tags(world: &mut UsecaseWorld) {
     let repo: FakeRepository = FakeRepository {
         head: world.head.clone(),
+        head_commit: world.head_commit.clone(),
         branches: world.branches.clone(),
         tags: world.tags.clone(),
+        commits: world.commits.clone(),
     };
     world.tags_result = Some(assemble_tags(&repo, world.now));
 }
@@ -779,8 +823,10 @@ fn tag_show_error(world: &UsecaseWorld) -> &DomainError {
 fn show_the_single_tag(world: &mut UsecaseWorld, hash: String) {
     let repo: FakeRepository = FakeRepository {
         head: world.head.clone(),
+        head_commit: world.head_commit.clone(),
         branches: world.branches.clone(),
         tags: world.tags.clone(),
+        commits: world.commits.clone(),
     };
     world.tag_result = Some(show_tag(&repo, &hash));
 }
@@ -845,6 +891,139 @@ fn tag_view_fails_with(world: &mut UsecaseWorld, expected: String) {
 #[then("showing the tag fails as not found")]
 fn tag_view_fails_not_found(world: &mut UsecaseWorld) {
     assert!(matches!(tag_show_error(world), DomainError::NotFound(_)));
+}
+
+// --- shortlog: accessors -----------------------------------------------------
+
+/// The assembled shortlog view, or a panic if the scenario produced an error.
+fn shortlog_view(world: &UsecaseWorld) -> &ShortlogView {
+    world
+        .shortlog_result
+        .as_ref()
+        .expect("assemble the shortlog first")
+        .as_ref()
+        .expect("assembly succeeded")
+}
+
+/// The assembled shortlog row for the commit declared as `name`, or a panic if
+/// it is absent. The fake derives each commit id from its declared name.
+fn shortlog_row<'a>(world: &'a UsecaseWorld, name: &str) -> &'a ShortlogRow {
+    let id: ObjectId = fake_oid(name);
+    shortlog_view(world)
+        .rows()
+        .iter()
+        .find(|row: &&ShortlogRow| row.id() == id.as_str())
+        .unwrap_or_else(|| panic!("no shortlog row for {name}"))
+}
+
+// --- shortlog: Givens --------------------------------------------------------
+
+#[given(regex = r#"^the repository HEAD is at commit "([^"]*)"$"#)]
+fn head_is_at_commit(world: &mut UsecaseWorld, name: String) {
+    world.head_commit = Some(fake_oid(&name));
+}
+
+#[given(regex = r#"^a commit "([^"]*)" at epoch (\d+) by "([^"]*)" titled "(.*)"$"#)]
+fn repo_has_commit(
+    world: &mut UsecaseWorld,
+    name: String,
+    epoch: i64,
+    author: String,
+    title: String,
+) {
+    world.commits.push(FakeCommit {
+        id: fake_oid(&name),
+        epoch,
+        author,
+        title,
+    });
+}
+
+// --- shortlog: Whens ---------------------------------------------------------
+
+#[when(regex = r"^I assemble the shortlog of the default branch with page size (\d+)$")]
+fn assemble_default_shortlog(world: &mut UsecaseWorld, size: usize) {
+    let repo: FakeRepository = FakeRepository {
+        head: world.head.clone(),
+        head_commit: world.head_commit.clone(),
+        branches: world.branches.clone(),
+        tags: world.tags.clone(),
+        commits: world.commits.clone(),
+    };
+    world.shortlog_result = Some(assemble_shortlog(
+        &repo,
+        None,
+        world.now,
+        Page::new(0, size),
+    ));
+}
+
+#[when(regex = r#"^I assemble the shortlog of "([^"]*)" with page size (\d+)$"#)]
+fn assemble_rev_shortlog(world: &mut UsecaseWorld, rev: String, size: usize) {
+    let repo: FakeRepository = FakeRepository {
+        head: world.head.clone(),
+        head_commit: world.head_commit.clone(),
+        branches: world.branches.clone(),
+        tags: world.tags.clone(),
+        commits: world.commits.clone(),
+    };
+    world.shortlog_result = Some(assemble_shortlog(
+        &repo,
+        Some(&rev),
+        world.now,
+        Page::new(0, size),
+    ));
+}
+
+// --- shortlog: Thens ---------------------------------------------------------
+
+#[then("no commits are listed")]
+fn no_commits_listed(world: &mut UsecaseWorld) {
+    assert!(shortlog_view(world).rows().is_empty());
+}
+
+#[then(regex = r#"^the listed commits are "(.*)"$"#)]
+fn listed_commits_are(world: &mut UsecaseWorld, expected: String) {
+    let actual: Vec<String> = shortlog_view(world)
+        .rows()
+        .iter()
+        .map(|row: &ShortlogRow| row.id().to_owned())
+        .collect();
+    let wanted: Vec<String> = expected
+        .split(", ")
+        .map(|name: &str| fake_oid(name).as_str().to_owned())
+        .collect();
+    assert_eq!(actual, wanted);
+}
+
+#[then("the shortlog has a further page")]
+fn shortlog_has_further_page(world: &mut UsecaseWorld) {
+    assert!(shortlog_view(world).has_more());
+}
+
+#[then("the shortlog has no further page")]
+fn shortlog_has_no_further_page(world: &mut UsecaseWorld) {
+    assert!(!shortlog_view(world).has_more());
+}
+
+#[then(regex = r#"^the commit "([^"]*)" is by "([^"]*)"$"#)]
+fn commit_is_by(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(shortlog_row(world, &name).author(), expected);
+}
+
+#[then(regex = r#"^the commit "([^"]*)" author shortens to "(.*)"$"#)]
+fn commit_author_shortens_to(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(shortlog_row(world, &name).author_short(), expected);
+}
+
+#[then(regex = r#"^the commit "([^"]*)" shows the subject "(.*)"$"#)]
+fn commit_shows_subject(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(shortlog_row(world, &name).title(), expected);
+}
+
+#[then(regex = r#"^the commit "([^"]*)" date cell shows "(.*)"$"#)]
+fn commit_date_cell_shows(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(shortlog_row(world, &name).date().displayed(), expected);
 }
 
 #[tokio::main]

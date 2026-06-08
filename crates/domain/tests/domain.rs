@@ -12,6 +12,7 @@ use gitweb_domain::model::binary::is_binary;
 use gitweb_domain::model::change::ChangeStatus;
 use gitweb_domain::model::chop::{ChopMode, chop_str};
 use gitweb_domain::model::commit::Commit;
+use gitweb_domain::model::commit_date::CommitDate;
 use gitweb_domain::model::config_chain::{ConfigChain, ConfigSlot};
 use gitweb_domain::model::diff::{CombinedDiffEntry, CombinedParent};
 use gitweb_domain::model::email_privacy::redact;
@@ -116,6 +117,8 @@ struct DomainWorld {
     timestamp: Option<Timestamp>,
     timestamp_text: Option<String>,
     at_night: Option<bool>,
+    commit_date_input: Option<(i64, i64)>,
+    commit_date: Option<CommitDate>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -240,6 +243,29 @@ fn local_minute_is(world: &mut DomainWorld, expected: u8) {
 fn displayed_timezone_is(world: &mut DomainWorld, expected: String) {
     let timestamp: &Timestamp = world.timestamp.as_ref().expect("a timestamp");
     assert_eq!(timestamp.timezone(), expected);
+}
+
+#[given(regex = r"^a commit dated at epoch (-?\d+) viewed at (-?\d+)$")]
+fn given_commit_dated(world: &mut DomainWorld, epoch: i64, now: i64) {
+    world.commit_date_input = Some((epoch, now));
+}
+
+#[when("I form its date cell")]
+fn form_date_cell(world: &mut DomainWorld) {
+    let (epoch, now): (i64, i64) = world.commit_date_input.expect("a commit date input");
+    world.commit_date = Some(CommitDate::new(epoch, now));
+}
+
+#[then(regex = r#"^the date cell shows "(.*)"$"#)]
+fn date_cell_shows(world: &mut DomainWorld, expected: String) {
+    let date: &CommitDate = world.commit_date.as_ref().expect("a formed date cell");
+    assert_eq!(date.displayed(), expected);
+}
+
+#[then(regex = r#"^the date cell tooltip is "(.*)"$"#)]
+fn date_cell_tooltip_is(world: &mut DomainWorld, expected: String) {
+    let date: &CommitDate = world.commit_date.as_ref().expect("a formed date cell");
+    assert_eq!(date.tooltip(), expected);
 }
 
 #[given(regex = r#"^a file mode "(.*)"$"#)]

@@ -124,6 +124,17 @@ impl Timestamp {
         )
     }
 
+    /// The bare UTC calendar date, `YYYY-MM-DD` — gitweb's `age_string_date`
+    /// (`sprintf "%4i-%02u-%02i"` over `gmtime`). The absolute half of a
+    /// commit-list date cell.
+    #[must_use]
+    pub fn utc_date(&self) -> String {
+        format!(
+            "{:04}-{:02}-{:02}",
+            self.utc.year, self.utc.month, self.utc.day
+        )
+    }
+
     /// The local hour (commit timezone), as shown in the `(HH:MM tz)` hint.
     #[must_use]
     pub fn local_hour(&self) -> u8 {

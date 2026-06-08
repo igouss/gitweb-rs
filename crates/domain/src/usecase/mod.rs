@@ -10,5 +10,6 @@
 
 pub mod heads;
 pub mod project_list;
+pub mod shortlog;
 pub mod tag;
 pub mod tags;
