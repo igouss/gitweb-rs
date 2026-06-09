@@ -3975,6 +3975,21 @@ fn then_blobdiff_title(world: &mut UsecaseWorld, expected: String) {
     assert_eq!(blobdiff_view(world).title(), expected);
 }
 
+/// gitweb's degenerate `git_blobdiff` title for a non-commit base:
+/// `esc_html("$hash vs $hash_parent")`, the resolved new-side then old-side blob
+/// ids. Built here from the same patch the resolution selected, so it pins the
+/// format and the new-before-old order without restating production's bytes.
+#[then(regex = r#"^the blobdiff title pairs the new-side and old-side ids of "([^"]*)"$"#)]
+fn then_blobdiff_degenerate_title(world: &mut UsecaseWorld, path: String) {
+    let file: &FilePatch = world
+        .blobdiff_files
+        .iter()
+        .find(|file: &&FilePatch| file.to_path() == path)
+        .expect("the diff touches that path");
+    let expected: String = format!("{} vs {}", file.to_oid().as_str(), file.from_oid().as_str());
+    assert_eq!(blobdiff_view(world).title(), expected);
+}
+
 #[then(regex = r#"^assembling the blobdiff fails with "(.*)"$"#)]
 fn then_blobdiff_fails(world: &mut UsecaseWorld, expected: String) {
     match world

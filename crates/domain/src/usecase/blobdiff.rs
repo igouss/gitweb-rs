@@ -4,7 +4,9 @@
 //! base commits. Before it can, it resolves *which* file from the raw diff-tree:
 //! directly by the file's new-side path (`f=`), or — the legacy by-hash URI — by
 //! the blob's new-side id, grepping the tree's `to_id` column. It then reads the
-//! base commit's subject for the page header.
+//! base commit's subject for the page header — or, when the base is not a commit
+//! (a raw tree in a hand-crafted URI), falls back to the degenerate
+//! `"<new-id> vs <old-id>"` title gitweb's `else` branch prints.
 //!
 //! We modernize the page itself: the diff body is rendered on the client by the
 //! `@pierre/diffs` viewer, which fetches the clean single-file patch from the
@@ -27,6 +29,7 @@
 use crate::error::DomainError;
 use crate::model::commit::Commit;
 use crate::model::object_id::ObjectId;
+use crate::model::object_kind::ObjectKind;
 use crate::model::patch::{FilePatch, FileSelection, Patch};
 use crate::port::repository::{RenameDetection, Repository};
 
@@ -84,7 +87,9 @@ impl BlobdiffView {
 
 /// Resolves the one file an html `blobdiff` shows between `hash_parent_base` and
 /// `hash_base`: select it by its new-side path (`file_name`) or, failing that, by
-/// a blob's new-side id (`hash`), then read the base commit's subject.
+/// a blob's new-side id (`hash`), then take the header title — the base commit's
+/// subject, or the degenerate `"<new-id> vs <old-id>"` when the base is not a
+/// commit (see [`blobdiff_title`]).
 ///
 /// # Errors
 ///
@@ -132,11 +137,39 @@ pub fn assemble_blobdiff(
     let file_parent: Option<String> =
         (file.from_path() != file.to_path()).then(|| file.from_path().to_owned());
 
-    // gitweb reads `parse_commit($hash_base)` for the header subject.
-    let commit: Commit = repo.find_commit(&to)?;
+    let title: String = blobdiff_title(repo, &to, file)?;
     Ok(BlobdiffView::new(
-        commit.title(),
+        title,
         file.to_path().to_owned(),
         file_parent,
     ))
+}
+
+/// The header title for a `blobdiff`: the base commit's subject when the base is
+/// a commit (gitweb's `parse_commit($hash_base)` succeeding), else the degenerate
+/// `"<new-id> vs <old-id>"` gitweb's `git_blobdiff` `else` branch prints — the
+/// resolved file's new-side then old-side blob ids (`$hash` and `$hash_parent`).
+///
+/// Reachable only for a base that is tree-ish but not a commit — a raw tree id in
+/// a hand-crafted URI; every changed-files / history / feed link carries a commit
+/// base. Gating on the kind keeps a genuine repository failure propagating rather
+/// than collapsing into a degenerate title. (An annotated tag, which gitweb's
+/// `parse_commit` would peel to its commit, is out of scope: no link emits one
+/// here, and a bare tag id does not peel.)
+fn blobdiff_title(
+    repo: &dyn Repository,
+    base: &ObjectId,
+    file: &FilePatch,
+) -> Result<String, DomainError> {
+    match repo.object_kind(base)? {
+        ObjectKind::Commit => {
+            let commit: Commit = repo.find_commit(base)?;
+            Ok(commit.title())
+        }
+        _ => Ok(format!(
+            "{} vs {}",
+            file.to_oid().as_str(),
+            file.from_oid().as_str()
+        )),
+    }
 }

@@ -936,6 +936,35 @@ async fn when_get_blobdiff(world: &mut WebWorld, file: String, project: String) 
     dispatch_capture(world, uri).await;
 }
 
+/// Resolves a blobdiff request's bases as TREE ids rather than commit ids: the
+/// HEAD commit's tree and its first parent's tree. A tree is tree-ish, so the
+/// single-file diff between them is the same — but a tree is not a commit, the
+/// hand-crafted URI gitweb's `git_blobdiff` `else` branch renders degenerately.
+fn head_tree_and_parent_tree(world: &WebWorld, project: &str) -> (String, String) {
+    let store: GixProjectStore = GixProjectStore::new(root(world).path().to_path_buf());
+    let repository: Box<dyn Repository> = store.open(project).expect("open the project");
+    let head: ObjectId = repository.resolve("HEAD").expect("resolve HEAD");
+    let commit: Commit = repository.find_commit(&head).expect("read the HEAD commit");
+    let parent: &ObjectId = commit
+        .parents()
+        .first()
+        .expect("the HEAD commit has a parent to diff against");
+    let parent_commit: Commit = repository
+        .find_commit(parent)
+        .expect("read the parent commit");
+    (
+        commit.tree().as_str().to_owned(),
+        parent_commit.tree().as_str().to_owned(),
+    )
+}
+
+#[when(regex = r#"^I GET the blobdiff of "([^"]*)" in "([^"]*)" with tree bases$"#)]
+async fn when_get_blobdiff_tree_bases(world: &mut WebWorld, file: String, project: String) {
+    let (head_tree, parent_tree): (String, String) = head_tree_and_parent_tree(world, &project);
+    let uri: String = format!("/?p={project}&a=blobdiff&hb={head_tree}&hpb={parent_tree}&f={file}");
+    dispatch_capture(world, uri).await;
+}
+
 #[when(regex = r#"^I GET the file diff of "([^"]*)" in "([^"]*)"$"#)]
 async fn when_get_file_diff(world: &mut WebWorld, file: String, project: String) {
     let (head, parent): (String, String) = head_and_parent(world, &project);

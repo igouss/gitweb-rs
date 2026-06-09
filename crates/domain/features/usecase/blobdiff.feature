@@ -8,6 +8,11 @@ Feature: The blobdiff use case (resolving the single file an html diff shows)
   new-side path, a rename's old path, and the commit subject. The diff bytes are
   fetched separately by the client viewer, so this use case never renders them.
 
+  When the base is not a commit (a tree reached by a hand-crafted URI), gitweb's
+  git_blobdiff falls back to a degenerate "<new-id> vs <old-id>" title built from
+  the resolved blob ids instead of a commit subject; the resolution still works
+  because a tree is tree-ish and the single-file diff is the same.
+
   The fake resolves both bases to the one fixture commit and ignores the
   from-side (it serves the fixture's whole patch), so these scenarios exercise
   the resolution and its error mapping, not the diff algorithm.
@@ -30,6 +35,16 @@ Feature: The blobdiff use case (resolving the single file an html diff shows)
     When I assemble the blobdiff of "new.rs" with base "HEAD" and parent base "base"
     Then the blobdiff file name is "new.rs"
     And the blobdiff file parent is "old.rs"
+
+  Scenario: A base that is not a commit gets the degenerate "new-id vs old-id" title
+    Given a commit "c0ffee" with author "Ada Lovelace <ada@example.com> 1000 +0000"
+    And the commit message is "Rework the engine"
+    And the commit object kind is "tree"
+    And the repository has branch "base" committed at 900
+    And the diff modifies "engine.rs"
+    When I assemble the blobdiff of "engine.rs" with base "HEAD" and parent base "base"
+    Then the blobdiff file name is "engine.rs"
+    And the blobdiff title pairs the new-side and old-side ids of "engine.rs"
 
   Scenario: A path the diff does not touch is not found
     Given a commit "c0ffee" with author "Ada Lovelace <ada@example.com> 1000 +0000"

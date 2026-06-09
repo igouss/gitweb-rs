@@ -30,6 +30,16 @@ Feature: Serving a single file's diff (blobdiff action + scoped clean diff)
     And the response body contains "f=new.txt"
     And the response body contains "fp=old.txt"
 
+  Scenario: a blobdiff whose base is a tree (not a commit) shows the degenerate title
+    Given a project root containing a commit repository "c.git"
+    And the blobdiff action is served
+    When I GET the blobdiff of "README" in "c.git" with tree bases
+    Then the response status is 200
+    And the response content type is "text/html; charset=utf-8"
+    And the response body contains "README"
+    And the response body contains " vs "
+    And the response body does not contain "Rework the engine"
+
   Scenario: a blobdiff for a path the diff does not touch is not found
     Given a project root containing a commit repository "c.git"
     And the blobdiff action is served
