@@ -94,6 +94,27 @@ impl Timestamp {
         )
     }
 
+    /// The RFC-2822 form in the commit's *own* timezone, e.g.
+    /// `"Sun, 7 Jun 2026 16:30:45 +0200"` — git's `DATE_RFC2822` (the email date
+    /// `format-patch` stamps on the `Date:` line). Unlike [`Self::rfc2822`],
+    /// which is always UTC with a hard `+0000`, this renders the *local* civil
+    /// fields (weekday included) and trails the real offset token. The day is
+    /// not zero-padded, matching git's `%-d`.
+    #[must_use]
+    pub fn rfc2822_local(&self) -> String {
+        format!(
+            "{}, {} {} {:4} {:02}:{:02}:{:02} {}",
+            WEEKDAY_NAMES[self.local.weekday as usize],
+            self.local.day,
+            MONTH_NAMES[(self.local.month - 1) as usize],
+            self.local.year,
+            self.local.hour,
+            self.local.minute,
+            self.local.second,
+            self.timezone,
+        )
+    }
+
     /// The ISO-8601 form in UTC, e.g. `"2026-06-07T14:30:45Z"`.
     #[must_use]
     pub fn iso8601(&self) -> String {

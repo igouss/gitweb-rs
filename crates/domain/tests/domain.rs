@@ -20,6 +20,7 @@ use gitweb_domain::model::commitdiff_plain::CommitdiffPlain;
 use gitweb_domain::model::config_chain::{ConfigChain, ConfigSlot};
 use gitweb_domain::model::content_type::PlainHeaders;
 use gitweb_domain::model::diff::{CombinedDiffEntry, CombinedParent};
+use gitweb_domain::model::diffstat::{Diffstat, DiffstatEntry, StatChange};
 use gitweb_domain::model::email_privacy::redact;
 use gitweb_domain::model::encoding::{FallbackEncoding, to_utf8};
 use gitweb_domain::model::export::{ExportPolicy, RepoFacts};
@@ -27,6 +28,7 @@ use gitweb_domain::model::feed::{comment_lines, feed_title, feed_window};
 use gitweb_domain::model::file_change::FileChangeNote;
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::forks::{ProjectGroup, partition_forks};
+use gitweb_domain::model::format_patch::{FormatPatch, PatchEntry};
 use gitweb_domain::model::grep::{GrepMatch, file_matches};
 use gitweb_domain::model::message_body::{LogLine, log_lines};
 use gitweb_domain::model::object_id::ObjectId;
@@ -105,6 +107,17 @@ struct DomainWorld {
     repo_facts: RepoFacts,
     visible: Option<bool>,
     patch_under_test: Option<Patch>,
+    diffstat_entries: Vec<DiffstatEntry>,
+    diffstat_text: Option<String>,
+    fp_commit_id: String,
+    fp_author: String,
+    fp_date: Option<Timestamp>,
+    fp_subject: String,
+    fp_number: Option<(usize, usize)>,
+    fp_body: Vec<String>,
+    fp_diff_body: String,
+    fp_entries: Vec<PatchEntry>,
+    fp_text: Option<String>,
     rendered: Option<String>,
     /// The single-file selection result: `None` until the When runs, then the
     /// inner `Option` distinguishes a found file's text from no match.
@@ -266,6 +279,14 @@ fn render_rfc2822(world: &mut DomainWorld) {
 #[when("I render its ISO-8601 form")]
 fn render_iso8601(world: &mut DomainWorld) {
     world.timestamp_text = world.timestamp.as_ref().map(|t: &Timestamp| t.iso8601());
+}
+
+#[when("I render its RFC-2822 local form")]
+fn render_rfc2822_local(world: &mut DomainWorld) {
+    world.timestamp_text = world
+        .timestamp
+        .as_ref()
+        .map(|t: &Timestamp| t.rfc2822_local());
 }
 
 #[when("I render its local form")]
@@ -1783,6 +1804,258 @@ fn then_patch_is(world: &mut DomainWorld, step: &Step) {
         .expect("scenario must supply a docstring")
         .trim_matches('\n');
     assert_eq!(rendered(world).trim_end_matches('\n'), expected);
+}
+
+// --- Diffstat (git format-patch --stat --summary) ----------------------------
+
+/// The zero (all-octal-zeros) mode of a side that does not exist, git's `0` mode
+/// (`is_set()` false): a created file has no old mode, a deleted file no new one.
+fn zero_mode() -> FileMode {
+    FileMode::from_octal("000000").expect("the zero mode is octal")
+}
+
+/// An octal mode token, parsed the way the diff feeds modes in.
+fn mode(octal: &str) -> FileMode {
+    FileMode::from_octal(octal).unwrap_or_else(|| panic!("{octal:?} is an octal mode"))
+}
+
+#[given("a diffstat")]
+fn given_diffstat(world: &mut DomainWorld) {
+    world.diffstat_entries = Vec::new();
+}
+
+#[given(regex = r#"^a created file "([^"]+)" mode "([^"]+)" with (\d+) added (\d+) deleted$"#)]
+fn given_diffstat_created(
+    world: &mut DomainWorld,
+    path: String,
+    octal: String,
+    added: u32,
+    deleted: u32,
+) {
+    world.diffstat_entries.push(DiffstatEntry::new(
+        ChangeStatus::added(),
+        zero_mode(),
+        mode(&octal),
+        path.clone(),
+        path,
+        StatChange::Text { added, deleted },
+    ));
+}
+
+#[given(regex = r#"^a deleted file "([^"]+)" mode "([^"]+)" with (\d+) added (\d+) deleted$"#)]
+fn given_diffstat_deleted(
+    world: &mut DomainWorld,
+    path: String,
+    octal: String,
+    added: u32,
+    deleted: u32,
+) {
+    world.diffstat_entries.push(DiffstatEntry::new(
+        ChangeStatus::deleted(),
+        mode(&octal),
+        zero_mode(),
+        path.clone(),
+        path,
+        StatChange::Text { added, deleted },
+    ));
+}
+
+#[given(regex = r#"^a modified file "([^"]+)" mode "([^"]+)" with (\d+) added (\d+) deleted$"#)]
+fn given_diffstat_modified(
+    world: &mut DomainWorld,
+    path: String,
+    octal: String,
+    added: u32,
+    deleted: u32,
+) {
+    let file_mode: FileMode = mode(&octal);
+    world.diffstat_entries.push(DiffstatEntry::new(
+        ChangeStatus::from_modification(file_mode, file_mode),
+        file_mode,
+        file_mode,
+        path.clone(),
+        path,
+        StatChange::Text { added, deleted },
+    ));
+}
+
+#[given(regex = r#"^a mode change on "([^"]+)" from "([^"]+)" to "([^"]+)"$"#)]
+fn given_diffstat_mode_change(world: &mut DomainWorld, path: String, from: String, to: String) {
+    let from_mode: FileMode = mode(&from);
+    let to_mode: FileMode = mode(&to);
+    world.diffstat_entries.push(DiffstatEntry::new(
+        ChangeStatus::from_modification(from_mode, to_mode),
+        from_mode,
+        to_mode,
+        path.clone(),
+        path,
+        StatChange::Text {
+            added: 0,
+            deleted: 0,
+        },
+    ));
+}
+
+#[given(regex = r#"^a renamed file from "([^"]+)" to "([^"]+)" similarity (\d+) mode "([^"]+)"$"#)]
+fn given_diffstat_renamed(
+    world: &mut DomainWorld,
+    from: String,
+    to: String,
+    similarity: u8,
+    octal: String,
+) {
+    let file_mode: FileMode = mode(&octal);
+    world.diffstat_entries.push(DiffstatEntry::new(
+        ChangeStatus::renamed(similarity),
+        file_mode,
+        file_mode,
+        from,
+        to,
+        StatChange::Text {
+            added: 0,
+            deleted: 0,
+        },
+    ));
+}
+
+#[given(regex = r#"^a binary file "([^"]+)" mode "([^"]+)" sized (\d+) to (\d+)$"#)]
+fn given_diffstat_binary(
+    world: &mut DomainWorld,
+    path: String,
+    octal: String,
+    old_size: u64,
+    new_size: u64,
+) {
+    let file_mode: FileMode = mode(&octal);
+    world.diffstat_entries.push(DiffstatEntry::new(
+        ChangeStatus::from_modification(file_mode, file_mode),
+        file_mode,
+        file_mode,
+        path.clone(),
+        path,
+        StatChange::Binary { old_size, new_size },
+    ));
+}
+
+#[when("I render the diffstat")]
+fn render_diffstat(world: &mut DomainWorld) {
+    let diffstat: Diffstat = Diffstat::new(std::mem::take(&mut world.diffstat_entries));
+    world.diffstat_text = Some(diffstat.render());
+}
+
+// --- FormatPatch (git format-patch mailbox framing) --------------------------
+
+#[given(
+    regex = r#"^a patch mail for commit "([^"]+)" by "([^"]+)" at epoch (-?\d+) zone "([^"]*)"$"#
+)]
+fn given_patch_mail(
+    world: &mut DomainWorld,
+    commit_id: String,
+    author: String,
+    epoch: i64,
+    zone: String,
+) {
+    world.fp_commit_id = commit_id;
+    world.fp_author = author;
+    world.fp_date = Some(Timestamp::new(epoch, &zone));
+    world.fp_subject = String::new();
+    world.fp_number = None;
+    world.fp_body = Vec::new();
+    world.fp_diff_body = String::new();
+    world.diffstat_entries = Vec::new();
+}
+
+#[given(regex = r#"^the patch subject is "([^"]*)"$"#)]
+fn given_patch_subject(world: &mut DomainWorld, subject: String) {
+    world.fp_subject = subject;
+}
+
+#[given(regex = r"^it is patch (\d+) of (\d+)$")]
+fn given_patch_number(world: &mut DomainWorld, index: usize, total: usize) {
+    world.fp_number = Some((index, total));
+}
+
+#[given(regex = r#"^the patch body line is "([^"]*)"$"#)]
+fn given_patch_body_line(world: &mut DomainWorld, line: String) {
+    world.fp_body.push(line);
+}
+
+#[given("the patch diff body is:")]
+fn given_patch_diff_body(world: &mut DomainWorld, step: &Step) {
+    world.fp_diff_body = format!(
+        "{}\n",
+        step.docstring
+            .as_deref()
+            .expect("a diff body docstring")
+            .trim_matches('\n')
+    );
+}
+
+#[given("the mail is complete")]
+fn given_mail_complete(world: &mut DomainWorld) {
+    let diffstat: Diffstat = Diffstat::new(std::mem::take(&mut world.diffstat_entries));
+    let entry: PatchEntry = PatchEntry::new(
+        std::mem::take(&mut world.fp_commit_id),
+        std::mem::take(&mut world.fp_author),
+        world.fp_date.take().expect("a patch mail date"),
+        std::mem::take(&mut world.fp_subject),
+        world.fp_number.take(),
+        std::mem::take(&mut world.fp_body),
+        diffstat,
+        std::mem::take(&mut world.fp_diff_body),
+    );
+    world.fp_entries.push(entry);
+}
+
+#[when(regex = r#"^I render the format-patch stream with version "([^"]*)"$"#)]
+fn render_format_patch(world: &mut DomainWorld, version: String) {
+    let stream: FormatPatch = FormatPatch::new(std::mem::take(&mut world.fp_entries), version);
+    world.fp_text = Some(stream.render());
+}
+
+#[then("the format-patch stream is:")]
+fn then_format_patch_is(world: &mut DomainWorld, step: &Step) {
+    let doc: &str = step
+        .docstring
+        .as_deref()
+        .expect("scenario must supply a docstring")
+        .trim_matches('\n');
+    // The doc-string drops the trailing space of git's `-- ` signature delimiter
+    // (and the stream's trailing blank); restore the delimiter to compare bytes.
+    let expected: String = doc
+        .lines()
+        .map(|line: &str| {
+            if line == "--" {
+                "-- ".to_owned()
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect::<Vec<String>>()
+        .join("\n");
+    let actual: &str = world.fp_text.as_deref().expect("render the stream first");
+    assert_eq!(actual.trim_end_matches('\n'), expected);
+}
+
+#[then("the diffstat is:")]
+fn then_diffstat_is(world: &mut DomainWorld, step: &Step) {
+    let doc: &str = step
+        .docstring
+        .as_deref()
+        .expect("scenario must supply a docstring")
+        .trim_matches('\n');
+    // git leads every diffstat line with a single space; the doc-string dedent
+    // strips that uniform column, so re-add it to compare against git's bytes.
+    let expected: String = doc
+        .lines()
+        .map(|line: &str| format!(" {line}"))
+        .collect::<Vec<String>>()
+        .join("\n");
+    let actual: &str = world
+        .diffstat_text
+        .as_deref()
+        .expect("render the diffstat first");
+    assert_eq!(actual.trim_end_matches('\n'), expected);
 }
 
 // --- commitdiff diff base ----------------------------------------------------

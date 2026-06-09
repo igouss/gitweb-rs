@@ -30,7 +30,7 @@ use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
     BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
     CommitdiffHandler, CommitdiffPlainHandler, FeedHandler, HeadsHandler, HistoryHandler,
-    LogHandler, ObjectHandler, OpmlHandler, ProjectIndexHandler, ProjectListHandler,
+    LogHandler, ObjectHandler, OpmlHandler, PatchHandler, ProjectIndexHandler, ProjectListHandler,
     RemotesHandler, ShortlogHandler, SnapshotHandler, SummaryHandler, TagHandler, TagsHandler,
     TreeHandler,
 };
@@ -570,6 +570,54 @@ fn given_commitdiff_plain_served(world: &mut WebWorld) {
         "http://localhost".to_owned(),
     ));
     world.dispatcher.register(Action::CommitdiffPlain, handler);
+}
+
+/// The git version the patch scenarios stamp on the mail signature — a fixed
+/// value, since the test does not run git; only that it is echoed matters.
+const PATCH_GIT_VERSION: &str = "2.54.0";
+
+/// Settings with the `patches` feature on (the built-in `16`) or off (`0`), the
+/// `$patch_max` the patch view's 403 gate reads.
+fn patches_settings(enabled: bool) -> Settings {
+    if enabled {
+        return Settings::builtin();
+    }
+    let mut features: BTreeMap<FeatureName, FeatureLayer> = BTreeMap::new();
+    features.insert(
+        FeatureName::Patches,
+        FeatureLayer {
+            default: Some(vec!["0".to_owned()]),
+            overridable: None,
+        },
+    );
+    let layer: SettingsLayer = SettingsLayer {
+        features,
+        ..SettingsLayer::default()
+    };
+    Settings::resolve(&[layer])
+}
+
+fn register_patch(world: &mut WebWorld, enabled: bool) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(patches_settings(enabled));
+    let handler: Arc<dyn Handler> = Arc::new(PatchHandler::new(
+        store,
+        settings,
+        PATCH_GIT_VERSION.to_owned(),
+    ));
+    world.dispatcher.register(Action::Patch, handler);
+}
+
+#[given("the patch action is served")]
+fn given_patch_served(world: &mut WebWorld) {
+    register_patch(world, true);
+}
+
+#[given("the patch action is served with the patches feature off")]
+fn given_patch_served_disabled(world: &mut WebWorld) {
+    register_patch(world, false);
 }
 
 #[given("the blobdiff_plain action is served")]

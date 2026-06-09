@@ -158,6 +158,18 @@ capture "blobdiff_plain/mode"   "p=repo.git;a=blobdiff_plain;f=mode.sh;$bases"
 capture "blobdiff_plain/binary" "p=repo.git;a=blobdiff_plain;f=bin.dat;$bases"
 capture "blobdiff_plain/rename" "p=repo.git;a=blobdiff_plain;f=new.txt;fp=old.txt;$bases"
 
+# patch is format-stable: gitweb streams `git format-patch --stdout` verbatim, a
+# `git am`-able mailbox (mail header + diffstat + diff + `-- `/git-version
+# signature). git's binary patch body is its own zlib output, which the gix-only
+# no-unsafe port cannot reproduce, so it is captured over the TEXT-ONLY `texts`
+# branch root commit (a --root create of two text files: the mailbox header, the
+# multi-file diffstat with its column alignment and `create mode` lines, the
+# create diff, the signature). By-hash like commitdiff_plain, so only the cache
+# headers are volatile; the golden compares the body.
+echo ">> capturing patch golden" >&2
+text_commit=$("$GIT" --git-dir="$project_root/repo.git" rev-parse texts)
+capture "patch/single" "p=repo.git;a=patch;h=$text_commit"
+
 # The feed body carries a <generator> version composite ($version/$git_version).
 # $version is pinned via VERSION-FILE above; $git_version is the capturing git's
 # version, which is not byte-stable across machines and is not part of the feed
@@ -166,5 +178,12 @@ capture "blobdiff_plain/rename" "p=repo.git;a=blobdiff_plain;f=new.txt;fp=old.tx
 git_version=$("$GIT" --version | sed -e 's/^git version //')
 mkdir -p "$crate_dir/goldens/feed"
 printf '%s' "gitweb-parity-corpus/$git_version" >"$crate_dir/goldens/feed/generator"
+
+# The patch mail's `-- ` signature carries the capturing git's version, which is
+# not byte-stable across machines and is not part of the format. Record it the
+# way the feed records its generator version, so the golden test stamps the same
+# value on its signature and the rest of the mail is compared to the byte.
+mkdir -p "$crate_dir/goldens/patch"
+printf '%s' "$git_version" >"$crate_dir/goldens/patch/version"
 
 echo ">> done. goldens under $crate_dir/goldens" >&2

@@ -27,11 +27,17 @@ use gitweb_git::GixProjectStore;
 use gitweb_web::{
     BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
     CommitdiffHandler, CommitdiffPlainHandler, Dispatcher, FeedHandler, Handler, HeadsHandler,
-    HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, ProjectIndexHandler,
+    HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, PatchHandler, ProjectIndexHandler,
     ProjectListHandler, RemotesHandler, ShortlogHandler, SnapshotHandler, SummaryHandler,
     TagHandler, TagsHandler, TreeHandler, router,
 };
 use tower_http::services::ServeDir;
+
+/// The git version stamped on a `patch` / `patches` mail's `-- ` signature when
+/// no `GITWEB_GIT_VERSION` override is set. gitweb-rs reconstructs git's
+/// `format-patch` rather than running git, so this is the version it claims;
+/// pinned to the git release this port tracks.
+const DEFAULT_GIT_VERSION: &str = "2.54.0";
 
 /// Assembles the full gitweb-rs router: a gix project store rooted at
 /// `projectroot`, the dispatch table populated with every handler this build
@@ -155,6 +161,13 @@ fn build_dispatcher(
         std::env::var("GITWEB_BASE_URL").unwrap_or_else(|_| "http://localhost".to_owned());
     let generator: String = concat!("gitweb-rs/", env!("CARGO_PKG_VERSION")).to_owned();
 
+    // The `patch` / `patches` mails carry a `git format-patch` signature stamped
+    // with the running git's version. gitweb-rs reconstructs format-patch rather
+    // than shelling out, so the version it reports is configured (gitweb's own
+    // would be its git's); the env override lets a deployment pin it.
+    let git_version: String =
+        std::env::var("GITWEB_GIT_VERSION").unwrap_or_else(|_| DEFAULT_GIT_VERSION.to_owned());
+
     // commitdiff_plain's `X-Git-Url` line is the request's absolute self URL.
     let commitdiff_plain: Arc<dyn Handler> = Arc::new(CommitdiffPlainHandler::new(
         Arc::clone(&store),
@@ -208,6 +221,16 @@ fn build_dispatcher(
         Arc::clone(&settings),
     ));
     dispatcher.register(Action::Snapshot, snapshot);
+
+    // The `patch` mail is `git format-patch` for one commit; its `patches` limit
+    // and 403 gate come from the resolved settings, its signature from the
+    // configured git version.
+    let patch: Arc<dyn Handler> = Arc::new(PatchHandler::new(
+        Arc::clone(&store),
+        Arc::clone(&settings),
+        git_version,
+    ));
+    dispatcher.register(Action::Patch, patch);
 
     let remotes: Arc<dyn Handler> = Arc::new(RemotesHandler::new(store, settings));
     dispatcher.register(Action::Remotes, remotes);

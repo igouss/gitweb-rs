@@ -251,6 +251,54 @@ impl FilePatch {
         &self.to_oid
     }
 
+    /// The old-side blob id: the pre-image whose size the diffstat reports for a
+    /// binary file (paired with [`to_oid`](Self::to_oid)).
+    #[must_use]
+    pub fn from_oid(&self) -> &ObjectId {
+        &self.from_oid
+    }
+
+    /// The change status (kind plus rename/copy similarity) — what the diffstat's
+    /// `--summary` line and stat name column are derived from.
+    #[must_use]
+    pub fn status(&self) -> ChangeStatus {
+        self.status
+    }
+
+    /// The pre-image file mode.
+    #[must_use]
+    pub fn from_mode(&self) -> FileMode {
+        self.from_mode
+    }
+
+    /// The post-image file mode.
+    #[must_use]
+    pub fn to_mode(&self) -> FileMode {
+        self.to_mode
+    }
+
+    /// The added/deleted line counts this file contributes to a diffstat, or
+    /// `None` for a binary file (whose magnitude is its byte sizes, not lines).
+    /// Counts the `+`/`-` lines across every hunk, git's per-file stat tally.
+    #[must_use]
+    pub fn line_counts(&self) -> Option<(u32, u32)> {
+        let FileContent::Text(hunks) = &self.content else {
+            return None;
+        };
+        let mut added: u32 = 0;
+        let mut deleted: u32 = 0;
+        for hunk in hunks {
+            for line in &hunk.lines {
+                match line.kind {
+                    HunkLineKind::Addition => added += 1,
+                    HunkLineKind::Deletion => deleted += 1,
+                    HunkLineKind::Context => {}
+                }
+            }
+        }
+        Some((added, deleted))
+    }
+
     /// Appends this file patch to `out`. Shared by [`Patch::render`] so a
     /// multi-file patch is one streamed concatenation, exactly as git emits it.
     /// `abbrev` truncates the `index` ids to that many hex characters (bare
@@ -385,6 +433,12 @@ impl Patch {
     #[must_use]
     pub fn new(files: Vec<FilePatch>) -> Self {
         Self { files }
+    }
+
+    /// The file patches, in git's display order — what a diffstat is built over.
+    #[must_use]
+    pub fn files(&self) -> &[FilePatch] {
+        &self.files
     }
 
     /// Renders the whole patch: each file patch's text, concatenated in order

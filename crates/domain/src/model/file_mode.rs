@@ -79,6 +79,15 @@ impl FileMode {
         format!("{:04o}", self.bits & 0o777)
     }
 
+    /// Whether the mode carries any bits — git's `if (fs->mode)` guard, true for
+    /// every real tree entry and false only for the all-zero mode of a side that
+    /// does not exist. git's `--summary` line drops the `mode <octal>` clause for
+    /// such a side.
+    #[must_use]
+    pub fn is_set(self) -> bool {
+        self.bits != 0
+    }
+
     /// Whether this mode names a regular file (executable or not) — gitweb's
     /// `S_ISREG`, the predicate under which `git_difftree_body` shows a file's
     /// permission bits. A directory, symlink, gitlink, or invalid mode is not.

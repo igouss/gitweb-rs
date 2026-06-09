@@ -27,7 +27,7 @@ pub use dispatch::{Dispatcher, Handler};
 pub use handlers::{
     BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
     CommitdiffHandler, CommitdiffPlainHandler, FeedHandler, HeadsHandler, HistoryHandler,
-    LogHandler, ObjectHandler, OpmlHandler, ProjectIndexHandler, ProjectListHandler,
+    LogHandler, ObjectHandler, OpmlHandler, PatchHandler, ProjectIndexHandler, ProjectListHandler,
     RemotesHandler, ShortlogHandler, SnapshotHandler, SummaryHandler, TagHandler, TagsHandler,
     TreeHandler,
 };

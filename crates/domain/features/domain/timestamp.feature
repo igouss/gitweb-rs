@@ -24,6 +24,23 @@ Feature: Absolute timestamp formatting
       | 1709208000 | +0000 | Thu, 29 Feb 2024 12:00:00 +0000 |
       | 1704067199 | +0000 | Sun, 31 Dec 2023 23:59:59 +0000 |
 
+  Scenario Outline: The RFC-2822 local form is the commit's own zone
+    The email date git format-patch stamps on a patch (`Date:`), rendered in the
+    commit's own timezone — its weekday and civil fields are the local date, the
+    day has no leading zero, and the real offset token trails (not the hard UTC
+    `+0000` of the feed form).
+
+    Given a timestamp at epoch <epoch> with timezone "<tz>"
+    When I render its RFC-2822 local form
+    Then the timestamp reads "<text>"
+
+    Examples:
+      | epoch      | tz    | text                            |
+      | 0          | +0000 | Thu, 1 Jan 1970 00:00:00 +0000  |
+      | 1700000000 | +0000 | Tue, 14 Nov 2023 22:13:20 +0000 |
+      | 1780842645 | +0200 | Sun, 7 Jun 2026 16:30:45 +0200  |
+      | 1704074400 | -0500 | Sun, 31 Dec 2023 21:00:00 -0500 |
+
   Scenario Outline: The ISO-8601 form is UTC, with a trailing Z
     Given a timestamp at epoch <epoch> with timezone "<tz>"
     When I render its ISO-8601 form

@@ -27,6 +27,7 @@ use gitweb_domain::usecase::blobdiff_plain::assemble_blobdiff_plain;
 use gitweb_domain::usecase::commitdiff_plain::assemble_commitdiff_plain;
 use gitweb_domain::usecase::feed::assemble_feed;
 use gitweb_domain::usecase::opml::{Opml, assemble_opml};
+use gitweb_domain::usecase::patch::assemble_patch;
 use gitweb_domain::usecase::project_index::{ProjectIndex, assemble_project_index};
 use gitweb_fixtures::ObjectId as FixtureOid;
 use gitweb_git::{GixProjectStore, GixRepository};
@@ -73,6 +74,11 @@ struct GoldenWorld {
     /// corpus `diffs` branch for one single-file surface.
     blobdiff_plain_body: Option<String>,
     blobdiff_plain_disposition: Option<String>,
+    /// The serialized patch (format-patch) mail stream and the Content-Disposition
+    /// our endpoint derives — the exact bytes and header the handler emits over the
+    /// corpus `texts` branch commit.
+    patch_body: Option<String>,
+    patch_disposition: Option<String>,
     golden: Option<Golden>,
 }
 
@@ -321,6 +327,40 @@ fn blobdiff_plain_body(world: &GoldenWorld) -> &str {
         .expect("serve the blobdiff_plain first")
 }
 
+/// The git version captured alongside the patch golden — the value git stamped
+/// on the format-patch `-- ` signature. git's version is not part of the mail
+/// format and is not byte-stable across machines, so injecting the captured
+/// value keeps the rest of the mail a byte-exact comparison.
+fn read_patch_version() -> String {
+    let path: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("goldens/patch/version");
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|err: std::io::Error| panic!("read {}: {err}", path.display()))
+}
+
+#[when("I serve the patch of the corpus texts commit")]
+fn serve_patch(world: &mut GoldenWorld) {
+    // Exactly what the handler emits over the by-hash request gitweb was captured
+    // with: the use case over the adapter for the corpus `texts` commit, the
+    // patches limit at its built-in default, the signature stamped with the
+    // captured git version, and the inline filename stamped with that hash.
+    let commit: String = corpus(world).text_commit.to_string();
+    let version: String = read_patch_version();
+    let stream = assemble_patch(repo(world), Some(&commit), 16, &version)
+        .expect("assemble the corpus patch");
+    world.patch_body = Some(stream.render());
+    world.patch_disposition = Some(format!(
+        "inline; filename=\"{}-{}.patch\"",
+        Corpus::PROJECT,
+        commit
+    ));
+    world.golden = Some(Golden::load("patch/single"));
+}
+
+/// The serialized patch body, or a panic if none was served.
+fn patch_body(world: &GoldenWorld) -> &str {
+    world.patch_body.as_deref().expect("serve the patch first")
+}
+
 // --- Then --------------------------------------------------------------------
 
 #[then("its body matches gitweb's reference output")]
@@ -471,6 +511,29 @@ fn blobdiff_plain_disposition_matches(world: &mut GoldenWorld) {
         .header("Content-Disposition")
         .expect("gitweb declares a Content-Disposition");
     assert_eq!(world.blobdiff_plain_disposition.as_deref(), Some(theirs));
+}
+
+#[then("the patch body matches gitweb's reference output")]
+fn patch_body_matches(world: &mut GoldenWorld) {
+    assert_eq!(patch_body(world).as_bytes(), golden(world).body());
+}
+
+#[then("the patch content type matches gitweb's")]
+fn patch_content_type_matches(world: &mut GoldenWorld) {
+    // gitweb sets `-type => 'text/plain', -charset => 'utf-8'`; our endpoint
+    // serves the same fixed type, so the whole Content-Type matches exactly.
+    let theirs: &str = golden(world)
+        .header("Content-Type")
+        .expect("gitweb declares a Content-Type");
+    assert_eq!("text/plain; charset=utf-8", theirs);
+}
+
+#[then("the patch content disposition matches gitweb's")]
+fn patch_disposition_matches(world: &mut GoldenWorld) {
+    let theirs: &str = golden(world)
+        .header("Content-Disposition")
+        .expect("gitweb declares a Content-Disposition");
+    assert_eq!(world.patch_disposition.as_deref(), Some(theirs));
 }
 
 #[tokio::main]

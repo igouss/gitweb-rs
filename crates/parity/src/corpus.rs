@@ -40,6 +40,12 @@ pub struct Corpus {
     pub diff_parent: ObjectId,
     /// The head commit of the `diffs` branch — the `blobdiff_plain` goldens' `hb`.
     pub diff_head: ObjectId,
+    /// The text-only root commit of the `texts` branch — the `patch` golden's
+    /// `h`. `git format-patch`'s binary patch body is git's own zlib output,
+    /// which the gix-only, no-unsafe port cannot reproduce byte-exact, so the
+    /// format-patch golden is captured over a commit with no binary file. Off a
+    /// branch other than `HEAD`, so every other golden is byte-identical.
+    pub text_commit: ObjectId,
 }
 
 impl Corpus {
@@ -69,6 +75,14 @@ impl Corpus {
     pub const DIFF_RENAME_FROM: &'static str = "old.txt";
     /// The rename's to-path (the `f=` of the rename golden).
     pub const DIFF_RENAME_TO: &'static str = "new.txt";
+
+    /// The `texts` branch's two text files, created by its one commit — the
+    /// surface a single-commit `patch` golden frames: the mailbox header, the
+    /// multi-file diffstat (name/number column alignment, `create mode` lines),
+    /// and the create diff, all byte-for-byte against `git format-patch`.
+    pub const TEXT_GREETING: &'static str = "greeting.txt";
+    /// The second text file the `texts` commit creates.
+    pub const TEXT_PROGRAM: &'static str = "prog.py";
 
     /// The object id of the blob named `name`.
     ///
@@ -216,6 +230,40 @@ fn build_diffs_branch(builder: &RepoBuilder, who: &Identity) -> (ObjectId, Objec
     (parent, head)
 }
 
+/// The text-only `texts` branch the `patch` golden is captured over: one root
+/// commit creating two text files, with a subject-plus-body message. A root
+/// commit makes `git format-patch -1 --root` a `--root` create diff (`/dev/null`
+/// from-side, `create mode` summary lines), and two files of different name
+/// lengths and change counts exercise the diffstat's column alignment. No binary
+/// file, so the whole mail — header, diffstat, diff, signature — is reproducible
+/// byte-for-byte. It hangs off a branch other than `HEAD`, leaving every other
+/// golden untouched.
+///
+/// Returns the commit id — the golden's `h`.
+fn build_texts_branch(builder: &RepoBuilder, who: &Identity) -> ObjectId {
+    let tree: ObjectId = builder.tree(&[
+        TreeEntry {
+            name: Corpus::TEXT_GREETING.to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(b"hello\nworld\n"),
+        },
+        TreeEntry {
+            name: Corpus::TEXT_PROGRAM.to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(b"print('hi')\n"),
+        },
+    ]);
+    let commit: ObjectId = builder.commit(&CommitSpec {
+        tree,
+        parents: Vec::new(),
+        author: who.clone(),
+        committer: who.clone(),
+        message: "Add greeting and program\n\nThe first text-only commit.\n".to_owned(),
+    });
+    builder.branch("texts", commit);
+    commit
+}
+
 /// Pins the project's `gitweb.owner` config and `description` file, so the feed
 /// metadata is reproducible across machines. Both gitweb (at capture) and the
 /// gix adapter (at test time) read these back; written to the files directly,
@@ -297,6 +345,11 @@ pub fn build(project_root: &Path) -> Corpus {
     // the single-commit goldens are unaffected.
     let (diff_parent, diff_head): (ObjectId, ObjectId) = build_diffs_branch(&builder, &who);
 
+    // The text-only `texts` branch the format-patch (`patch`) golden frames; like
+    // the `diffs` branch it hangs off no other ref, so HEAD and every existing
+    // golden stay byte-identical.
+    let text_commit: ObjectId = build_texts_branch(&builder, &who);
+
     pin_metadata(&repo_path);
 
     Corpus {
@@ -305,5 +358,6 @@ pub fn build(project_root: &Path) -> Corpus {
         blobs,
         diff_parent,
         diff_head,
+        text_commit,
     }
 }

@@ -27,6 +27,7 @@ use gitweb_domain::model::diff::{
 use gitweb_domain::model::encoding::FallbackEncoding;
 use gitweb_domain::model::feed::{Feed, FeedEntry, FeedFile};
 use gitweb_domain::model::file_mode::FileMode;
+use gitweb_domain::model::format_patch::FormatPatch;
 use gitweb_domain::model::grep::GrepResults;
 use gitweb_domain::model::message_body::LogLine;
 use gitweb_domain::model::object_id::ObjectId;
@@ -59,6 +60,7 @@ use gitweb_domain::usecase::history::{HistoryRow, HistoryView, assemble_history}
 use gitweb_domain::usecase::log::{LogRow, LogView, assemble_log};
 use gitweb_domain::usecase::object::{ObjectRedirect, assemble_object_redirect};
 use gitweb_domain::usecase::opml::{Opml, OpmlProject, assemble_opml};
+use gitweb_domain::usecase::patch::assemble_patch;
 use gitweb_domain::usecase::project_index::{
     ProjectIndex, ProjectIndexRow, assemble_project_index,
 };
@@ -196,6 +198,7 @@ struct UsecaseWorld {
     commit_result: Option<Result<CommitView, DomainError>>,
     commitdiff_result: Option<Result<String, DomainError>>,
     commitdiff_plain_result: Option<Result<CommitdiffPlain, DomainError>>,
+    patch_result: Option<Result<FormatPatch, DomainError>>,
     /// The file patches accumulated by the blobdiff_plain scenarios; the When
     /// folds them into the fixture's whole-tree patch before assembling.
     blobdiff_files: Vec<FilePatch>,
@@ -3491,6 +3494,61 @@ fn then_commitdiff_plain_no_id_line(world: &mut UsecaseWorld) {
         !body.lines().any(|line: &str| line == id),
         "expected commitdiff_plain body to have no bare commit-id line {id:?}, got:\n{body}"
     );
+}
+
+// --- patch (format-patch single) ---------------------------------------------
+
+#[given(regex = r#"^the commit has subject "([^"]*)" and body "([^"]*)"$"#)]
+fn given_commit_subject_and_body(world: &mut UsecaseWorld, subject: String, body: String) {
+    commit_fixture_mut(world).message = format!("{subject}\n\n{body}\n");
+}
+
+#[when(regex = r#"^I assemble the patch for "([^"]*)" with limit (\d+) and version "([^"]*)"$"#)]
+fn assemble_patch_step(world: &mut UsecaseWorld, rev: String, limit: usize, version: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.patch_result = Some(assemble_patch(&repo, Some(&rev), limit, &version));
+}
+
+/// Renders the assembled patch stream (asserting the use case succeeded).
+fn patch_stream(world: &UsecaseWorld) -> String {
+    match world
+        .patch_result
+        .as_ref()
+        .expect("assemble the patch first")
+    {
+        Ok(stream) => stream.render(),
+        Err(error) => panic!("expected a patch stream, got error: {error:?}"),
+    }
+}
+
+#[then(regex = r#"^the patch stream contains "(.*)"$"#)]
+fn then_patch_contains(world: &mut UsecaseWorld, expected: String) {
+    let stream: String = patch_stream(world);
+    assert!(
+        stream.contains(&expected),
+        "expected patch stream to contain {expected:?}, got:\n{stream}"
+    );
+}
+
+#[then(regex = r#"^the patch stream has a line "(.*)"$"#)]
+fn then_patch_has_line(world: &mut UsecaseWorld, expected: String) {
+    let stream: String = patch_stream(world);
+    assert!(
+        stream.lines().any(|line: &str| line == expected),
+        "expected patch stream to have the exact line {expected:?}, got:\n{stream}"
+    );
+}
+
+#[then(regex = r#"^assembling the patch fails with "(.*)"$"#)]
+fn then_patch_fails(world: &mut UsecaseWorld, expected: String) {
+    match world
+        .patch_result
+        .as_ref()
+        .expect("assemble the patch first")
+    {
+        Ok(stream) => panic!("expected a failure, got stream:\n{}", stream.render()),
+        Err(error) => assert_eq!(error.message(), expected),
+    }
 }
 
 // --- blobdiff_plain ----------------------------------------------------------
