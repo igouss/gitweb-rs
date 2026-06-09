@@ -52,6 +52,7 @@ use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::snapshot::{
     ArchiveFormat, enabled_formats, select_format, snapshot_name,
 };
+use gitweb_domain::model::tag_age::TagAge;
 use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_domain::model::url::unescape;
 
@@ -201,6 +202,9 @@ struct DomainWorld {
     snapshot_hash: String,
     snapshot_short: String,
     snapshot_name_out: Option<String>,
+    tag_age_now: i64,
+    tag_age_creation: Option<i64>,
+    tag_age_result: Option<TagAge>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -259,6 +263,52 @@ fn age_reads(world: &mut DomainWorld, expected: String) {
 fn class_is(world: &mut DomainWorld, expected: String) {
     let actual: AgeClass = world.class.expect("classify before asserting");
     assert_eq!(format!("{actual:?}"), expected);
+}
+
+// --- tag listing age (TagAge::classify) --------------------------------------
+
+#[given(regex = r"^the tag request time is (-?\d+)$")]
+fn given_tag_age_now(world: &mut DomainWorld, now: i64) {
+    world.tag_age_now = now;
+}
+
+#[given(regex = r"^a tag created at (-?\d+)$")]
+fn given_tag_created_at(world: &mut DomainWorld, epoch: i64) {
+    world.tag_age_creation = Some(epoch);
+}
+
+#[given("a tag with no recorded creation time")]
+fn given_tag_no_creation(world: &mut DomainWorld) {
+    world.tag_age_creation = None;
+}
+
+#[when("I classify the tag age")]
+fn classify_tag_age(world: &mut DomainWorld) {
+    world.tag_age_result = Some(TagAge::classify(world.tag_age_creation, world.tag_age_now));
+}
+
+#[then(regex = r#"^the tag age is "([^"]*)"$"#)]
+fn tag_age_is_known(world: &mut DomainWorld, expected: String) {
+    let TagAge::Known(age) = world.tag_age_result.expect("classify the tag age first") else {
+        panic!("expected a known tag age");
+    };
+    assert_eq!(age.humanized(), expected);
+}
+
+#[then("the tag age is unknown")]
+fn tag_age_is_unknown(world: &mut DomainWorld) {
+    assert_eq!(
+        world.tag_age_result.expect("classify the tag age first"),
+        TagAge::Unknown
+    );
+}
+
+#[then("the tag age has no cell")]
+fn tag_age_is_absent(world: &mut DomainWorld) {
+    assert_eq!(
+        world.tag_age_result.expect("classify the tag age first"),
+        TagAge::Absent
+    );
 }
 
 #[given(regex = r#"^a timestamp at epoch (-?\d+) with timezone "(.*)"$"#)]

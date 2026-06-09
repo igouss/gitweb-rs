@@ -52,10 +52,16 @@ Feature: Rendering the tags table
     And the result does not contain "shortlog"
     And the result does not contain "/r/tt/raw"
 
-  Scenario: a tag with no creation time shows an unknown age
+  Scenario: a zero-timed tag shows an unknown age
     Given an annotated commit tag "v1.0" at "/r/v1" subject "Release 1.0" with an unknown age
     When I render the tags table
     Then the result contains "unknown"
+
+  Scenario: a lightweight tag of a blob has an empty age cell, not "unknown"
+    Given a lightweight blob tag "rawblob" at "/r/rb" with no age cell
+    When I render the tags table
+    Then the result contains "<td class="age"></td>"
+    And the result does not contain "unknown"
 
   Scenario: a long subject is chopped and keeps the full text as a title
     Given an annotated commit tag "v1.0" at "/r/v1" subject "This is a very long tag annotation subject that runs well past the limit" aged 600

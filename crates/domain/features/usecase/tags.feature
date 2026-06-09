@@ -6,8 +6,10 @@ Feature: Listing a project's tags (tags action)
   by its tagger time. A LIGHTWEIGHT tag points straight at its object: its reftype
   is that object's kind, it has no subject, and a lightweight tag of a commit ages
   by the commit's committer time. Ordering matches gitweb's --sort=-creatordate:
-  newest first. A tag with no creation time has an unknown age, and a repository
-  with no tags lists nothing without failing.
+  newest first. The age has THREE states: a tag or commit ref with a real time
+  shows its age; a tag or commit ref with a zero time shows "unknown"; a
+  lightweight tag of a blob or tree — kinds that carry no creator date — has no
+  age at all. A repository with no tags lists nothing without failing.
 
   Background:
     Given the current time is 1000000
@@ -78,7 +80,17 @@ Feature: Listing a project's tags (tags action)
     When I assemble the tags
     Then the tag "v1.0" shows the age "10 min ago"
 
-  Scenario: a tag with no creation time has an unknown age
+  Scenario: a commit tag with a zero creation time has an unknown age
     Given a lightweight tag "rc1" on a commit at 0
     When I assemble the tags
-    Then the tag "rc1" has no age
+    Then the tag "rc1" has an unknown age
+
+  Scenario: a lightweight tag of a blob has no age cell at all
+    Given a lightweight tag "rawblob" on a blob
+    When I assemble the tags
+    Then the tag "rawblob" has no age cell
+
+  Scenario: a lightweight tag of a tree has no age cell at all
+    Given a lightweight tag "snap" on a tree
+    When I assemble the tags
+    Then the tag "snap" has no age cell

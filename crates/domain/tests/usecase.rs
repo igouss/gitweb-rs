@@ -42,6 +42,7 @@ use gitweb_domain::model::remote::{Remote, RemoteUrl};
 use gitweb_domain::model::settings::{FeatureLayer, FeatureName, Settings, SettingsLayer};
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::tag::Tag;
+use gitweb_domain::model::tag_age::TagAge;
 use gitweb_domain::model::tree::{Tree, TreeEntry};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::{
@@ -1602,16 +1603,20 @@ fn tag_has_reftype(world: &mut UsecaseWorld, name: String, expected: String) {
 
 #[then(regex = r#"^the tag "([^"]*)" shows the age "([^"]*)"$"#)]
 fn tag_shows_age(world: &mut UsecaseWorld, name: String, expected: String) {
-    let humanized: String = tag_row(world, &name)
-        .age()
-        .expect("the tag has an age")
-        .humanized();
-    assert_eq!(humanized, expected);
+    let TagAge::Known(age) = tag_row(world, &name).age() else {
+        panic!("expected a known tag age");
+    };
+    assert_eq!(age.humanized(), expected);
 }
 
-#[then(regex = r#"^the tag "([^"]*)" has no age$"#)]
-fn tag_has_no_age(world: &mut UsecaseWorld, name: String) {
-    assert_eq!(tag_row(world, &name).age(), None);
+#[then(regex = r#"^the tag "([^"]*)" has an unknown age$"#)]
+fn tag_has_unknown_age(world: &mut UsecaseWorld, name: String) {
+    assert_eq!(tag_row(world, &name).age(), TagAge::Unknown);
+}
+
+#[then(regex = r#"^the tag "([^"]*)" has no age cell$"#)]
+fn tag_has_no_age_cell(world: &mut UsecaseWorld, name: String) {
+    assert_eq!(tag_row(world, &name).age(), TagAge::Absent);
 }
 
 // --- single tag view: accessors ----------------------------------------------

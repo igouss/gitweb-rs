@@ -8,6 +8,7 @@ use cucumber::{World, given, then, when};
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::age::{Age, AgeClass};
 use gitweb_domain::model::message_body::LogLine;
+use gitweb_domain::model::tag_age::TagAge;
 use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_render::age::age_class_name;
 use gitweb_render::blob::{BlobContent, BlobLine, blob_content};
@@ -1003,7 +1004,7 @@ fn tag_entry(
     name: &str,
     base: &str,
     subject: Option<String>,
-    age: Option<Age>,
+    age: TagAge,
     reftype: TagReftype,
 ) -> TagEntryView {
     let annotated: bool = subject.is_some();
@@ -1038,7 +1039,7 @@ fn given_annotated_commit_tag(
         &name,
         &base,
         Some(subject),
-        Some(Age::from_seconds(age_seconds)),
+        TagAge::Known(Age::from_seconds(age_seconds)),
         commit_reftype(&base),
     ));
 }
@@ -1056,9 +1057,19 @@ fn given_annotated_commit_tag_unknown_age(
         &name,
         &base,
         Some(subject),
-        None,
+        TagAge::Unknown,
         commit_reftype(&base),
     ));
+}
+
+#[given(regex = r#"^a lightweight blob tag "([^"]*)" at "([^"]*)" with no age cell$"#)]
+fn given_lightweight_blob_tag_absent(world: &mut RenderWorld, name: String, base: String) {
+    let reftype: TagReftype = TagReftype::Blob {
+        raw: format!("{base}/raw"),
+    };
+    world
+        .tag_entries
+        .push(tag_entry(&name, &base, None, TagAge::Absent, reftype));
 }
 
 #[given(regex = r#"^a lightweight commit tag "([^"]*)" at "([^"]*)" aged (\d+)$"#)]
@@ -1072,7 +1083,7 @@ fn given_lightweight_commit_tag(
         &name,
         &base,
         None,
-        Some(Age::from_seconds(age_seconds)),
+        TagAge::Known(Age::from_seconds(age_seconds)),
         commit_reftype(&base),
     ));
 }
@@ -1092,7 +1103,7 @@ fn given_annotated_blob_tag(
         &name,
         &base,
         Some(subject),
-        Some(Age::from_seconds(age_seconds)),
+        TagAge::Known(Age::from_seconds(age_seconds)),
         reftype,
     ));
 }
@@ -1109,7 +1120,7 @@ fn given_annotated_tree_tag(
         &name,
         &base,
         Some(subject),
-        Some(Age::from_seconds(age_seconds)),
+        TagAge::Known(Age::from_seconds(age_seconds)),
         TagReftype::Tree,
     ));
 }

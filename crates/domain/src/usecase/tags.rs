@@ -23,12 +23,12 @@
 use std::cmp::Ordering;
 
 use crate::error::DomainError;
-use crate::model::age::Age;
 use crate::model::commit::Commit;
 use crate::model::object_id::ObjectId;
 use crate::model::object_kind::ObjectKind;
 use crate::model::reference::Reference;
 use crate::model::tag::Tag;
+use crate::model::tag_age::TagAge;
 use crate::port::repository::Repository;
 
 /// One tag as it appears on the tags listing.
@@ -41,7 +41,7 @@ pub struct TagRow {
     refid: ObjectId,
     subject: Option<String>,
     annotated: bool,
-    age: Option<Age>,
+    age: TagAge,
 }
 
 impl TagRow {
@@ -93,10 +93,11 @@ impl TagRow {
         self.annotated
     }
 
-    /// The tag's age relative to the request time, or `None` when it carries no
-    /// creation time (gitweb's "unknown").
+    /// The tag's listing age — gitweb's three states: a relative age, the
+    /// "unknown" of a tag/commit ref with a zero time, or no cell at all for a
+    /// lightweight tag of a blob or tree (see [`TagAge`]).
     #[must_use]
-    pub fn age(&self) -> Option<Age> {
+    pub fn age(&self) -> TagAge {
         self.age
     }
 }
@@ -116,8 +117,11 @@ impl TagsView {
 }
 
 /// A tag enriched with the bits that decide its order, before it becomes a
-/// display row: its creation epoch (the `-creatordate` sort key, also the age
-/// source) and the display fields.
+/// display row: its creation time (the `-creatordate` sort key, also the age
+/// source) and the display fields. `creation` is `Some(epoch)` only for the
+/// kinds that carry a creator date — a tag or commit ref — and `None` for a
+/// lightweight tag of a blob or tree, exactly as gitweb's `git_get_tags_list`
+/// records it.
 struct TagEntry {
     name: String,
     full_name: String,
@@ -126,7 +130,7 @@ struct TagEntry {
     refid: ObjectId,
     subject: Option<String>,
     annotated: bool,
-    epoch: i64,
+    creation: Option<i64>,
 }
 
 /// Assembles the tags page over the [`Repository`] port. `now` is the
@@ -154,7 +158,7 @@ pub fn assemble_tags(repo: &dyn Repository, now: i64) -> Result<TagsView, Domain
             refid: entry.refid,
             subject: entry.subject,
             annotated: entry.annotated,
-            age: age_of(entry.epoch, now),
+            age: TagAge::classify(entry.creation, now),
         })
         .collect();
     Ok(TagsView { rows })
@@ -175,12 +179,13 @@ fn entry_for(repo: &dyn Repository, reference: &Reference) -> Result<TagEntry, D
             Ok(lightweight_entry(
                 reference,
                 ObjectKind::Commit,
-                commit.committer().epoch(),
+                Some(commit.committer().epoch()),
             ))
         }
         // A lightweight tag of a blob or tree carries no creation time: gitweb
-        // only reads one for a tag object or a commit.
-        other => Ok(lightweight_entry(reference, other, 0)),
+        // only reads one for a tag object or a commit, so the row has no age
+        // cell at all (not "unknown").
+        other => Ok(lightweight_entry(reference, other, None)),
     }
 }
 
@@ -197,13 +202,17 @@ fn annotated_entry(reference: &Reference, tag: &Tag) -> TagEntry {
         refid: tag.object().clone(),
         subject: Some(subject_line(tag.message())),
         annotated: true,
-        epoch: tag.tagger().map_or(0, |who| who.epoch()),
+        // A tag object always carries a creator date (gitweb's `type eq "tag"`);
+        // a missing tagger leaves it zero, which renders "unknown".
+        creation: Some(tag.tagger().map_or(0, |who| who.epoch())),
     }
 }
 
 /// Builds the display fields of a lightweight tag: its reftype is the object's
 /// own kind, its refid is the object itself, and it carries no subject.
-fn lightweight_entry(reference: &Reference, kind: ObjectKind, epoch: i64) -> TagEntry {
+/// `creation` is `Some` for a commit (its committer time) and `None` for a blob
+/// or tree, which carry no creator date.
+fn lightweight_entry(reference: &Reference, kind: ObjectKind, creation: Option<i64>) -> TagEntry {
     let target: ObjectId = reference.target().clone();
     TagEntry {
         name: reference.short().into_owned(),
@@ -213,7 +222,7 @@ fn lightweight_entry(reference: &Reference, kind: ObjectKind, epoch: i64) -> Tag
         refid: target,
         subject: None,
         annotated: false,
-        epoch,
+        creation,
     }
 }
 
@@ -228,19 +237,11 @@ fn subject_line(message: &str) -> String {
 }
 
 /// gitweb's `--sort=-creatordate` order: newest creation first, then ref name
-/// ascending (git's implicit final key).
+/// ascending (git's implicit final key). A ref with no creator date (a blob or
+/// tree tag) sorts as gitweb's empty creatordate does — oldest, hence last.
 fn order_tags(a: &TagEntry, b: &TagEntry) -> Ordering {
-    b.epoch
-        .cmp(&a.epoch)
+    b.creation
+        .unwrap_or(0)
+        .cmp(&a.creation.unwrap_or(0))
         .then_with(|| a.full_name.cmp(&b.full_name))
-}
-
-/// The tag's age relative to `now`, or `None` when it carries no creation time
-/// (gitweb renders this as "unknown").
-fn age_of(epoch: i64, now: i64) -> Option<Age> {
-    if epoch == 0 {
-        None
-    } else {
-        Some(Age::from_seconds(now - epoch))
-    }
 }

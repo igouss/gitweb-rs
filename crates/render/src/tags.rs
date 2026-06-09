@@ -9,8 +9,8 @@
 //! finished hrefs and only decides layout, escaping, the subject chop, and the
 //! recency CSS hook. The age is a domain [`Age`]; an absent age is "unknown".
 
-use gitweb_domain::model::age::Age;
 use gitweb_domain::model::chop::{ChopMode, chop_str};
+use gitweb_domain::model::tag_age::TagAge;
 
 use crate::age::age_class_name;
 use crate::chrome::{Crumb, MoreLink, NavItem, PageFooter, footer, page_header, page_nav};
@@ -59,8 +59,9 @@ impl TagReftype {
 /// creation age.
 #[derive(Debug, Clone)]
 pub struct TagEntryView {
-    /// Creation age, or `None` for a tag with no creation time ("unknown").
-    pub age: Option<Age>,
+    /// The tag's listing age, in gitweb's three states: a relative age, the
+    /// "unknown" of a zero-timed tag/commit ref, or no cell for a blob/tree tag.
+    pub age: TagAge,
     /// Short tag name, shown and linked to the tagged object.
     pub name: String,
     /// URL of the tagged object (gitweb's `href(action=>reftype, hash=>refid)`);
@@ -155,13 +156,16 @@ fn tag_row(row: &TagEntryView) -> Markup {
     }
 }
 
-/// The age cell: gitweb's relative creation age coloured by recency, or
-/// "unknown" for a tag with no creation time (gitweb's `$tag{'age'}` absent).
-fn age_cell(age: Option<Age>) -> Markup {
+/// The age cell, in gitweb's three states: a relative creation age coloured by
+/// recency (`Known`), the literal "unknown" for a zero-timed tag/commit ref
+/// (`Unknown`), or an empty cell for a lightweight tag of a blob or tree
+/// (`Absent`) — gitweb's `$tag{'age'}` undefined, printed as `<td></td>`.
+fn age_cell(age: TagAge) -> Markup {
     html! {
         @match age {
-            Some(age) => td class={ "age " (age_class_name(age.class())) } { (age.humanized()) },
-            None => td class="age age-unknown" { "unknown" },
+            TagAge::Known(age) => td class={ "age " (age_class_name(age.class())) } { (age.humanized()) },
+            TagAge::Unknown => td class="age age-unknown" { "unknown" },
+            TagAge::Absent => td class="age" {},
         }
     }
 }

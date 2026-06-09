@@ -26,6 +26,16 @@ Feature: Serving a project's tags (tags action)
     Then the response status is 200
     And the response body contains ">tag<"
 
+  Scenario: a lightweight tag of a blob shows an empty age cell, not "unknown"
+    Given a repository "repo.git" with an unborn HEAD
+    And the repository "repo.git" has a lightweight tag "rawblob" of a blob
+    And the tags action is served
+    When I GET "/?p=repo.git&a=tags"
+    Then the response status is 200
+    And the response body contains "rawblob"
+    And the response body contains "<td class="age"></td>"
+    And the response body does not contain "unknown"
+
   Scenario: a repository with no tags serves an empty tags page
     Given a repository "void.git" with an unborn HEAD
     And the tags action is served

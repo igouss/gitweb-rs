@@ -47,6 +47,7 @@ pub mod settings;
 pub mod signature;
 pub mod snapshot;
 pub mod tag;
+pub mod tag_age;
 pub mod timestamp;
 pub mod tree;
 pub mod url;

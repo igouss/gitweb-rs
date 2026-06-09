@@ -187,6 +187,11 @@ fn given_repo_lightweight_tag(world: &mut WebWorld, name: String, tag: String, e
     root(world).add_tag_at(&name, &tag, epoch);
 }
 
+#[given(regex = r#"^the repository "([^"]*)" has a lightweight tag "([^"]*)" of a blob$"#)]
+fn given_repo_lightweight_blob_tag(world: &mut WebWorld, name: String, tag: String) {
+    root(world).add_lightweight_blob_tag(&name, &tag);
+}
+
 // --- Whens -------------------------------------------------------------------
 
 #[when(regex = r#"^I resolve the path "(.*)" with no query$"#)]

@@ -428,6 +428,16 @@ impl ProjectRoot {
         builder.lightweight_tag(tag, commit);
     }
 
+    /// Points a lightweight `refs/tags/<tag>` straight at a blob in the
+    /// repository at `name`. A tag of a non-commit object carries no creator
+    /// date, so gitweb's tag listing shows it with no age cell at all (not
+    /// "unknown") — the empty-age case the listing must distinguish.
+    pub fn add_lightweight_blob_tag(&self, name: &str, tag: &str) {
+        let builder: RepoBuilder = RepoBuilder::open_at(&self.dir.path().join(name));
+        let blob: gix::ObjectId = builder.blob(tag.as_bytes());
+        builder.lightweight_tag(tag, blob);
+    }
+
     /// Writes an annotated `refs/tags/<tag>` pointing at a fresh commit committed
     /// at `epoch` in the repository at `name`, with the tagger time set to the
     /// same `epoch` and the given annotation message. This is the annotated
