@@ -20,6 +20,7 @@ use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::diff::{CombinedDiff, CombinedDiffEntry, CombinedParent, Diff};
 use gitweb_domain::model::file_mode::{FileKind, FileMode};
 use gitweb_domain::model::grep::{GREP_MATCH_LIMIT, GrepMatch, GrepResults, file_matches};
+use gitweb_domain::model::grep_pattern::GrepPattern;
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::patch::{FilePatch, Patch};
@@ -852,8 +853,8 @@ impl Repository for GixRepository {
         }
     }
 
-    fn grep(&self, revision: &ObjectId, pattern: &str) -> Result<GrepResults, DomainError> {
-        // gitweb's `git grep -n -z -F <pattern> <tree>`: gix has no git-grep, so
+    fn grep(&self, revision: &ObjectId, pattern: &GrepPattern) -> Result<GrepResults, DomainError> {
+        // gitweb's `git grep -n -z <pattern> <tree>`: gix has no git-grep, so
         // walk the tree's leaves (path order, recursing into subtrees) and grep
         // each *regular file* blob. git greps only regular files, so symlinks
         // (a blob, but a link target) and gitlinks (a commit, no content) are

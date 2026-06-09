@@ -817,6 +817,11 @@ fn given_search_served_disabled(world: &mut WebWorld) {
     register_search(world, search_off_settings());
 }
 
+#[given("the search action is served with grep disabled")]
+fn given_search_served_grep_disabled(world: &mut WebWorld) {
+    register_search(world, grep_pickaxe_off_settings());
+}
+
 /// Registers the search handler over the given settings.
 fn register_search(world: &mut WebWorld, settings: Settings) {
     ensure_root(world);

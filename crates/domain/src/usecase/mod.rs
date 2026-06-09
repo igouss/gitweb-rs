@@ -16,6 +16,7 @@ pub mod commit;
 pub mod commitdiff;
 pub mod commitdiff_plain;
 pub mod feed;
+pub mod grep;
 pub mod heads;
 pub mod history;
 pub mod log;

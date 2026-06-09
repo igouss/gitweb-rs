@@ -1,4 +1,11 @@
-//! Search-result snippet highlight — gitweb's `git_search_grep_body` line rule.
+//! Search-result match highlighting — the two ways gitweb marks a matched span.
+//!
+//! [`highlight_line`] is the commit-search rule (`git_search_grep_body`): it
+//! splits a message line at the match and *trims* each part so the result row
+//! stays compact. [`highlight_full`] is the grep rule (`git_search_files`): the
+//! same split, but with no trimming — the whole line is shown, only the span
+//! marked. Both produce a [`MatchSnippet`] (lead / match / trail) and reuse the
+//! always-case-insensitive [`SearchPattern`] for the split.
 //!
 //! When a commit/author/committer search lists a commit, gitweb walks the
 //! commit-message lines and, for each line that matches the search pattern,
@@ -84,4 +91,21 @@ pub fn highlight_line(line: &str, pattern: &SearchPattern) -> Option<MatchSnippe
 /// budget leaves no room, so the context collapses to nothing.
 fn context_len(match_chars: usize) -> usize {
     (BUDGET.saturating_sub(match_chars) / 2).min(MAX_CONTEXT)
+}
+
+/// Highlights `line` against `pattern` for a *grep* result, splitting it at the
+/// first match into the text before it, the match, and the text after — **without
+/// any trimming** (gitweb's `git_search_files` `m/^(.*)(<pattern>)(.*)$/i`, where
+/// the surrounding text is shown whole). Returns `None` when the line does not
+/// match, so the caller shows it plain (gitweb's else branch). The pattern is the
+/// always-case-insensitive [`SearchPattern`], so the span aligns whether grep ran
+/// in fixed or regexp mode.
+#[must_use]
+pub fn highlight_full(line: &str, pattern: &SearchPattern) -> Option<MatchSnippet> {
+    let (start, end): (usize, usize) = pattern.first_match(line)?;
+    Some(MatchSnippet {
+        lead: line[..start].to_owned(),
+        matched: line[start..end].to_owned(),
+        trail: line[end..].to_owned(),
+    })
 }

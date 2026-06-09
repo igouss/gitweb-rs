@@ -1,8 +1,9 @@
 Feature: Content grep at one revision through the gix adapter
   gitweb's `git_search_files` greps the files of one revision with `git grep -n
-  -z -F <pattern>`: a literal, case-sensitive content search that lists each
-  text-file line containing the pattern (its path and 1-based number) and each
-  binary file whose bytes contain it (with no line text). gix has no `git grep`,
+  -z <pattern>` in one of two modes — `-F` (literal, case-sensitive) or `-E -i`
+  (case-insensitive regexp) — listing each text-file line that matches (its path
+  and 1-based number) and each binary file whose bytes match (with no line text).
+  gix has no `git grep`,
   so the adapter walks the revision's tree, reads each *regular file* blob, and
   delegates the per-file matching to the domain rule — symlinks and gitlinks are
   not blobs git greps, so they are skipped. Matches come out grouped by file in
@@ -65,6 +66,20 @@ Feature: Content grep at one revision through the gix adapter
     When I grep "noir" at the commit
     Then 1 grep match is found
     And grep match 0 is line 1 "café noir" in "latin.txt"
+
+  # --- regexp mode (-E -i): case-insensitive matching over real blobs ---
+
+  Scenario: a regexp grep matches case-insensitively across the tree
+    Given a tree of mixed files
+    When I grep regexp "GAMMA" at the commit
+    Then 1 grep match is found
+    And grep match 0 is line 3 "alpha gamma" in "alpha.txt"
+
+  Scenario: a regexp metacharacter matches as a regular expression over real blobs
+    Given a tree of mixed files
+    When I grep regexp "alpha g.mma" at the commit
+    Then 1 grep match is found
+    And grep match 0 is line 3 "alpha gamma" in "alpha.txt"
 
   # --- symlinks and gitlinks are not grepped ---
 

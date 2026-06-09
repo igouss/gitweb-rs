@@ -20,6 +20,7 @@
 	--surface: #f6f6f6;
 	--surface-2: #ececec;
 	--accent: #d8633b;
+	--match: #fff2a8;
 
 	--age-fresh: #1a7f37;
 	--age-recent: #6a737d;
@@ -45,6 +46,7 @@
 		--surface: #1e2128;
 		--surface-2: #262b34;
 		--accent: #e8845f;
+		--match: #5a4a00;
 
 		--age-fresh: #3fb950;
 		--age-recent: #8b949e;
@@ -346,6 +348,64 @@ table.blob tr:target {
 	border: 1px solid var(--border);
 	background: var(--surface);
 	padding: 0.5rem;
+}
+
+/* The matched span in a search or grep result. */
+.match {
+	background: var(--match);
+	border-radius: 2px;
+}
+
+/* The grep-results table (modernized git_search_files): one tbody per file — a
+   path row linking to the blob, then numbered, anchorable matching lines (or a
+   single binary row) in a monospace table. */
+table.grep {
+	width: 100%;
+	border: 1px solid var(--border);
+	font-family: var(--mono);
+	font-size: 0.85rem;
+}
+
+table.grep td {
+	border-bottom: none;
+	padding: 0 0.6rem;
+}
+
+table.grep tbody.file + tbody.file {
+	border-top: 1px solid var(--border);
+}
+
+table.grep .path {
+	background: var(--surface);
+}
+
+table.grep .path .list {
+	font-weight: 600;
+}
+
+table.grep .linenr {
+	width: 1%;
+	text-align: right;
+	white-space: nowrap;
+	color: var(--fg-muted);
+	user-select: none;
+	border-right: 1px solid var(--border);
+}
+
+table.grep .linenr a {
+	color: var(--fg-muted);
+}
+
+/* Preserve the untabified columns; tabs are already expanded to 8-column stops. */
+table.grep .pre {
+	white-space: pre;
+	tab-size: 8;
+	width: 100%;
+}
+
+table.grep .binary {
+	color: var(--fg-muted);
+	font-style: italic;
 }
 
 /* Ref badges after a commit subject (modernized format_ref_marker): the branch

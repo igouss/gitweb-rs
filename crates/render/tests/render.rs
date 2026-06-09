@@ -29,6 +29,7 @@ use gitweb_render::escape::{
     esc_attr, esc_html, esc_html_nbsp, esc_index_field, esc_param, esc_path, esc_path_info, esc_url,
 };
 use gitweb_render::feed::{FeedEntryView, FeedFileView, FeedView, atom, rss};
+use gitweb_render::grep::{GrepFileBlock, GrepLineView, GrepPage, GrepRowView, grep_body};
 use gitweb_render::heads::{HeadEntryView, HeadsTable, heads_table};
 use gitweb_render::history::{HistoryEntryView, HistoryTable, history_table};
 use gitweb_render::log::{LogEntryView, log_entries};
@@ -69,6 +70,9 @@ struct RenderWorld {
     search_entries: Vec<SearchEntryView>,
     search_paging: SearchPaging,
     search_no_match: bool,
+    grep_files: Vec<GrepFileBlock>,
+    grep_no_match: bool,
+    grep_trimmed: bool,
     history_entries: Vec<HistoryEntryView>,
     history_object_label: Option<String>,
     history_more: Option<MoreLink>,
@@ -821,6 +825,92 @@ fn when_render_search(world: &mut RenderWorld) {
         no_match: world.search_no_match,
     };
     world.output = Some(search_body(&page).into_string());
+}
+
+// ---- grep results ------------------------------------------------------------
+
+/// Pushes a row onto the most recently declared grep file block.
+fn push_grep_row(world: &mut RenderWorld, row: GrepRowView) {
+    world
+        .grep_files
+        .last_mut()
+        .expect("declare a grep file first")
+        .rows
+        .push(row);
+}
+
+#[given(regex = r#"^a grep file "([^"]*)" at "([^"]*)"$"#)]
+fn given_grep_file(world: &mut RenderWorld, path: String, blob_href: String) {
+    world.grep_files.push(GrepFileBlock {
+        path,
+        blob_href,
+        rows: Vec::new(),
+    });
+}
+
+#[given(
+    regex = r#"^a grep line (\d+) at "([^"]*)" highlighting lead "(.*)" match "(.*)" trail "(.*)"$"#
+)]
+fn given_grep_highlighted_line(
+    world: &mut RenderWorld,
+    number: usize,
+    line_href: String,
+    lead: String,
+    matched: String,
+    trail: String,
+) {
+    push_grep_row(
+        world,
+        GrepRowView::Line {
+            number,
+            line_href,
+            content: GrepLineView::Highlighted {
+                lead,
+                matched,
+                trail,
+            },
+        },
+    );
+}
+
+#[given(regex = r#"^a grep line (\d+) at "([^"]*)" plain "(.*)"$"#)]
+fn given_grep_plain_line(world: &mut RenderWorld, number: usize, line_href: String, text: String) {
+    push_grep_row(
+        world,
+        GrepRowView::Line {
+            number,
+            line_href,
+            content: GrepLineView::Plain(text),
+        },
+    );
+}
+
+#[given("a grep binary row")]
+fn given_grep_binary(world: &mut RenderWorld) {
+    push_grep_row(world, GrepRowView::Binary);
+}
+
+#[given("the grep has no matches")]
+fn given_grep_no_matches(world: &mut RenderWorld) {
+    world.grep_no_match = true;
+}
+
+#[given("the grep listing is trimmed")]
+fn given_grep_trimmed(world: &mut RenderWorld) {
+    world.grep_trimmed = true;
+}
+
+#[when("I render the grep page")]
+fn when_render_grep(world: &mut RenderWorld) {
+    let page: GrepPage = GrepPage {
+        crumbs: Vec::new(),
+        nav: Vec::new(),
+        header_title: "grep base".to_owned(),
+        files: std::mem::take(&mut world.grep_files),
+        no_match: world.grep_no_match,
+        trimmed: world.grep_trimmed,
+    };
+    world.output = Some(grep_body(&page).into_string());
 }
 
 // ---- history table ----------------------------------------------------------

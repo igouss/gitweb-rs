@@ -18,6 +18,7 @@ use cucumber::{World, given, then, when};
 
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::grep::{GREP_MATCH_LIMIT, GrepMatch, GrepResults};
+use gitweb_domain::model::grep_pattern::GrepPattern;
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::port::repository::Repository;
 use gitweb_fixtures::{CommitSpec, Identity, Mode, ObjectId as FixtureOid, RepoBuilder, TreeEntry};
@@ -199,16 +200,32 @@ fn given_cap_over(world: &mut GrepWorld) {
 
 // --- Whens -------------------------------------------------------------------
 
+/// A fixed (`-F`, case-sensitive) grep matcher — the default search mode.
+fn fixed(pattern: &str) -> GrepPattern {
+    GrepPattern::new(pattern, false).expect("a fixed pattern always builds")
+}
+
+/// A regexp (`-E -i`, case-insensitive) grep matcher — the *re*-box search mode.
+fn regexp(pattern: &str) -> GrepPattern {
+    GrepPattern::new(pattern, true).expect("the scenario's regexp is well-formed")
+}
+
 #[when(regex = r#"^I grep "(.*)" at the commit$"#)]
 fn grep_at_commit(world: &mut GrepWorld, pattern: String) {
     let base: ObjectId = oid(world, "commit");
-    world.results = Some(repo(world).grep(&base, &pattern));
+    world.results = Some(repo(world).grep(&base, &fixed(&pattern)));
+}
+
+#[when(regex = r#"^I grep regexp "(.*)" at the commit$"#)]
+fn grep_regexp_at_commit(world: &mut GrepWorld, pattern: String) {
+    let base: ObjectId = oid(world, "commit");
+    world.results = Some(repo(world).grep(&base, &regexp(&pattern)));
 }
 
 #[when(regex = r#"^I grep "(.*)" at the tree$"#)]
 fn grep_at_tree(world: &mut GrepWorld, pattern: String) {
     let base: ObjectId = oid(world, "tree");
-    world.results = Some(repo(world).grep(&base, &pattern));
+    world.results = Some(repo(world).grep(&base, &fixed(&pattern)));
 }
 
 // --- Thens -------------------------------------------------------------------

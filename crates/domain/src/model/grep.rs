@@ -1,11 +1,12 @@
 //! Content-grep hits: the file/line matches `git grep` lists at one revision.
 //!
-//! Mirrors gitweb's `git_search_files` (`git grep -n -z -F <pattern> <tree>`):
-//! a literal, case-sensitive content search over the regular files of one tree.
-//! A text file yields one [`GrepMatch::Line`] per line that contains the
-//! pattern, carrying the line's 1-based number and its raw text; a binary file
-//! whose bytes contain the pattern yields a single [`GrepMatch::Binary`] naming
-//! the file with no line text, exactly as `git grep` prints
+//! Mirrors gitweb's `git_search_files` (`git grep -n -z <pattern> <tree>`): a
+//! content search over the regular files of one tree, in whichever of git-grep's
+//! two modes the [`GrepPattern`] carries (`-F` literal/case-sensitive, or
+//! `-E -i` regexp/case-insensitive). A text file yields one [`GrepMatch::Line`]
+//! per line that matches, carrying the line's 1-based number and its raw text; a
+//! binary file whose bytes match yields a single [`GrepMatch::Binary`] naming the
+//! file with no line text, exactly as `git grep` prints
 //! `Binary file <path> matches`.
 //!
 //! Highlighting the matched substring and expanding tabs are *view* concerns, so
@@ -17,6 +18,7 @@
 
 use crate::model::binary::is_binary;
 use crate::model::encoding::{FallbackEncoding, to_utf8};
+use crate::model::grep_pattern::GrepPattern;
 
 /// gitweb's cap on the number of grep matches it lists before printing its
 /// "Too many matches, listing trimmed" notice (`git_search_files`).
@@ -123,24 +125,19 @@ impl GrepResults {
     }
 }
 
-/// The grep matches for a single file's bytes, given a literal `pattern` — the
+/// The grep matches for a single file's bytes, given the grep `pattern` — the
 /// pure per-file rule gitweb's `git grep -n` applies to each tracked file.
 ///
-/// An empty pattern matches nothing (there is nothing to find). A binary file
-/// (a NUL in its first bytes, [`is_binary`]) yields a single
-/// [`GrepMatch::Binary`] iff its bytes contain the pattern, with no line text.
-/// A text file yields one [`GrepMatch::Line`] per line that contains the
-/// pattern, numbered from 1; the match is a case-sensitive byte substring (git's
-/// `-F` without `-i`), so a line is listed at most once however many times the
-/// pattern occurs in it.
+/// A binary file (a NUL in its first bytes, [`is_binary`]) yields a single
+/// [`GrepMatch::Binary`] iff its bytes match the pattern, with no line text. A
+/// text file yields one [`GrepMatch::Line`] per line that matches, numbered from
+/// 1; whether the test is a case-sensitive literal (`-F`) or a case-insensitive
+/// regexp (`-E -i`) is the [`GrepPattern`]'s concern, and a line is listed at
+/// most once however many times the pattern occurs in it.
 #[must_use]
-pub fn file_matches(path: &str, content: &[u8], pattern: &str) -> Vec<GrepMatch> {
-    let needle: &[u8] = pattern.as_bytes();
-    if needle.is_empty() {
-        return Vec::new();
-    }
+pub fn file_matches(path: &str, content: &[u8], pattern: &GrepPattern) -> Vec<GrepMatch> {
     if is_binary(content) {
-        return if contains(content, needle) {
+        return if pattern.matches(content) {
             vec![GrepMatch::binary(path.to_owned())]
         } else {
             Vec::new()
@@ -153,7 +150,7 @@ pub fn file_matches(path: &str, content: &[u8], pattern: &str) -> Vec<GrepMatch>
         .split_inclusive(|&byte: &u8| byte == b'\n')
         .map(strip_newline)
         .enumerate()
-        .filter(|(_, line): &(usize, &[u8])| contains(line, needle))
+        .filter(|(_, line): &(usize, &[u8])| pattern.matches(line))
         .map(|(index, line): (usize, &[u8])| {
             GrepMatch::line(
                 path.to_owned(),
@@ -168,13 +165,4 @@ pub fn file_matches(path: &str, content: &[u8], pattern: &str) -> Vec<GrepMatch>
 /// strip carriage returns) and the rest of the bytes intact.
 fn strip_newline(line: &[u8]) -> &[u8] {
     line.strip_suffix(b"\n").unwrap_or(line)
-}
-
-/// Whether `needle` occurs in `haystack` as a literal byte substring — git's
-/// `-F` (fixed strings) without `-i`, so the test is case-sensitive. `needle` is
-/// always non-empty here, so the window size is valid.
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack
-        .windows(needle.len())
-        .any(|window: &[u8]| window == needle)
 }

@@ -33,6 +33,7 @@ use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::forks::{ProjectGroup, partition_forks};
 use gitweb_domain::model::format_patch::{FormatPatch, PatchEntry};
 use gitweb_domain::model::grep::{GrepMatch, file_matches};
+use gitweb_domain::model::grep_pattern::GrepPattern;
 use gitweb_domain::model::message_body::{LogLine, log_lines};
 use gitweb_domain::model::object_dispatch::{DispatchLookup, dispatch_lookup};
 use gitweb_domain::model::object_id::ObjectId;
@@ -52,7 +53,7 @@ use gitweb_domain::model::routing::{Dispatch, route};
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::search_help::{SearchHelpTopic, help_topics};
 use gitweb_domain::model::search_pattern::SearchPattern;
-use gitweb_domain::model::search_snippet::{MatchSnippet, highlight_line};
+use gitweb_domain::model::search_snippet::{MatchSnippet, highlight_full, highlight_line};
 use gitweb_domain::model::section::Section;
 use gitweb_domain::model::settings::{FeatureName, Settings, SettingsLayer};
 use gitweb_domain::model::signature::Signature;
@@ -61,6 +62,7 @@ use gitweb_domain::model::snapshot::{
 };
 use gitweb_domain::model::tag_age::TagAge;
 use gitweb_domain::model::timestamp::Timestamp;
+use gitweb_domain::model::untabify::untabify;
 use gitweb_domain::model::url::unescape;
 
 #[derive(Debug, Default, World)]
@@ -169,6 +171,8 @@ struct DomainWorld {
     grep_path: String,
     grep_content: Vec<u8>,
     grep_results: Option<Vec<GrepMatch>>,
+    grep_pattern: Option<Result<GrepPattern, DomainError>>,
+    untabified: Option<String>,
     cfg_common_env: Option<String>,
     cfg_common_default: Option<String>,
     cfg_primary_env: Option<String>,
@@ -680,6 +684,18 @@ fn highlight(world: &mut DomainWorld, line: String) {
 fn highlight_yields_none(world: &mut DomainWorld, line: String) {
     let pattern: &SearchPattern = world.search_pattern.as_ref().expect("a pattern");
     assert!(highlight_line(&line, pattern).is_none());
+}
+
+#[when(regex = r#"^I grep-highlight "(.*)"$"#)]
+fn grep_highlight(world: &mut DomainWorld, line: String) {
+    let pattern: &SearchPattern = world.search_pattern.as_ref().expect("a pattern");
+    world.snippet_result = Some(highlight_full(&line, pattern));
+}
+
+#[then(regex = r#"^grep-highlighting "(.*)" yields no snippet$"#)]
+fn grep_highlight_yields_none(world: &mut DomainWorld, line: String) {
+    let pattern: &SearchPattern = world.search_pattern.as_ref().expect("a pattern");
+    assert!(highlight_full(&line, pattern).is_none());
 }
 
 fn snippet(world: &DomainWorld) -> &MatchSnippet {
@@ -2846,10 +2862,23 @@ fn given_grep_latin1_file(world: &mut DomainWorld, path: String, content: String
 
 #[when(regex = r#"^I grep "(.*)"$"#)]
 fn run_grep(world: &mut DomainWorld, pattern: String) {
+    let matcher: GrepPattern =
+        GrepPattern::new(&pattern, false).expect("a fixed pattern always builds");
     world.grep_results = Some(file_matches(
         &world.grep_path,
         &world.grep_content,
-        &pattern,
+        &matcher,
+    ));
+}
+
+#[when(regex = r#"^I grep regexp "(.*)"$"#)]
+fn run_grep_regexp(world: &mut DomainWorld, pattern: String) {
+    let matcher: GrepPattern =
+        GrepPattern::new(&pattern, true).expect("the scenario's regexp is well-formed");
+    world.grep_results = Some(file_matches(
+        &world.grep_path,
+        &world.grep_content,
+        &matcher,
     ));
 }
 
@@ -2872,6 +2901,72 @@ fn grep_binary_is(world: &mut DomainWorld, index: usize, path: String) {
     assert!(hit.is_binary());
     assert_eq!(hit.path(), path);
     assert_eq!(hit.text(), None);
+}
+
+// --- tab expansion (untabify) ------------------------------------------------
+
+#[when(regex = r#"^I untabify "(.*)"$"#)]
+fn run_untabify(world: &mut DomainWorld, line: String) {
+    let expanded: String = line.replace("\\t", "\t");
+    world.untabified = Some(untabify(&expanded));
+}
+
+#[then(regex = r#"^the untabified line is "(.*)"$"#)]
+fn untabified_is(world: &mut DomainWorld, expected: String) {
+    let actual: &str = world.untabified.as_deref().expect("run an untabify first");
+    assert_eq!(actual, expected);
+}
+
+// --- the content-grep matcher (GrepPattern) ----------------------------------
+
+fn built_grep_pattern(world: &DomainWorld) -> &GrepPattern {
+    world
+        .grep_pattern
+        .as_ref()
+        .expect("build a grep pattern first")
+        .as_ref()
+        .expect("the grep pattern built")
+}
+
+#[given(regex = r#"^a fixed grep pattern "(.*)"$"#)]
+fn given_fixed_grep_pattern(world: &mut DomainWorld, pattern: String) {
+    world.grep_pattern = Some(GrepPattern::new(&pattern, false));
+}
+
+#[given(regex = r#"^a regexp grep pattern "(.*)"$"#)]
+fn given_regexp_grep_pattern(world: &mut DomainWorld, pattern: String) {
+    world.grep_pattern = Some(GrepPattern::new(&pattern, true));
+}
+
+#[given(regex = r#"^the grep pattern build for regexp "(.*)" is attempted$"#)]
+fn attempt_regexp_grep_pattern(world: &mut DomainWorld, pattern: String) {
+    world.grep_pattern = Some(GrepPattern::new(&pattern, true));
+}
+
+#[then(regex = r#"^the grep pattern matches "(.*)"$"#)]
+fn grep_pattern_matches(world: &mut DomainWorld, haystack: String) {
+    let bytes: Vec<u8> = expand_escapes(&haystack).into_bytes();
+    assert!(built_grep_pattern(world).matches(&bytes));
+}
+
+#[then(regex = r#"^the grep pattern does not match "(.*)"$"#)]
+fn grep_pattern_does_not_match(world: &mut DomainWorld, haystack: String) {
+    let bytes: Vec<u8> = expand_escapes(&haystack).into_bytes();
+    assert!(!built_grep_pattern(world).matches(&bytes));
+}
+
+#[then("building the grep pattern fails")]
+fn grep_pattern_build_fails(world: &mut DomainWorld) {
+    let result: &Result<GrepPattern, DomainError> =
+        world.grep_pattern.as_ref().expect("attempt a build first");
+    assert!(matches!(result, Err(DomainError::Invalid(_))));
+}
+
+#[then("building the grep pattern succeeds")]
+fn grep_pattern_build_succeeds(world: &mut DomainWorld) {
+    let result: &Result<GrepPattern, DomainError> =
+        world.grep_pattern.as_ref().expect("attempt a build first");
+    assert!(result.is_ok());
 }
 
 // --- Global config source selection (ConfigChain) ----------------------------

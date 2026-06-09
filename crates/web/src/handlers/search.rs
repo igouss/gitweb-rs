@@ -11,10 +11,11 @@
 //! navigation replays the search parameters across pages. The clock lives here,
 //! at the boundary, so the date cells are computed against a real `now`.
 //!
-//! The `pickaxe` and `grep` search types are routed by gitweb's same `git_search`
-//! to `git_search_changes` / `git_search_files`; those are their own capabilities
-//! (gitweb_in_rust-mjr.4 / -mjr.3) and are not served here yet, so an unhandled
-//! search type is a 400 the way gitweb's `else` branch is "Unknown search type".
+//! The `grep` search type is routed — as in gitweb's `git_search` — to its own
+//! `git_search_files` path ([`SearchHandler::handle_grep`]), a per-file table
+//! rather than a commit list. The `pickaxe` type (`git_search_changes`,
+//! gitweb_in_rust-mjr.4) is not served here yet, so it remains a 400 the way
+//! gitweb's `else` branch is "Unknown search type".
 
 use std::sync::Arc;
 
@@ -25,8 +26,10 @@ use gitweb_domain::model::search_snippet::MatchSnippet;
 use gitweb_domain::model::settings::{FeatureName, Settings};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::{Page, Repository, SearchKind};
+use gitweb_domain::usecase::grep::{GrepFileView, GrepLine, GrepRow, GrepView, assemble_grep};
 use gitweb_domain::usecase::search::{SearchCriteria, SearchRow, SearchView, assemble_search};
 use gitweb_render::chrome::{Crumb, DocumentHead, NavItem, document};
+use gitweb_render::grep::{GrepFileBlock, GrepLineView, GrepPage, GrepRowView, grep_body};
 use gitweb_render::markup::Markup;
 use gitweb_render::search::{SearchEntryView, SearchPage, SearchPaging, SnippetView, search_body};
 
@@ -42,6 +45,9 @@ const PAGE_SIZE: usize = 100;
 /// gitweb's default search type (`$searchtype ||= 'commit'`).
 const DEFAULT_SEARCHTYPE: &str = "commit";
 
+/// The grep facet's search type (`$searchtype eq 'grep'`).
+const GREP_SEARCHTYPE: &str = "grep";
+
 /// Serves the commit/author/committer search page over a wired project store and
 /// the resolved settings (which carry the `search` feature gate).
 pub struct SearchHandler {
@@ -55,6 +61,35 @@ impl SearchHandler {
     #[must_use]
     pub fn new(store: Arc<dyn ProjectStore + Send + Sync>, settings: Arc<Settings>) -> Self {
         Self { store, settings }
+    }
+
+    /// Serves the grep facet (gitweb's `git_search_files`): gate search then grep,
+    /// grep the base revision, and render the per-file table. The base id roots
+    /// every blob link (gitweb's `hash_base => $co{'id'}`).
+    fn handle_grep(
+        &self,
+        project: &str,
+        repository: &dyn Repository,
+        rev: Option<&str>,
+        text: &str,
+        use_regexp: bool,
+    ) -> Result<View, DomainError> {
+        let search_enabled: bool = self.settings.feature(FeatureName::Search).enabled();
+        let grep_enabled: bool = self.settings.feature(FeatureName::Grep).enabled();
+        let view: GrepView = assemble_grep(
+            repository,
+            search_enabled,
+            grep_enabled,
+            rev,
+            text,
+            use_regexp,
+        )?;
+        Ok(View::html(render_grep_page(
+            &self.settings,
+            project,
+            rev,
+            &view,
+        )))
     }
 }
 
@@ -70,9 +105,17 @@ impl Handler for SearchHandler {
             .as_deref()
             .ok_or_else(|| DomainError::Invalid("Text field is empty".to_owned()))?;
         let searchtype: &str = request.search_type.as_deref().unwrap_or(DEFAULT_SEARCHTYPE);
-        let kind: SearchKind = search_kind(searchtype)?;
         let use_regexp: bool = request.search_use_regexp;
         let rev: Option<&str> = request.hash.as_ref().map(SafeRef::as_str);
+
+        // gitweb's git_search dispatches the `grep` facet to git_search_files — a
+        // different result shape (a per-file table, not a commit list) — so it has
+        // its own assembly and render rather than a SearchKind.
+        if searchtype == GREP_SEARCHTYPE {
+            return self.handle_grep(project, repository.as_ref(), rev, text, use_regexp);
+        }
+
+        let kind: SearchKind = search_kind(searchtype)?;
         let page_num: usize = request.page.unwrap_or(0) as usize;
         let enabled: bool = self.settings.feature(FeatureName::Search).enabled();
 
@@ -106,9 +149,10 @@ impl Handler for SearchHandler {
     }
 }
 
-/// Maps the search-type parameter to a [`SearchKind`], defaulting `commit`. An
-/// unhandled type (incl. the not-yet-served `pickaxe`/`grep`) is gitweb's 400
-/// "Unknown search type" else branch.
+/// Maps the search-type parameter to a [`SearchKind`], defaulting `commit`.
+/// `grep` is dispatched before this (its own path), so an unhandled type here
+/// (incl. the not-yet-served `pickaxe`) is gitweb's 400 "Unknown search type"
+/// else branch.
 fn search_kind(searchtype: &str) -> Result<SearchKind, DomainError> {
     match searchtype {
         "commit" => Ok(SearchKind::Commit),
@@ -264,5 +308,82 @@ fn entry(project: &str, row: &SearchRow) -> SearchEntryView {
                 trail: snippet.trail().to_owned(),
             })
             .collect(),
+    }
+}
+
+/// Maps the grep use-case view to the render view-model and wraps the body in the
+/// document chrome. The base id is the `hash_base` of every blob link; an empty
+/// file list is gitweb's "No matches found".
+fn render_grep_page(
+    settings: &Settings,
+    project: &str,
+    rev: Option<&str>,
+    view: &GrepView,
+) -> Markup {
+    let page: GrepPage = GrepPage {
+        crumbs: crumbs(settings.site_name(), project),
+        nav: nav(project, rev),
+        header_title: view.title().to_owned(),
+        files: view
+            .files()
+            .iter()
+            .map(|file: &GrepFileView| grep_file(project, view.base_id(), file))
+            .collect(),
+        no_match: view.files().is_empty(),
+        trimmed: view.trimmed(),
+    };
+    let head: DocumentHead = DocumentHead {
+        title: format!("{project} / search"),
+        stylesheet_href: STYLESHEET_PATH.to_owned(),
+        favicon_href: Some(FAVICON_PATH.to_owned()),
+        feeds: Vec::new(),
+    };
+    document(&head, grep_body(&page))
+}
+
+/// Maps one use-case file group to a render block: the blob link rooted at the
+/// base id (gitweb's `href(action=>"blob", hash_base=>$co{'id'}, file_name=>…)`),
+/// and each line linking to its `blob#lN` anchor.
+fn grep_file(project: &str, base_id: &str, file: &GrepFileView) -> GrepFileBlock {
+    let blob_href: String = href(&[
+        ("p", project),
+        ("a", "blob"),
+        ("hb", base_id),
+        ("f", file.path()),
+    ]);
+    GrepFileBlock {
+        path: file.path().to_owned(),
+        rows: file
+            .rows()
+            .iter()
+            .map(|row: &GrepRow| grep_row(&blob_href, row))
+            .collect(),
+        blob_href,
+    }
+}
+
+/// Maps one use-case row to a render row: the binary marker, or a numbered line
+/// whose number anchors at `blob#lN`.
+fn grep_row(blob_href: &str, row: &GrepRow) -> GrepRowView {
+    match row {
+        GrepRow::Binary => GrepRowView::Binary,
+        GrepRow::Line { line_no, line } => GrepRowView::Line {
+            number: *line_no,
+            line_href: format!("{blob_href}#l{line_no}"),
+            content: grep_line(line),
+        },
+    }
+}
+
+/// Maps a use-case line's text to the render shape: the highlighted lead/match/
+/// trail, or the whole untabified line when the display regexp did not mark it.
+fn grep_line(line: &GrepLine) -> GrepLineView {
+    match line {
+        GrepLine::Highlighted(snippet) => GrepLineView::Highlighted {
+            lead: snippet.lead().to_owned(),
+            matched: snippet.matched().to_owned(),
+            trail: snippet.trail().to_owned(),
+        },
+        GrepLine::Plain(whole) => GrepLineView::Plain(whole.clone()),
     }
 }

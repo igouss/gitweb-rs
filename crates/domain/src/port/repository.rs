@@ -16,6 +16,7 @@ use crate::model::blob::Blob;
 use crate::model::commit::Commit;
 use crate::model::diff::{CombinedDiff, Diff};
 use crate::model::grep::GrepResults;
+use crate::model::grep_pattern::GrepPattern;
 use crate::model::object_id::ObjectId;
 use crate::model::object_kind::ObjectKind;
 use crate::model::patch::Patch;
@@ -281,14 +282,15 @@ pub trait Repository {
         page: Page,
     ) -> Result<Vec<Commit>, DomainError>;
 
-    /// Content matches for the literal `pattern` over the regular files of
-    /// `revision`'s tree, mirroring gitweb's `git_search_files` (`git grep -n -z
-    /// -F <pattern> <tree>`): each text-file line containing the pattern (its
-    /// path and 1-based number) and each binary file whose bytes contain it
-    /// (reported with no line text). `revision` is a tree-ish — gitweb's
-    /// `$hash` / `$co{'tree'}` — so a commit or a tree id both name the tree to
-    /// search. Matches come out grouped by file in tree order; the result is
-    /// capped at [`crate::model::grep::GREP_MATCH_LIMIT`], reporting `trimmed`
-    /// when the cap drops further matches.
-    fn grep(&self, revision: &ObjectId, pattern: &str) -> Result<GrepResults, DomainError>;
+    /// Content matches for `pattern` over the regular files of `revision`'s tree,
+    /// mirroring gitweb's `git_search_files` (`git grep -n -z <pattern> <tree>`):
+    /// each text-file line that matches (its path and 1-based number) and each
+    /// binary file whose bytes match (reported with no line text). The
+    /// [`GrepPattern`] carries which of git-grep's modes is in play (`-F`
+    /// literal/case-sensitive or `-E -i` regexp/case-insensitive). `revision` is a
+    /// tree-ish — gitweb's `$hash` / `$co{'tree'}` — so a commit or a tree id both
+    /// name the tree to search. Matches come out grouped by file in tree order;
+    /// the result is capped at [`crate::model::grep::GREP_MATCH_LIMIT`], reporting
+    /// `trimmed` when the cap drops further matches.
+    fn grep(&self, revision: &ObjectId, pattern: &GrepPattern) -> Result<GrepResults, DomainError>;
 }

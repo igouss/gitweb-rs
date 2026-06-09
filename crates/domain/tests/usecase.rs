@@ -28,7 +28,8 @@ use gitweb_domain::model::encoding::FallbackEncoding;
 use gitweb_domain::model::feed::{Feed, FeedEntry, FeedFile};
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::format_patch::FormatPatch;
-use gitweb_domain::model::grep::GrepResults;
+use gitweb_domain::model::grep::{GrepMatch, GrepResults};
+use gitweb_domain::model::grep_pattern::GrepPattern;
 use gitweb_domain::model::message_body::LogLine;
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
@@ -57,6 +58,7 @@ use gitweb_domain::usecase::commit::{ChangedFiles, CommitView, assemble_commit};
 use gitweb_domain::usecase::commitdiff::assemble_commit_diff;
 use gitweb_domain::usecase::commitdiff_plain::assemble_commitdiff_plain;
 use gitweb_domain::usecase::feed::assemble_feed;
+use gitweb_domain::usecase::grep::{GrepFileView, GrepLine, GrepRow, GrepView, assemble_grep};
 use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
 use gitweb_domain::usecase::history::{HistoryRow, HistoryView, assemble_history};
 use gitweb_domain::usecase::log::{LogRow, LogView, assemble_log};
@@ -174,6 +176,9 @@ struct UsecaseWorld {
     commits: Vec<FakeCommit>,
     search_hits: Vec<FakeCommit>,
     search_result: Option<Result<SearchView, DomainError>>,
+    grep_matches: Vec<GrepMatch>,
+    grep_trimmed: bool,
+    grep_result: Option<Result<GrepView, DomainError>>,
     head_commit: Option<ObjectId>,
     shortlog_result: Option<Result<ShortlogView, DomainError>>,
     marker_index: Option<Result<RefMarkerIndex, DomainError>>,
@@ -402,6 +407,11 @@ struct FakeRepository {
     /// separate from `commits` so a search result set is independent of the log
     /// walk, and so the base commit the search roots at is not itself a hit.
     search_hits: Vec<FakeCommit>,
+    /// The matches `grep` returns, already grouped by file in tree order, and
+    /// whether the cap trimmed the listing — the adapter's conformance, so the
+    /// fake just hands back what the scenario configured.
+    grep_matches: Vec<GrepMatch>,
+    grep_trimmed: bool,
     remotes: Vec<Remote>,
     remote_branches: Vec<FakeRemoteBranch>,
     tree_commit_title: Option<String>,
@@ -696,6 +706,15 @@ impl Repository for FakeRepository {
                 who,
                 format!("{title}\n"),
             ));
+        }
+        // A declared commit carries its title and author, so return it faithfully
+        // (gitweb's parse_commit -> %co, whose subject heads the grep results).
+        if let Some(fake) = self
+            .commits
+            .iter()
+            .find(|commit: &&FakeCommit| &commit.id == oid)
+        {
+            return Ok(commit_from_fake(fake));
         }
         let epoch: i64 = self
             .commit_epoch(oid)
@@ -1100,8 +1119,19 @@ impl Repository for FakeRepository {
         Ok(hits)
     }
 
-    fn grep(&self, _revision: &ObjectId, _pattern: &str) -> Result<GrepResults, DomainError> {
-        unimplemented!("the heads use case never greps")
+    fn grep(
+        &self,
+        _revision: &ObjectId,
+        _pattern: &GrepPattern,
+    ) -> Result<GrepResults, DomainError> {
+        // The matching, rooting, and cap are the adapter's conformance; this fake
+        // returns the scenario's configured matches so the use case's own logic
+        // (gating, base resolution, per-file grouping, untabify + highlight) is
+        // exercised.
+        Ok(GrepResults::new(
+            self.grep_matches.clone(),
+            self.grep_trimmed,
+        ))
     }
 }
 
@@ -2031,6 +2061,211 @@ fn search_row_author_short(world: &mut UsecaseWorld, name: String, expected: Str
     assert_eq!(search_row(world, &name).author_short(), expected);
 }
 
+// --- grep: accessors ---------------------------------------------------------
+
+fn grep_view(world: &UsecaseWorld) -> &GrepView {
+    world
+        .grep_result
+        .as_ref()
+        .expect("assemble the grep first")
+        .as_ref()
+        .expect("assembly succeeded")
+}
+
+fn grep_error(world: &UsecaseWorld) -> &DomainError {
+    world
+        .grep_result
+        .as_ref()
+        .expect("assemble the grep first")
+        .as_ref()
+        .expect_err("assembly failed")
+}
+
+fn grep_file(world: &UsecaseWorld, index: usize) -> &GrepFileView {
+    &grep_view(world).files()[index]
+}
+
+fn grep_row(world: &UsecaseWorld, file: usize, row: usize) -> &GrepRow {
+    &grep_file(world, file).rows()[row]
+}
+
+/// Runs the grep use case with the given gates, base, and mode.
+fn run_assemble_grep(
+    world: &mut UsecaseWorld,
+    search_enabled: bool,
+    grep_enabled: bool,
+    base_rev: Option<&str>,
+    text: &str,
+    use_regexp: bool,
+) {
+    let repo: FakeRepository = fake_repo(world);
+    world.grep_result = Some(assemble_grep(
+        &repo,
+        search_enabled,
+        grep_enabled,
+        base_rev,
+        text,
+        use_regexp,
+    ));
+}
+
+// --- grep: Givens ------------------------------------------------------------
+
+#[given(regex = r#"^a grep line match in "([^"]*)" at line (\d+) with text "(.*)"$"#)]
+fn repo_has_grep_line(world: &mut UsecaseWorld, path: String, line: usize, text: String) {
+    let decoded: String = text.replace("\\t", "\t");
+    world
+        .grep_matches
+        .push(GrepMatch::line(path, line, decoded));
+}
+
+#[given(regex = r#"^a grep binary match in "([^"]*)"$"#)]
+fn repo_has_grep_binary(world: &mut UsecaseWorld, path: String) {
+    world.grep_matches.push(GrepMatch::binary(path));
+}
+
+#[given("the grep listing is trimmed")]
+fn repo_grep_trimmed(world: &mut UsecaseWorld) {
+    world.grep_trimmed = true;
+}
+
+// --- grep: Whens -------------------------------------------------------------
+
+#[when(regex = r#"^I assemble a grep for "([^"]*)"$"#)]
+fn assemble_plain_grep(world: &mut UsecaseWorld, text: String) {
+    run_assemble_grep(world, true, true, None, &text, false);
+}
+
+#[when(regex = r#"^I assemble a search-disabled grep for "([^"]*)"$"#)]
+fn assemble_search_disabled_grep(world: &mut UsecaseWorld, text: String) {
+    run_assemble_grep(world, false, true, None, &text, false);
+}
+
+#[when(regex = r#"^I assemble a grep-disabled grep for "([^"]*)"$"#)]
+fn assemble_grep_disabled_grep(world: &mut UsecaseWorld, text: String) {
+    run_assemble_grep(world, true, false, None, &text, false);
+}
+
+#[when(regex = r#"^I assemble a regexp grep for "([^"]*)"$"#)]
+fn assemble_regexp_grep(world: &mut UsecaseWorld, text: String) {
+    run_assemble_grep(world, true, true, None, &text, true);
+}
+
+#[when(regex = r#"^I assemble a grep for "([^"]*)" rooted at "([^"]*)"$"#)]
+fn assemble_rooted_grep(world: &mut UsecaseWorld, text: String, base: String) {
+    run_assemble_grep(world, true, true, Some(&base), &text, false);
+}
+
+// --- grep: Thens -------------------------------------------------------------
+
+#[then(regex = r#"^the grep is forbidden as "(.*)"$"#)]
+fn grep_is_forbidden(world: &mut UsecaseWorld, message: String) {
+    assert!(matches!(grep_error(world), DomainError::Forbidden(what) if *what == message));
+}
+
+#[then("the grep is invalid")]
+fn grep_is_invalid(world: &mut UsecaseWorld) {
+    assert!(matches!(grep_error(world), DomainError::Invalid(_)));
+}
+
+#[then("the grep reports an unknown commit object")]
+fn grep_unknown_commit(world: &mut UsecaseWorld) {
+    assert!(
+        matches!(grep_error(world), DomainError::NotFound(what) if what == "Unknown commit object")
+    );
+}
+
+#[then(regex = r#"^the grep header title is "(.*)"$"#)]
+fn grep_header_title(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(grep_view(world).title(), expected);
+}
+
+#[then(regex = r#"^the grep roots blob links at "([^"]*)"$"#)]
+fn grep_roots_at(world: &mut UsecaseWorld, name: String) {
+    assert_eq!(grep_view(world).base_id(), fake_oid(&name).as_str());
+}
+
+#[then(regex = r"^the grep lists (\d+) files?$")]
+fn grep_lists_files(world: &mut UsecaseWorld, count: usize) {
+    assert_eq!(grep_view(world).files().len(), count);
+}
+
+#[then(regex = r#"^grep file (\d+) is "([^"]*)" with (\d+) rows?$"#)]
+fn grep_file_is(world: &mut UsecaseWorld, index: usize, path: String, rows: usize) {
+    let file: &GrepFileView = grep_file(world, index);
+    assert_eq!(file.path(), path);
+    assert_eq!(file.rows().len(), rows);
+}
+
+#[then(
+    regex = r#"^grep file (\d+) row (\d+) is line (\d+) highlighting lead "(.*)" match "(.*)" trail "(.*)"$"#
+)]
+fn grep_row_highlighting(
+    world: &mut UsecaseWorld,
+    file: usize,
+    row: usize,
+    line: usize,
+    lead: String,
+    matched: String,
+    trail: String,
+) {
+    assert_highlighted(grep_row(world, file, row), line, &lead, &matched, &trail);
+}
+
+#[then(regex = r#"^grep file (\d+) row (\d+) is line (\d+) plain "(.*)"$"#)]
+fn grep_row_plain(world: &mut UsecaseWorld, file: usize, row: usize, line: usize, text: String) {
+    assert_plain(grep_row(world, file, row), line, &text);
+}
+
+#[then(regex = r"^grep file (\d+) row (\d+) is a binary file$")]
+fn grep_row_binary(world: &mut UsecaseWorld, file: usize, row: usize) {
+    assert!(matches!(grep_row(world, file, row), GrepRow::Binary));
+}
+
+#[then("the grep result is trimmed")]
+fn grep_result_trimmed(world: &mut UsecaseWorld) {
+    assert!(grep_view(world).trimmed());
+}
+
+#[then("the grep result is not trimmed")]
+fn grep_result_not_trimmed(world: &mut UsecaseWorld) {
+    assert!(!grep_view(world).trimmed());
+}
+
+/// Asserts a row is a highlighted line with the given number and lead/match/trail.
+fn assert_highlighted(row: &GrepRow, line: usize, lead: &str, matched: &str, trail: &str) {
+    let GrepRow::Line {
+        line_no,
+        line: content,
+    } = row
+    else {
+        panic!("expected a line row, found a binary row");
+    };
+    assert_eq!(*line_no, line);
+    let GrepLine::Highlighted(snippet) = content else {
+        panic!("expected a highlighted line, found a plain one");
+    };
+    assert_eq!(snippet.lead(), lead);
+    assert_eq!(snippet.matched(), matched);
+    assert_eq!(snippet.trail(), trail);
+}
+
+/// Asserts a row is a plain (unhighlighted) line with the given number and text.
+fn assert_plain(row: &GrepRow, line: usize, text: &str) {
+    let GrepRow::Line {
+        line_no,
+        line: content,
+    } = row
+    else {
+        panic!("expected a line row, found a binary row");
+    };
+    assert_eq!(*line_no, line);
+    let GrepLine::Plain(whole) = content else {
+        panic!("expected a plain line, found a highlighted one");
+    };
+    assert_eq!(whole, text);
+}
+
 // --- ref markers: accessors --------------------------------------------------
 
 /// Renders a marker list as `kind[*]:name` items (the `*` flags an indirect,
@@ -2167,6 +2402,8 @@ fn fake_repo(world: &UsecaseWorld) -> FakeRepository {
         tags: world.tags.clone(),
         commits: world.commits.clone(),
         search_hits: world.search_hits.clone(),
+        grep_matches: world.grep_matches.clone(),
+        grep_trimmed: world.grep_trimmed,
         remotes: world.remotes.clone(),
         remote_branches: world.remote_branches.clone(),
         tree_commit_title: world.tree_commit_title.clone(),

@@ -1,13 +1,15 @@
 Feature: Content-grep matches within one file
   gitweb's `git_search_files` greps each tracked file at one revision with
-  `git grep -n -z -F <pattern>`: a literal, case-sensitive content search. This
-  is the pure per-file rule behind it — given a file's bytes and a pattern, what
-  matches does git list? A text file lists one hit per line that contains the
-  pattern, with the line's 1-based number and its raw text; a binary file is
-  listed once as "Binary file <path> matches" with no line text; the match is a
-  case-sensitive byte substring, so a line is listed at most once however often
-  the pattern occurs in it. The tree walk, the blob reads, the cross-file order,
-  and gitweb's 1000-match cap are the adapter's job, verified by conformance.
+  `git grep -n -z <pattern>` in one of two modes: the default `-F` (a literal,
+  case-sensitive substring) or `-E -i` when the *re* box is checked (a
+  case-insensitive POSIX extended regular expression). This is the pure per-file
+  rule behind it — given a file's bytes and a pattern, what matches does git
+  list? A text file lists one hit per line that matches, with the line's 1-based
+  number and its raw text; a binary file is listed once as
+  "Binary file <path> matches" with no line text; whichever mode is in play, a
+  line is listed at most once however often the pattern occurs in it. The tree
+  walk, the blob reads, the cross-file order, and gitweb's 1000-match cap are the
+  adapter's job, verified by conformance.
 
   In these scenarios the escape "\n" is a newline and "\0" is a NUL byte, so a
   file's exact bytes — including whether it ends in a newline — are pinned.
@@ -98,3 +100,30 @@ Feature: Content-grep matches within one file
     When I grep "caf"
     Then 1 grep match is found
     And grep match 0 is line 1 "café au lait" in "notes.txt"
+
+  # --- regexp mode: -E -i (case-insensitive POSIX ERE) ---
+
+  Scenario: a regexp pattern matches a line case-insensitively
+    Given a file "notes.txt" with content "Foo\nbar\n"
+    When I grep regexp "foo"
+    Then 1 grep match is found
+    And grep match 0 is line 1 "Foo" in "notes.txt"
+
+  Scenario: a regexp metacharacter matches as a regular expression, not a literal
+    Given a file "notes.txt" with content "abc\na.c\nxyz\n"
+    When I grep regexp "a.c"
+    Then 2 grep matches are found
+    And grep match 0 is line 1 "abc" in "notes.txt"
+    And grep match 1 is line 2 "a.c" in "notes.txt"
+
+  Scenario: a regexp anchor binds to each line
+    Given a file "notes.txt" with content "foo\nafoo\n"
+    When I grep regexp "^foo"
+    Then 1 grep match is found
+    And grep match 0 is line 1 "foo" in "notes.txt"
+
+  Scenario: a regexp matches inside binary bytes case-insensitively
+    Given a file "data.bin" with content "head\0SECRET\0tail"
+    When I grep regexp "secret"
+    Then 1 grep match is found
+    And grep match 0 is binary file "data.bin"
