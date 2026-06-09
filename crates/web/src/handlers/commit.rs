@@ -14,6 +14,7 @@
 use std::sync::Arc;
 
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::expiry::Expiry;
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::SafeRef;
@@ -63,12 +64,12 @@ impl Handler for CommitHandler {
             .map(SafeRef::as_str);
         let view: CommitView = assemble_commit(repository.as_ref(), revision)?;
         let blame_on: bool = self.settings.feature(FeatureName::Blame).enabled();
-        Ok(View::html(render_page(
-            &self.settings,
-            project,
-            &view,
-            blame_on,
-        )))
+        // gitweb's `$hash =~ /^$oid_regex$/` (after `$hash ||= $hash_base || "HEAD"`):
+        // a commit addressed by a literal oid is immutable and cacheable for a day.
+        Ok(
+            View::html(render_page(&self.settings, project, &view, blame_on))
+                .with_expiry(Expiry::for_hash(revision)),
+        )
     }
 }
 

@@ -49,6 +49,7 @@ struct WebWorld {
     response_content_type: Option<String>,
     response_content_disposition: Option<String>,
     response_last_modified: Option<String>,
+    response_expires: Option<String>,
     response_location: Option<String>,
     response_body: Option<String>,
     response_body_bytes: Option<Vec<u8>>,
@@ -827,6 +828,22 @@ fn then_has_last_modified(world: &mut WebWorld) {
     );
 }
 
+#[then("the response has an expires header")]
+fn then_has_expires(world: &mut WebWorld) {
+    assert!(
+        world.response_expires.is_some(),
+        "no Expires header was captured"
+    );
+}
+
+#[then("the response has no expires header")]
+fn then_no_expires(world: &mut WebWorld) {
+    assert_eq!(
+        world.response_expires, None,
+        "an Expires header was captured but none was expected"
+    );
+}
+
 #[then(regex = r#"^the response content disposition contains "(.*)"$"#)]
 fn then_disposition_contains(world: &mut WebWorld, needle: String) {
     let disposition: &str = world
@@ -994,6 +1011,39 @@ async fn when_get_file_diff(world: &mut WebWorld, file: String, project: String)
     dispatch_capture(world, uri).await;
 }
 
+/// The full hex object id a project's HEAD resolves to — for a by-oid request
+/// that exercises gitweb's `$expires = "+1d"` (an `Expires` header only when the
+/// request hash is a literal oid).
+fn head_full_oid(world: &WebWorld, project: &str) -> String {
+    let store: GixProjectStore = GixProjectStore::new(root(world).path().to_path_buf());
+    let repository: Box<dyn Repository> = store.open(project).expect("open the project");
+    repository
+        .resolve("HEAD")
+        .expect("resolve HEAD")
+        .as_str()
+        .to_owned()
+}
+
+#[when(regex = r#"^I GET the "([^"]*)" of "([^"]*)" by its full object id$"#)]
+async fn when_get_action_by_oid(world: &mut WebWorld, action: String, project: String) {
+    let oid: String = head_full_oid(world, &project);
+    let uri: String = format!("/?p={project}&a={action}&h={oid}");
+    dispatch_capture(world, uri).await;
+}
+
+#[when(regex = r#"^I GET the blob "([^"]*)" of "([^"]*)" by its full object id$"#)]
+async fn when_get_blob_by_oid(world: &mut WebWorld, file: String, project: String) {
+    let store: GixProjectStore = GixProjectStore::new(root(world).path().to_path_buf());
+    let repository: Box<dyn Repository> = store.open(&project).expect("open the project");
+    let head: ObjectId = repository.resolve("HEAD").expect("resolve HEAD");
+    let blob: ObjectId = repository
+        .path_id(&head, &file)
+        .expect("path lookup")
+        .expect("the file exists at HEAD");
+    let uri: String = format!("/?p={project}&a=blob&h={}", blob.as_str());
+    dispatch_capture(world, uri).await;
+}
+
 /// Drives the router with a GET for `uri` and captures the response — the shared
 /// core of every plain GET step.
 async fn dispatch_capture(world: &mut WebWorld, uri: String) {
@@ -1039,6 +1089,11 @@ async fn dispatch_capture_with(
         .get(header::LAST_MODIFIED)
         .and_then(|value: &header::HeaderValue| value.to_str().ok())
         .map(str::to_owned);
+    let expires: Option<String> = response
+        .headers()
+        .get(header::EXPIRES)
+        .and_then(|value: &header::HeaderValue| value.to_str().ok())
+        .map(str::to_owned);
     let location: Option<String> = response
         .headers()
         .get(header::LOCATION)
@@ -1052,6 +1107,7 @@ async fn dispatch_capture_with(
     world.response_content_type = content_type;
     world.response_content_disposition = content_disposition;
     world.response_last_modified = last_modified;
+    world.response_expires = expires;
     world.response_location = location;
     world.response_body = Some(String::from_utf8_lossy(&bytes).into_owned());
     world.response_body_bytes = Some(bytes.to_vec());

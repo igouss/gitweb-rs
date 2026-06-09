@@ -19,7 +19,10 @@ use axum::response::{IntoResponse, Response};
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::accept::prefer_text_xml_feed;
 use gitweb_domain::model::conditional::{Freshness, freshness};
+use gitweb_domain::model::expiry::Expiry;
 use gitweb_domain::model::timestamp::Timestamp;
+
+use crate::clock::now_epoch;
 use gitweb_render::chrome::{DocumentHead, document};
 use gitweb_render::error::{HttpStatus, error_page, status_for};
 use gitweb_render::markup::Markup;
@@ -52,6 +55,10 @@ struct BodyView {
     /// Whether this body is a feed whose media type may be renegotiated down to
     /// `text/xml` when the reader's `Accept` prefers it (gitweb's `git_feed`).
     feed_negotiable: bool,
+    /// The cache freshness gitweb's by-oid sites carry (`$expires = "+1d"`): the
+    /// boundary turns [`Expiry::OneDay`] into an absolute `Expires` date one day
+    /// past the request clock. [`Expiry::None`] for content gitweb does not cache.
+    expiry: Expiry,
     body: ViewBody,
 }
 
@@ -87,6 +94,7 @@ impl View {
                 content_disposition,
                 last_modified,
                 feed_negotiable: false,
+                expiry: Expiry::None,
                 body,
             }),
         }
@@ -146,6 +154,7 @@ impl View {
                 content_disposition: None,
                 last_modified,
                 feed_negotiable: true,
+                expiry: Expiry::None,
                 body: ViewBody::Text(body),
             }),
         }
@@ -238,6 +247,19 @@ impl View {
             kind: ViewKind::Redirect { location },
         }
     }
+
+    /// Stamps the body with the cache freshness gitweb's by-oid sites carry: a
+    /// view addressed by a literal object id may be held by a cache for a day
+    /// (`$expires = "+1d"`), so the boundary emits an `Expires` header for it.
+    /// A no-op for [`Expiry::None`] and for a redirect, so a handler can hand the
+    /// by-oid rule's result straight through without branching.
+    #[must_use]
+    pub fn with_expiry(mut self, expiry: Expiry) -> Self {
+        if let ViewKind::Body(ref mut view) = self.kind {
+            view.expiry = expiry;
+        }
+        self
+    }
 }
 
 /// The transport-level conditions a request carries that shape its response:
@@ -320,7 +342,21 @@ fn body_into_response(view: BodyView, conditions: &RequestConditions) -> Respons
     {
         response.headers_mut().insert(header::LAST_MODIFIED, value);
     }
+    // gitweb's `$expires = "+1d"`: by-oid content earns an absolute Expires date
+    // one freshness window past the request clock — CGI.pm's resolution of "+1d".
+    if let Some(value) = expires_header(view.expiry) {
+        response.headers_mut().insert(header::EXPIRES, value);
+    }
     response
+}
+
+/// The absolute `Expires` header value for a body's freshness: the request clock
+/// plus the window, in the same HTTP-date form the boundary writes its other
+/// dates. `None` when the body carries no freshness window ([`Expiry::None`]).
+fn expires_header(expiry: Expiry) -> Option<HeaderValue> {
+    let window: i64 = expiry.seconds()?;
+    let stamp: Timestamp = Timestamp::from_epoch(now_epoch() + window);
+    HeaderValue::from_str(&stamp.rfc2822()).ok()
 }
 
 /// gitweb's `Accept`-driven content-type: a feed-negotiable body downgrades to

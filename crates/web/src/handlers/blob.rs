@@ -13,6 +13,7 @@ use std::sync::Arc;
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::blob::BlobDisplay;
 use gitweb_domain::model::encoding::FallbackEncoding;
+use gitweb_domain::model::expiry::Expiry;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::settings::{FeatureName, Settings};
@@ -60,13 +61,13 @@ impl Handler for BlobHandler {
             file,
             FallbackEncoding::Latin1,
         )?;
-        Ok(View::html(render_page(
-            &self.settings,
-            project,
-            base,
-            file,
-            &view,
-        )))
+        // gitweb's `$hash =~ /^$oid_regex$/`: a blob addressed by a literal oid is
+        // immutable and cacheable for a day; one resolved through a file name is
+        // not (`$hash` is then undefined when the expires check runs).
+        Ok(
+            View::html(render_page(&self.settings, project, base, file, &view))
+                .with_expiry(Expiry::for_hash(hash)),
+        )
     }
 }
 

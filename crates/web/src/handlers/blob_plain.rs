@@ -11,6 +11,7 @@
 use std::sync::Arc;
 
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::expiry::Expiry;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::settings::Settings;
@@ -56,10 +57,11 @@ impl Handler for BlobPlainHandler {
         )?;
         let content_type: String = view.content_type().to_owned();
         let content_disposition: String = view.content_disposition().to_owned();
-        Ok(View::raw_blob(
-            content_type,
-            content_disposition,
-            view.into_bytes(),
-        ))
+        // gitweb's `$hash =~ /^$oid_regex$/`: a blob addressed by a literal oid is
+        // immutable and cacheable for a day; one resolved through a file name is not.
+        Ok(
+            View::raw_blob(content_type, content_disposition, view.into_bytes())
+                .with_expiry(Expiry::for_hash(hash)),
+        )
     }
 }

@@ -25,6 +25,7 @@ use gitweb_domain::model::diff::{CombinedDiffEntry, CombinedParent};
 use gitweb_domain::model::diffstat::{Diffstat, DiffstatEntry, StatChange};
 use gitweb_domain::model::email_privacy::redact;
 use gitweb_domain::model::encoding::{FallbackEncoding, to_utf8};
+use gitweb_domain::model::expiry::Expiry;
 use gitweb_domain::model::export::{ExportPolicy, RepoFacts};
 use gitweb_domain::model::feed::{comment_lines, feed_title, feed_window};
 use gitweb_domain::model::file_change::FileChangeNote;
@@ -211,6 +212,8 @@ struct DomainWorld {
     cond_result: Option<Freshness>,
     accept_feed_type: String,
     accept_result: Option<bool>,
+    expiry_hash: Option<String>,
+    expiry_result: Option<Expiry>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -3606,6 +3609,41 @@ fn then_not_modified(world: &mut DomainWorld) {
 #[then("the resource is modified")]
 fn then_modified(world: &mut DomainWorld) {
     assert_eq!(world.cond_result, Some(Freshness::Modified));
+}
+
+// --- by-oid cache freshness: Expires +1d -------------------------------------
+
+#[given(regex = r#"^a view addressed by hash "(.*)"$"#)]
+fn given_view_hash(world: &mut DomainWorld, hash: String) {
+    world.expiry_hash = Some(hash);
+}
+
+#[given("a view addressed by no hash")]
+fn given_view_no_hash(world: &mut DomainWorld) {
+    world.expiry_hash = None;
+}
+
+#[when("I evaluate its cache freshness")]
+fn evaluate_expiry(world: &mut DomainWorld) {
+    world.expiry_result = Some(Expiry::for_hash(world.expiry_hash.as_deref()));
+}
+
+#[then("the freshness window is one day")]
+fn then_window_one_day(world: &mut DomainWorld) {
+    assert_eq!(world.expiry_result, Some(Expiry::OneDay));
+}
+
+#[then(regex = r"^the freshness window is (\d+) seconds$")]
+fn then_window_seconds(world: &mut DomainWorld, seconds: i64) {
+    let expiry: Expiry = world.expiry_result.expect("freshness must be evaluated");
+    assert_eq!(expiry.seconds(), Some(seconds));
+}
+
+#[then("there is no freshness window")]
+fn then_no_window(world: &mut DomainWorld) {
+    assert_eq!(world.expiry_result, Some(Expiry::None));
+    let expiry: Expiry = world.expiry_result.expect("freshness must be evaluated");
+    assert_eq!(expiry.seconds(), None);
 }
 
 // --- feed content-type negotiation: Accept -----------------------------------

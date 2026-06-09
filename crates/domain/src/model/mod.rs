@@ -20,6 +20,7 @@ pub mod diff;
 pub mod diffstat;
 pub mod email_privacy;
 pub mod encoding;
+pub mod expiry;
 pub mod export;
 pub mod feed;
 pub mod file_change;

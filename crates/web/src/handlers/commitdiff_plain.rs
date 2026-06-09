@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::commitdiff_plain::CommitdiffPlain;
+use gitweb_domain::model::expiry::Expiry;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::SafeRef;
 use gitweb_domain::port::project_store::ProjectStore;
@@ -67,7 +68,9 @@ impl Handler for CommitdiffPlainHandler {
             assemble_commitdiff_plain(repository.as_ref(), revision, explicit)?;
         let body: String = plain.render(&self.self_link(project, request));
         let disposition: String = content_disposition(project, revision.unwrap_or("HEAD"));
-        Ok(View::plain_attachment(disposition, body))
+        // gitweb's `$hash =~ /^$oid_regex$/` (after `$hash ||= $hash_base || "HEAD"`):
+        // a raw commitdiff addressed by a literal oid is cacheable for a day.
+        Ok(View::plain_attachment(disposition, body).with_expiry(Expiry::for_hash(revision)))
     }
 }
 

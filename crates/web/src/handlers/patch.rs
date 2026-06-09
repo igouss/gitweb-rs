@@ -18,6 +18,7 @@
 use std::sync::Arc;
 
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::expiry::Expiry;
 use gitweb_domain::model::format_patch::FormatPatch;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::SafeRef;
@@ -80,7 +81,10 @@ impl Handler for PatchHandler {
             &self.git_version,
         )?;
         let disposition: String = content_disposition(project, revision.unwrap_or("HEAD"));
-        Ok(View::plain_attachment(disposition, stream.render()))
+        // gitweb's `$hash =~ /^$oid_regex$/` (after `$hash ||= $hash_base || "HEAD"`):
+        // a format-patch addressed by a literal oid is cacheable for a day.
+        Ok(View::plain_attachment(disposition, stream.render())
+            .with_expiry(Expiry::for_hash(revision)))
     }
 }
 
