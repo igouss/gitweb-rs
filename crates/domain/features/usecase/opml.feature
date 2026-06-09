@@ -32,3 +32,16 @@ Feature: Assembling the OPML project outline
     Given the opml store has project "void.git" without a head
     When I assemble the opml
     Then the opml has no projects
+
+  # --- the project filter (pf subdirectory scoping) ---
+
+  Scenario: a filter scopes the outline to its subdirectory
+    Given the opml store has project "group/live.git" with a head
+    And the opml store has project "other/live.git" with a head
+    When I assemble the opml filtered by "group"
+    Then the opml projects are "group/live.git"
+
+  Scenario: a filter matching no project is still the not-found error
+    Given the opml store has project "group/live.git" with a head
+    When I assemble the opml filtered by "elsewhere"
+    Then assembling the opml fails as not found

@@ -27,3 +27,16 @@ Feature: Assembling the machine-readable project index
     Given the store has project "void.git"
     When I assemble the project index
     Then the index row for "void.git" has owner ""
+
+  # --- the project filter (pf subdirectory scoping) ---
+
+  Scenario: a filter scopes the index to its subdirectory
+    Given the store has project "group/alpha.git"
+    And the store has project "other/beta.git"
+    When I assemble the project index filtered by "group"
+    Then the indexed projects are "group/alpha.git"
+
+  Scenario: a filter matching no project is still the not-found error
+    Given the store has project "group/alpha.git"
+    When I assemble the project index filtered by "elsewhere"
+    Then assembling the index fails as not found

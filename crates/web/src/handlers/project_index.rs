@@ -10,6 +10,7 @@
 use std::sync::Arc;
 
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::project_filter::ProjectFilter;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::usecase::project_index::{
@@ -59,8 +60,9 @@ impl ProjectIndexHandler {
 }
 
 impl Handler for ProjectIndexHandler {
-    fn handle(&self, _request: &Request) -> Result<View, DomainError> {
-        let index: ProjectIndex = assemble_project_index(self.store.as_ref())?;
+    fn handle(&self, request: &Request) -> Result<View, DomainError> {
+        let filter: Option<ProjectFilter> = request.filter();
+        let index: ProjectIndex = assemble_project_index(self.store.as_ref(), filter.as_ref())?;
         let view: ProjectIndexView = assemble_project_index_view(&index);
         Ok(View::text_attachment(
             INDEX_CONTENT_TYPE,

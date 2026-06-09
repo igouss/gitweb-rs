@@ -113,3 +113,19 @@ Feature: Listing projects from a projects-list file through the gix adapter
       """
     When I read the metadata of "solo.git"
     Then the owner is "File Owner"
+
+  # --- list(filter): gitweb's $project_filter scoping in file mode ---
+
+  Scenario: a filter scopes the file listing to its subdirectory
+    Given a project root
+    And a repository "group/alpha.git"
+    And a repository "other/beta.git"
+    And a projects-list file:
+      """
+      group/alpha.git
+      other/beta.git
+      """
+    When I list the projects under "group"
+    Then 1 project is listed
+    And the project "group/alpha.git" is listed
+    And the project "other/beta.git" is not listed

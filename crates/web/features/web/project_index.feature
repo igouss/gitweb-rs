@@ -17,3 +17,12 @@ Feature: Serving the machine-readable project index (project_index action)
     Given the project index is served
     When I GET "/?a=project_index"
     Then the response status is 404
+
+  Scenario: a project filter scopes the index to its subdirectory
+    Given a project root containing repository "group/alpha.git"
+    And the root also contains repository "other/beta.git"
+    And the project index is served
+    When I GET "/?a=project_index&pf=group"
+    Then the response status is 200
+    And the response body contains "group/alpha.git"
+    And the response body does not contain "other/beta.git"

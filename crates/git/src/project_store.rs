@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::project::Project;
+use gitweb_domain::model::project_filter::ProjectFilter;
 use gitweb_domain::model::project_info::ProjectInfo;
 use gitweb_domain::model::projects_list::{ProjectListEntry, parse_project_line};
 use gitweb_domain::model::safety::SafePath;
@@ -136,14 +137,21 @@ impl GixProjectStore {
 }
 
 impl ProjectStore for GixProjectStore {
-    fn list(&self) -> Result<Vec<Project>, DomainError> {
-        if let Some(file) = &self.list_file {
-            return self.list_from_file(file);
+    fn list(&self, filter: Option<&ProjectFilter>) -> Result<Vec<Project>, DomainError> {
+        let mut found: Vec<Project> = if let Some(file) = &self.list_file {
+            self.list_from_file(file)?
+        } else {
+            let mut scanned: Vec<Project> = Vec::new();
+            scan(&self.root, &self.root, &mut scanned)?;
+            // gitweb leaves order to File::Find; sort for a deterministic listing.
+            scanned.sort_by(|a: &Project, b: &Project| a.name().cmp(b.name()));
+            scanned
+        };
+        // gitweb's $project_filter: keep only the projects under the subdirectory
+        // (file mode's `^\Qfilter\E/`, equivalent to the dir walk's scoped root).
+        if let Some(filter) = filter {
+            found.retain(|project: &Project| filter.include(project.name()));
         }
-        let mut found: Vec<Project> = Vec::new();
-        scan(&self.root, &self.root, &mut found)?;
-        // gitweb leaves order to File::Find; sort for a deterministic listing.
-        found.sort_by(|a: &Project, b: &Project| a.name().cmp(b.name()));
         Ok(found)
     }
 

@@ -11,6 +11,7 @@
 use std::sync::Arc;
 
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::project_filter::ProjectFilter;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
@@ -47,10 +48,12 @@ impl ProjectListHandler {
 
 impl Handler for ProjectListHandler {
     fn handle(&self, request: &Request) -> Result<View, DomainError> {
+        let filter: Option<ProjectFilter> = request.filter();
         let view: ProjectListView = assemble_project_list(
             self.store.as_ref(),
             &self.settings,
             request.order.as_deref(),
+            filter.as_ref(),
             now_epoch(),
         )?;
         Ok(View::html(render_page(&self.settings, &view)))

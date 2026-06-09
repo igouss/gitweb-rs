@@ -2,8 +2,10 @@
 //!
 //! Format-stable (verified by golden conformance, not just behaviourally), so
 //! this reproduces gitweb's XML to the byte: the `<opml>` wrapper, a `<title>`
-//! of `<site name> OPML Export`, and one `<outline type="rss" …>` per project
-//! inside the `git RSS feeds` group. The boundary supplies the title's site name
+//! of `<site name> OPML Export` — with `" within subdirectory <pf>"` appended
+//! when the listing is scoped to a `pf` subdirectory — and one
+//! `<outline type="rss" …>` per project inside the `git RSS feeds` group. The
+//! boundary supplies the title's site name (raw), the optional `pf` subdirectory
 //! (raw), each project's chopped path (raw) and its absolute `rss`/`summary`
 //! links (raw [`href_full`](../../gitweb_web/url/fn.href_full.html) output);
 //! here we escape — `esc_html` for the title and the `text`/`title` attributes,
@@ -29,6 +31,10 @@ pub struct OpmlRowView {
 pub struct OpmlView {
     /// The site name (raw); this layer escapes it and appends `" OPML Export"`.
     pub site_name: String,
+    /// The `pf` subdirectory the outline is scoped to (raw), when one was
+    /// requested. gitweb appends `" within subdirectory <pf>"` to the title;
+    /// `None` leaves the title unscoped.
+    pub filter: Option<String>,
     /// The projects, in discovery order.
     pub rows: Vec<OpmlRowView>,
 }
@@ -37,11 +43,16 @@ pub struct OpmlView {
 #[must_use]
 pub fn opml(view: &OpmlView) -> String {
     let outlines: String = view.rows.iter().map(outline).collect();
+    // gitweb's `$title OPML Export$filter`, where the filter suffix is
+    // `" within subdirectory " . esc_html($project_filter)` when `pf` is set.
+    let filter_suffix: String = view.filter.as_deref().map_or_else(String::new, |pf: &str| {
+        format!(" within subdirectory {}", esc_html(pf))
+    });
     format!(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
          <opml version=\"1.0\">\n\
          <head>\n\
-         \x20\x20<title>{title} OPML Export</title>\n\
+         \x20\x20<title>{title} OPML Export{filter_suffix}</title>\n\
          </head>\n\
          <body>\n\
          <outline text=\"git RSS feeds\">\n\

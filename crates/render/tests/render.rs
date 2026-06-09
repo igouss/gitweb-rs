@@ -62,6 +62,7 @@ struct RenderWorld {
     project_rows: Vec<ProjectRow>,
     project_index_entries: Vec<ProjectIndexEntry>,
     opml_site_name: Option<String>,
+    opml_filter: Option<String>,
     opml_rows: Vec<OpmlRowView>,
     head_entries: Vec<HeadEntryView>,
     heads_more: Option<MoreLink>,
@@ -542,6 +543,11 @@ fn given_opml_site(world: &mut RenderWorld, site: String) {
     world.opml_site_name = Some(site);
 }
 
+#[given(regex = r#"^the opml outline is filtered to subdirectory "([^"]*)"$"#)]
+fn given_opml_filter(world: &mut RenderWorld, subdir: String) {
+    world.opml_filter = Some(subdir);
+}
+
 #[given(regex = r#"^an opml project "([^"]*)" with feed "([^"]*)" and summary "([^"]*)"$"#)]
 fn given_opml_project(world: &mut RenderWorld, path: String, feed: String, summary: String) {
     world.opml_rows.push(OpmlRowView {
@@ -555,6 +561,7 @@ fn given_opml_project(world: &mut RenderWorld, path: String, feed: String, summa
 fn when_render_opml(world: &mut RenderWorld) {
     let view: OpmlView = OpmlView {
         site_name: world.opml_site_name.take().unwrap_or_default(),
+        filter: world.opml_filter.take(),
         rows: std::mem::take(&mut world.opml_rows),
     };
     world.output = Some(opml(&view));

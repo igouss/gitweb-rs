@@ -47,3 +47,15 @@ Feature: OPML project outline serialization (gitweb git_opml)
     When I render the opml outline
     Then the body contains "<title>A &amp; B OPML Export</title>"
     And the body contains "text="a&lt;b" title="a&lt;b""
+
+  Scenario: a project filter titles the scoped subdirectory
+    Given an opml outline for site "Untitled Git"
+    And the opml outline is filtered to subdirectory "group/team"
+    When I render the opml outline
+    Then the body contains "<title>Untitled Git OPML Export within subdirectory group/team</title>"
+
+  Scenario: the filter subdirectory is escaped in the title
+    Given an opml outline for site "Untitled Git"
+    And the opml outline is filtered to subdirectory "a&b"
+    When I render the opml outline
+    Then the body contains "OPML Export within subdirectory a&amp;b</title>"

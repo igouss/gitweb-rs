@@ -42,6 +42,7 @@ use gitweb_domain::model::object_redirect::{Resolution, resolution, target_actio
 use gitweb_domain::model::patch::{FileContent, FilePatch, FileSelection, Hunk, HunkLine, Patch};
 use gitweb_domain::model::path_info::PathInfo;
 use gitweb_domain::model::pickaxe_pattern::PickaxePattern;
+use gitweb_domain::model::project_filter::ProjectFilter;
 use gitweb_domain::model::project_info::{CategoryGroup, ProjectInfo, group_by_category};
 use gitweb_domain::model::project_order::ProjectOrder;
 use gitweb_domain::model::projects_list::{ProjectListEntry, parse_project_line};
@@ -155,6 +156,7 @@ struct DomainWorld {
     decoded_token: Option<String>,
     fork_input: Vec<String>,
     fork_groups: Option<Vec<ProjectGroup>>,
+    project_filter: Option<ProjectFilter>,
     subject_project: Option<ProjectInfo>,
     short_description: Option<String>,
     resolved_category: Option<String>,
@@ -2485,6 +2487,36 @@ fn has_the_fork(world: &mut DomainWorld, name: String, fork: String) {
         .iter()
         .any(|candidate: &String| candidate == &fork);
     assert!(found, "expected {name} to own the fork {fork}");
+}
+
+// --- Project filter (pf subdirectory scoping) --------------------------------
+
+fn project_filter(world: &DomainWorld) -> &ProjectFilter {
+    world
+        .project_filter
+        .as_ref()
+        .expect("set the project filter first")
+}
+
+#[given(regex = r#"^the project filter "([^"]*)"$"#)]
+fn given_project_filter(world: &mut DomainWorld, subdir: String) {
+    world.project_filter = Some(ProjectFilter::new(subdir));
+}
+
+#[then(regex = r#"^"([^"]*)" is under the filter$"#)]
+fn path_is_under_filter(world: &mut DomainWorld, path: String) {
+    assert!(
+        project_filter(world).include(&path),
+        "expected {path} to be under the filter"
+    );
+}
+
+#[then(regex = r#"^"([^"]*)" is not under the filter$"#)]
+fn path_is_not_under_filter(world: &mut DomainWorld, path: String) {
+    assert!(
+        !project_filter(world).include(&path),
+        "expected {path} not to be under the filter"
+    );
 }
 
 // --- Per-project metadata (ProjectInfo) --------------------------------------

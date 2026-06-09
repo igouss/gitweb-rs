@@ -13,6 +13,7 @@ use cucumber::{World, given, then, when};
 
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::project::Project;
+use gitweb_domain::model::project_filter::ProjectFilter;
 use gitweb_domain::model::project_info::ProjectInfo;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_fixtures::ProjectRoot;
@@ -93,7 +94,13 @@ fn given_projects_list_file(world: &mut ListFileWorld, step: &Step) {
 
 #[when("I list the projects")]
 fn list_projects(world: &mut ListFileWorld) {
-    world.listed = Some(store(world).list());
+    world.listed = Some(store(world).list(None));
+}
+
+#[when(regex = r#"^I list the projects under "([^"]*)"$"#)]
+fn list_projects_filtered(world: &mut ListFileWorld, subdir: String) {
+    let filter: ProjectFilter = ProjectFilter::new(subdir);
+    world.listed = Some(store(world).list(Some(&filter)));
 }
 
 #[when(regex = r#"^I read the metadata of "([^"]*)"$"#)]
@@ -114,6 +121,14 @@ fn project_is_listed(world: &mut ListFileWorld, name: String) {
         .iter()
         .any(|candidate: &Project| candidate.name() == name);
     assert!(found, "expected a project named {name}");
+}
+
+#[then(regex = r#"^the project "([^"]*)" is not listed$"#)]
+fn project_is_not_listed(world: &mut ListFileWorld, name: String) {
+    let found: bool = ok_listed(world)
+        .iter()
+        .any(|candidate: &Project| candidate.name() == name);
+    assert!(!found, "expected no project named {name}");
 }
 
 #[then(regex = r#"^the owner is "(.*)"$"#)]

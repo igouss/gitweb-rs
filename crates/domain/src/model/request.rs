@@ -13,6 +13,7 @@
 
 use crate::error::DomainError;
 use crate::model::action::Action;
+use crate::model::project_filter::ProjectFilter;
 use crate::model::safety::{SafePath, SafeRef};
 
 /// A fully validated request, ready to dispatch. Every field is already in
@@ -79,6 +80,14 @@ impl Request {
             project_filter: parse_project_filter(first(params, "pf"))?,
             extra_options: parse_extra_options(params, action)?,
         })
+    }
+
+    /// The validated `pf` parameter as a [`ProjectFilter`], for scoping a project
+    /// listing to a subdirectory (gitweb's `$project_filter`); `None` when no
+    /// filter was requested.
+    #[must_use]
+    pub fn filter(&self) -> Option<ProjectFilter> {
+        self.project_filter.as_deref().map(ProjectFilter::new)
     }
 }
 

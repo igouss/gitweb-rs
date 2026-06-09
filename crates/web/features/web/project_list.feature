@@ -28,3 +28,26 @@ Feature: Serving the projects-list landing page
     And the project-list landing page is served
     When I GET "/?o=sideways"
     Then the response status is 400
+
+  Scenario: a project filter scopes the landing page to its subdirectory
+    Given a project root containing repository "group/alpha.git"
+    And the root also contains repository "other/beta.git"
+    And the project-list landing page is served
+    When I GET "/?pf=group"
+    Then the response status is 200
+    And the response body contains "group/alpha.git"
+    And the response body does not contain "other/beta.git"
+
+  Scenario: a project filter matching nothing is no projects found
+    Given a project root containing repository "group/alpha.git"
+    And the project-list landing page is served
+    When I GET "/?pf=elsewhere"
+    Then the response status is 404
+    And the response body contains "No projects found"
+
+  Scenario: an unsafe project filter is rejected
+    Given a project root containing repository "group/alpha.git"
+    And the project-list landing page is served
+    When I GET "/?pf=../etc"
+    Then the response status is 404
+    And the response body contains "Invalid project_filter parameter"

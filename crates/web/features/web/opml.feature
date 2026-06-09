@@ -18,3 +18,13 @@ Feature: Serving the OPML project outline (opml action)
     Given the opml action is served
     When I GET "/?a=opml"
     Then the response status is 404
+
+  Scenario: a project filter scopes the outline and titles the subdirectory
+    Given a repository "group/fh.git" with a file history
+    And the root also contains repository "other/idle.git"
+    And the opml action is served
+    When I GET "/?a=opml&pf=group"
+    Then the response status is 200
+    And the response body contains "OPML Export within subdirectory group</title>"
+    And the response body contains "p=group/fh.git;a=summary"
+    And the response body does not contain "other/idle.git"

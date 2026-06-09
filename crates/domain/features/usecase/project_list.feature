@@ -56,3 +56,17 @@ Feature: Assembling the projects-list page
     Given the store has project "void.git" with no commits
     When I assemble the project list
     Then the project "void.git" has no age
+
+  # --- the project filter (pf subdirectory scoping) ---
+
+  Scenario: a filter scopes the list to its subdirectory
+    Given the store has project "group/alpha.git"
+    And the store has project "group/beta.git"
+    And the store has project "other/gamma.git"
+    When I assemble the project list filtered by "group"
+    Then the listed projects are "group/alpha.git, group/beta.git"
+
+  Scenario: a filter matching no project is still the not-found error
+    Given the store has project "group/alpha.git"
+    When I assemble the project list filtered by "elsewhere"
+    Then assembling fails as not found

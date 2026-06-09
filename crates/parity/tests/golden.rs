@@ -222,7 +222,7 @@ fn serve_project_index(world: &mut GoldenWorld) {
     // Exactly what the handler emits: the use case over the adapter, mapped to
     // the render view, serialized — no boundary URL building, no settings.
     let index: ProjectIndex =
-        assemble_project_index(&store).expect("assemble the corpus project index");
+        assemble_project_index(&store, None).expect("assemble the corpus project index");
     let view: ProjectIndexView = assemble_project_index_view(&index);
     world.index_body = Some(project_index(&view));
     world.golden = Some(Golden::load("project_index/index"));
@@ -240,9 +240,9 @@ fn serve_opml(world: &mut GoldenWorld) {
     // Exactly what the handler emits: the use case over the adapter, mapped to
     // the render view with the CGI default site URL and the built-in site name,
     // serialized.
-    let outline: Opml = assemble_opml(&store).expect("assemble the corpus opml");
+    let outline: Opml = assemble_opml(&store, None).expect("assemble the corpus opml");
     let settings: Settings = Settings::builtin();
-    let view: OpmlView = assemble_opml_view(&outline, &settings, "http://localhost");
+    let view: OpmlView = assemble_opml_view(&outline, &settings, "http://localhost", None);
     world.opml_body = Some(opml(&view));
     world.golden = Some(Golden::load("opml/opml"));
 }

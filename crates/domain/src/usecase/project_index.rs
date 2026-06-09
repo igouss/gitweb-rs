@@ -12,6 +12,7 @@
 
 use crate::error::DomainError;
 use crate::model::project::Project;
+use crate::model::project_filter::ProjectFilter;
 use crate::port::project_store::ProjectStore;
 
 /// One project in the index: its store-relative path and its resolved owner,
@@ -60,9 +61,13 @@ impl ProjectIndex {
 ///
 /// Returns [`DomainError::NotFound`] when no projects are discoverable (gitweb's
 /// `404 No projects found`), and the store's own error if discovery or metadata
-/// fails.
-pub fn assemble_project_index(store: &dyn ProjectStore) -> Result<ProjectIndex, DomainError> {
-    let projects: Vec<Project> = store.list()?;
+/// fails. When `filter` is given, only the projects under its subdirectory are
+/// indexed; an empty result after filtering is the same `404`, as gitweb does.
+pub fn assemble_project_index(
+    store: &dyn ProjectStore,
+    filter: Option<&ProjectFilter>,
+) -> Result<ProjectIndex, DomainError> {
+    let projects: Vec<Project> = store.list(filter)?;
     if projects.is_empty() {
         // gitweb's git_project_index: die_error(404, "No projects found").
         return Err(DomainError::NotFound("No projects found".to_owned()));

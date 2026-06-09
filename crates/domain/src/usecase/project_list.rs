@@ -12,6 +12,7 @@
 use crate::error::DomainError;
 use crate::model::age::Age;
 use crate::model::project::Project;
+use crate::model::project_filter::ProjectFilter;
 use crate::model::project_info::ProjectInfo;
 use crate::model::project_order::ProjectOrder;
 use crate::model::settings::Settings;
@@ -87,16 +88,19 @@ impl ProjectListView {
 ///
 /// Returns [`DomainError::Invalid`] for an unrecognized `order`, the store's own
 /// error if discovery or metadata fails, and [`DomainError::NotFound`] when no
-/// projects are discoverable (gitweb's `404 No projects found`).
+/// projects are discoverable (gitweb's `404 No projects found`). When `filter`
+/// is given, only the projects under its subdirectory are listed; an empty
+/// result after filtering is the same `404` — exactly where gitweb dies.
 pub fn assemble_project_list(
     store: &dyn ProjectStore,
     settings: &Settings,
     order: Option<&str>,
+    filter: Option<&ProjectFilter>,
     now: i64,
 ) -> Result<ProjectListView, DomainError> {
     let order: ProjectOrder = resolve_order(order, settings)?;
 
-    let projects: Vec<Project> = store.list()?;
+    let projects: Vec<Project> = store.list(filter)?;
     if projects.is_empty() {
         // gitweb's git_project_list: die_error(404, "No projects found").
         return Err(DomainError::NotFound("No projects found".to_owned()));

@@ -7,13 +7,16 @@
 
 use crate::error::DomainError;
 use crate::model::project::Project;
+use crate::model::project_filter::ProjectFilter;
 use crate::model::project_info::ProjectInfo;
 use crate::port::repository::Repository;
 
 /// Discovery and opening of the repositories under a project root.
 pub trait ProjectStore {
-    /// All projects discoverable under the project root.
-    fn list(&self) -> Result<Vec<Project>, DomainError>;
+    /// The projects discoverable under the project root, scoped to `filter`'s
+    /// subdirectory when one is given (gitweb's `$project_filter` argument to
+    /// `git_get_projects_list`). A `None` filter lists the whole root.
+    fn list(&self, filter: Option<&ProjectFilter>) -> Result<Vec<Project>, DomainError>;
 
     /// Opens one project by name for reading.
     fn open(&self, name: &str) -> Result<Box<dyn Repository>, DomainError>;

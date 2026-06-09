@@ -37,6 +37,7 @@ use gitweb_domain::model::patch::{FileContent, FilePatch, Patch};
 use gitweb_domain::model::pickaxe::{PickaxeChange, PickaxeMatch};
 use gitweb_domain::model::pickaxe_pattern::PickaxePattern;
 use gitweb_domain::model::project::Project;
+use gitweb_domain::model::project_filter::ProjectFilter;
 use gitweb_domain::model::project_info::ProjectInfo;
 use gitweb_domain::model::ref_marker::{MarkerView, RefMarker};
 use gitweb_domain::model::ref_name::RefName;
@@ -94,11 +95,14 @@ struct FakeStore {
 }
 
 impl ProjectStore for FakeStore {
-    fn list(&self) -> Result<Vec<Project>, DomainError> {
+    fn list(&self, filter: Option<&ProjectFilter>) -> Result<Vec<Project>, DomainError> {
         Ok(self
             .projects
             .iter()
             .map(|info: &ProjectInfo| Project::new(info.name().to_owned()))
+            .filter(|project: &Project| {
+                filter.is_none_or(|filter: &ProjectFilter| filter.include(project.name()))
+            })
             .collect())
     }
 
@@ -130,11 +134,14 @@ struct FakeOpmlStore {
 }
 
 impl ProjectStore for FakeOpmlStore {
-    fn list(&self) -> Result<Vec<Project>, DomainError> {
+    fn list(&self, filter: Option<&ProjectFilter>) -> Result<Vec<Project>, DomainError> {
         Ok(self
             .projects
             .iter()
             .map(|(name, _): &(String, bool)| Project::new(name.clone()))
+            .filter(|project: &Project| {
+                filter.is_none_or(|filter: &ProjectFilter| filter.include(project.name()))
+            })
             .collect())
     }
 
@@ -1265,6 +1272,7 @@ fn assemble_default(world: &mut UsecaseWorld) {
         &store,
         &world.settings,
         None,
+        None,
         world.now,
     ));
 }
@@ -1278,6 +1286,22 @@ fn assemble_ordered(world: &mut UsecaseWorld, order: String) {
         &store,
         &world.settings,
         Some(&order),
+        None,
+        world.now,
+    ));
+}
+
+#[when(regex = r#"^I assemble the project list filtered by "([^"]*)"$"#)]
+fn assemble_filtered(world: &mut UsecaseWorld, subdir: String) {
+    let store: FakeStore = FakeStore {
+        projects: world.projects.clone(),
+    };
+    let filter: ProjectFilter = ProjectFilter::new(subdir);
+    world.result = Some(assemble_project_list(
+        &store,
+        &world.settings,
+        None,
+        Some(&filter),
         world.now,
     ));
 }
@@ -1335,7 +1359,16 @@ fn assemble_index(world: &mut UsecaseWorld) {
     let store: FakeStore = FakeStore {
         projects: world.projects.clone(),
     };
-    world.index_result = Some(assemble_project_index(&store));
+    world.index_result = Some(assemble_project_index(&store, None));
+}
+
+#[when(regex = r#"^I assemble the project index filtered by "([^"]*)"$"#)]
+fn assemble_index_filtered(world: &mut UsecaseWorld, subdir: String) {
+    let store: FakeStore = FakeStore {
+        projects: world.projects.clone(),
+    };
+    let filter: ProjectFilter = ProjectFilter::new(subdir);
+    world.index_result = Some(assemble_project_index(&store, Some(&filter)));
 }
 
 /// The assembled index, or a panic if the scenario produced an error.
@@ -1406,7 +1439,16 @@ fn assemble_opml_outline(world: &mut UsecaseWorld) {
     let store: FakeOpmlStore = FakeOpmlStore {
         projects: world.opml_projects.clone(),
     };
-    world.opml_result = Some(assemble_opml(&store));
+    world.opml_result = Some(assemble_opml(&store, None));
+}
+
+#[when(regex = r#"^I assemble the opml filtered by "([^"]*)"$"#)]
+fn assemble_opml_filtered(world: &mut UsecaseWorld, subdir: String) {
+    let store: FakeOpmlStore = FakeOpmlStore {
+        projects: world.opml_projects.clone(),
+    };
+    let filter: ProjectFilter = ProjectFilter::new(subdir);
+    world.opml_result = Some(assemble_opml(&store, Some(&filter)));
 }
 
 /// The assembled outline, or a panic if the scenario produced an error.

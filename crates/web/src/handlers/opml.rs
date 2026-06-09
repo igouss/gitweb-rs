@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::chop::{ChopMode, chop_str};
+use gitweb_domain::model::project_filter::ProjectFilter;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
@@ -35,14 +36,20 @@ const PATH_LEN: usize = 25;
 const PATH_SLACK: usize = 5;
 
 /// Maps the domain outline into the render layer's view-model: the site name for
-/// the `<title>`, and for each project its chopped path and the absolute
-/// `rss`/`summary` URLs. `base` is the site URL (scheme and host, no trailing
-/// slash). Shared by the handler and the golden conformance test so both produce
-/// identical bytes.
+/// the `<title>`, the optional `pf` subdirectory the title reflects, and for each
+/// project its chopped path and the absolute `rss`/`summary` URLs. `base` is the
+/// site URL (scheme and host, no trailing slash). Shared by the handler and the
+/// golden conformance test so both produce identical bytes.
 #[must_use]
-pub fn assemble_opml_view(outline: &Opml, settings: &Settings, base: &str) -> OpmlView {
+pub fn assemble_opml_view(
+    outline: &Opml,
+    settings: &Settings,
+    base: &str,
+    filter: Option<&str>,
+) -> OpmlView {
     OpmlView {
         site_name: settings.site_name().to_owned(),
+        filter: filter.map(str::to_owned),
         rows: outline
             .projects()
             .iter()
@@ -88,9 +95,15 @@ impl OpmlHandler {
 }
 
 impl Handler for OpmlHandler {
-    fn handle(&self, _request: &Request) -> Result<View, DomainError> {
-        let outline: Opml = assemble_opml(self.store.as_ref())?;
-        let view: OpmlView = assemble_opml_view(&outline, &self.settings, &self.base);
+    fn handle(&self, request: &Request) -> Result<View, DomainError> {
+        let filter: Option<ProjectFilter> = request.filter();
+        let outline: Opml = assemble_opml(self.store.as_ref(), filter.as_ref())?;
+        let view: OpmlView = assemble_opml_view(
+            &outline,
+            &self.settings,
+            &self.base,
+            request.project_filter.as_deref(),
+        );
         Ok(View::text_attachment(
             OPML_CONTENT_TYPE,
             OPML_DISPOSITION,

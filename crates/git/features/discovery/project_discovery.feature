@@ -83,3 +83,28 @@ Feature: Discovering and opening projects through the gix ProjectStore adapter
     Given an empty project root
     When I open the project "/etc/passwd"
     Then opening fails as invalid
+
+  # --- list(filter): gitweb's $project_filter scoping ---
+
+  Scenario: a filter scopes discovery to its subdirectory
+    Given a project root containing repository "group/alpha.git"
+    And the root also contains repository "group/beta.git"
+    And the root also contains repository "other/gamma.git"
+    When I list the projects under "group"
+    Then 2 projects are listed
+    And the project "group/alpha.git" is listed
+    And the project "group/beta.git" is listed
+    And the project "other/gamma.git" is not listed
+
+  Scenario: a filter matches by whole component, not string prefix
+    Given a project root containing repository "foo/inside.git"
+    And the root also contains repository "foobar.git"
+    When I list the projects under "foo"
+    Then 1 project is listed
+    And the project "foo/inside.git" is listed
+    And the project "foobar.git" is not listed
+
+  Scenario: a filter matching no project lists nothing
+    Given a project root containing repository "group/alpha.git"
+    When I list the projects under "elsewhere"
+    Then 0 projects are listed

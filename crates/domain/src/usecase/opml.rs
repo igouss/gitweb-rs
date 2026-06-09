@@ -11,6 +11,7 @@
 
 use crate::error::DomainError;
 use crate::model::project::Project;
+use crate::model::project_filter::ProjectFilter;
 use crate::port::project_store::ProjectStore;
 
 /// One project in the OPML outline: its store-relative path. Only projects with a
@@ -52,9 +53,14 @@ impl Opml {
 /// Returns [`DomainError::NotFound`] when no projects are discoverable (gitweb's
 /// `404 No projects found`), and the store's own error if discovery fails. A
 /// non-empty root whose projects all lack a HEAD is *not* an error: it yields an
-/// empty outline, as gitweb does.
-pub fn assemble_opml(store: &dyn ProjectStore) -> Result<Opml, DomainError> {
-    let projects: Vec<Project> = store.list()?;
+/// empty outline, as gitweb does. When `filter` is given, only the projects
+/// under its subdirectory are considered; the `404` fires on an empty *filtered*
+/// list, before the per-project HEAD filter, exactly where gitweb dies.
+pub fn assemble_opml(
+    store: &dyn ProjectStore,
+    filter: Option<&ProjectFilter>,
+) -> Result<Opml, DomainError> {
+    let projects: Vec<Project> = store.list(filter)?;
     if projects.is_empty() {
         // gitweb's git_opml: die_error(404, "No projects found").
         return Err(DomainError::NotFound("No projects found".to_owned()));

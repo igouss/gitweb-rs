@@ -39,6 +39,7 @@ pub mod path_info;
 pub mod pickaxe;
 pub mod pickaxe_pattern;
 pub mod project;
+pub mod project_filter;
 pub mod project_info;
 pub mod project_order;
 pub mod projects_list;

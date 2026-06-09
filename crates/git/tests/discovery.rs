@@ -13,6 +13,7 @@ use cucumber::{World, given, then, when};
 
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::project::Project;
+use gitweb_domain::model::project_filter::ProjectFilter;
 use gitweb_domain::model::reference::Reference;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
@@ -108,7 +109,13 @@ fn given_also_plain_dir(world: &mut DiscoveryWorld, name: String) {
 
 #[when("I list the projects")]
 fn list_projects(world: &mut DiscoveryWorld) {
-    world.listed = Some(store(world).list());
+    world.listed = Some(store(world).list(None));
+}
+
+#[when(regex = r#"^I list the projects under "([^"]*)"$"#)]
+fn list_projects_filtered(world: &mut DiscoveryWorld, subdir: String) {
+    let filter: ProjectFilter = ProjectFilter::new(subdir);
+    world.listed = Some(store(world).list(Some(&filter)));
 }
 
 #[when(regex = r#"^I open the project "([^"]*)"$"#)]
@@ -130,6 +137,14 @@ fn project_is_listed(world: &mut DiscoveryWorld, name: String) {
         .iter()
         .any(|candidate: &Project| candidate.name() == name);
     assert!(found, "expected a project named {name}");
+}
+
+#[then(regex = r#"^the project "([^"]*)" is not listed$"#)]
+fn project_is_not_listed(world: &mut DiscoveryWorld, name: String) {
+    let found: bool = ok_listed(world)
+        .iter()
+        .any(|candidate: &Project| candidate.name() == name);
+    assert!(!found, "expected no project named {name}");
 }
 
 // --- Thens: open -------------------------------------------------------------
