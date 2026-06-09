@@ -39,6 +39,10 @@ const WEEKDAY_NAMES: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat
 /// An absolute commit/tag timestamp, renderable in the forms gitweb uses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Timestamp {
+    /// The originating Unix epoch — kept so the `Last-Modified` validator can
+    /// compare it against the client's `If-Modified-Since` without re-parsing the
+    /// formatted forms.
+    epoch: i64,
     /// UTC civil fields — drive the RFC-2822 and ISO-8601 forms.
     utc: Civil,
     /// Civil fields shifted into the commit timezone — drive the local form.
@@ -58,10 +62,18 @@ impl Timestamp {
         let timezone: &str = if tz.is_empty() { DEFAULT_TIMEZONE } else { tz };
         let offset: i64 = parse_offset_seconds(timezone);
         Self {
+            epoch,
             utc: Civil::from_epoch(epoch),
             local: Civil::from_epoch(epoch + offset),
             timezone: timezone.to_owned(),
         }
+    }
+
+    /// The originating Unix epoch, in UTC seconds — the value gitweb's
+    /// `exit_if_unmodified_since` compares against the client's cache time.
+    #[must_use]
+    pub fn epoch(&self) -> i64 {
+        self.epoch
     }
 
     /// Builds a timestamp from a bare epoch (no zone), as the feeds do when they
@@ -263,4 +275,24 @@ fn civil_from_days(days: i64) -> (i64, u8, u8) {
     }; // [1, 12]
     let year: i64 = if month <= 2 { year + 1 } else { year };
     (year, month as u8, day as u8)
+}
+
+/// Converts a civil `(year, month, day)` into a day count since the Unix epoch —
+/// the inverse of [`civil_from_days`].
+///
+/// Howard Hinnant's `days_from_civil` (public-domain `date` algorithms): exact
+/// integer arithmetic over the whole `i64` range, with the same March-rooted era
+/// shift the forward conversion uses. The conditional-GET validator pairs it with
+/// the time-of-day to turn a parsed HTTP date back into an epoch.
+pub(crate) fn days_from_civil(year: i64, month: u8, day: u8) -> i64 {
+    let month: i64 = i64::from(month);
+    let day: i64 = i64::from(day);
+    // Treat Jan/Feb as months 13/14 of the *previous* year so the leap day is last.
+    let year: i64 = if month <= 2 { year - 1 } else { year };
+    let era: i64 = if year >= 0 { year } else { year - 399 } / 400;
+    let year_of_era: i64 = year - era * 400; // [0, 399]
+    let day_of_year: i64 =
+        (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1; // [0, 365]
+    let day_of_era: i64 = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year; // [0, 146096]
+    era * 146_097 + day_of_era - 719_468
 }

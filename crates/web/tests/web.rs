@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
-use axum::http::{Request as HttpRequest, header};
+use axum::http::{Method, Request as HttpRequest, header};
 use cucumber::{World, given, then, when};
 use tower::ServiceExt;
 
@@ -898,6 +898,23 @@ async fn when_get(world: &mut WebWorld, uri: String) {
     dispatch_capture(world, uri).await;
 }
 
+#[when(regex = r#"^I GET "([^"]*)" if not modified since "([^"]*)"$"#)]
+async fn when_get_if_modified_since(world: &mut WebWorld, uri: String, since: String) {
+    let headers: [(header::HeaderName, String); 1] = [(header::IF_MODIFIED_SINCE, since)];
+    dispatch_capture_with(world, uri, Method::GET, &headers).await;
+}
+
+#[when(regex = r#"^I GET "([^"]*)" accepting "([^"]*)"$"#)]
+async fn when_get_accepting(world: &mut WebWorld, uri: String, accept: String) {
+    let headers: [(header::HeaderName, String); 1] = [(header::ACCEPT, accept)];
+    dispatch_capture_with(world, uri, Method::GET, &headers).await;
+}
+
+#[when(regex = r#"^I HEAD "([^"]*)"$"#)]
+async fn when_head(world: &mut WebWorld, uri: String) {
+    dispatch_capture_with(world, uri, Method::HEAD, &[]).await;
+}
+
 /// Resolves the parent base for a blobdiff request: the project's HEAD commit and
 /// its first parent, so a single-file diff between them is addressable by hash.
 /// gitweb's blobdiff links carry the actual commit ids; `^`/`~` rev syntax is
@@ -977,17 +994,31 @@ async fn when_get_file_diff(world: &mut WebWorld, file: String, project: String)
     dispatch_capture(world, uri).await;
 }
 
-/// Drives the router with `uri` over the wired dispatcher and captures the
-/// response status, headers, and body into the world — the shared core of every
-/// GET step.
+/// Drives the router with a GET for `uri` and captures the response — the shared
+/// core of every plain GET step.
 async fn dispatch_capture(world: &mut WebWorld, uri: String) {
+    dispatch_capture_with(world, uri, Method::GET, &[]).await;
+}
+
+/// Drives the router with `uri` under `method` and the given request headers,
+/// capturing the response status, headers, and body into the world. The
+/// header-aware core behind the conditional-GET / HEAD / Accept steps.
+async fn dispatch_capture_with(
+    world: &mut WebWorld,
+    uri: String,
+    method: Method,
+    headers: &[(header::HeaderName, String)],
+) {
     let store: Arc<dyn ProjectStore + Send + Sync> =
         Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
     let dispatcher: Arc<Dispatcher> = Arc::new(world.dispatcher.clone());
     let app: Router = router(store, dispatcher);
 
-    let request: HttpRequest<Body> = HttpRequest::builder()
-        .uri(uri)
+    let mut builder = HttpRequest::builder().method(method).uri(uri);
+    for (name, value) in headers {
+        builder = builder.header(name, value);
+    }
+    let request: HttpRequest<Body> = builder
         .body(Body::empty())
         .expect("the test request builds");
     let response = app.oneshot(request).await.expect("the router responds");
@@ -1096,6 +1127,15 @@ fn then_response_body_excludes(world: &mut WebWorld, needle: String) {
         !body.contains(&needle),
         "body unexpectedly contained {needle:?}: {body}"
     );
+}
+
+#[then("the response body is empty")]
+fn then_response_body_empty(world: &mut WebWorld) {
+    let body: &[u8] = world
+        .response_body_bytes
+        .as_deref()
+        .expect("a response body must have been captured");
+    assert!(body.is_empty(), "body was not empty: {body:02x?}");
 }
 
 #[tokio::main]

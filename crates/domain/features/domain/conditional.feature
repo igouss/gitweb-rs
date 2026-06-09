@@ -1,0 +1,47 @@
+Feature: Conditional-GET freshness (If-Modified-Since)
+
+  gitweb's exit_if_unmodified_since compares a resource's Last-Modified epoch
+  with the client's If-Modified-Since: a resource no newer than the cached copy
+  is "not modified" (a bare 304); a newer resource, a missing header, or an
+  unparseable one is served. The epoch under test is 1700086400, which is
+  "Wed, 15 Nov 2023 22:13:20 +0000".
+
+  Scenario: a request with no If-Modified-Since serves the resource
+    Given a resource last modified at epoch 1700086400
+    When I evaluate freshness with no cached copy
+    Then the resource is modified
+
+  Scenario: a cached copy older than the resource serves it
+    Given a resource last modified at epoch 1700086400
+    When I evaluate freshness against "Wed, 15 Nov 2023 21:13:20 +0000"
+    Then the resource is modified
+
+  Scenario: a cached copy equal to the resource is not modified
+    Given a resource last modified at epoch 1700086400
+    When I evaluate freshness against "Wed, 15 Nov 2023 22:13:20 +0000"
+    Then the resource is not modified
+
+  Scenario: a cached copy newer than the resource is not modified
+    Given a resource last modified at epoch 1700086400
+    When I evaluate freshness against "Thu, 16 Nov 2023 00:00:00 +0000"
+    Then the resource is not modified
+
+  Scenario: a GMT-zoned HTTP date is honoured
+    Given a resource last modified at epoch 1700086400
+    When I evaluate freshness against "Wed, 15 Nov 2023 22:13:20 GMT"
+    Then the resource is not modified
+
+  Scenario: a date with no leading weekday is honoured
+    Given a resource last modified at epoch 1700086400
+    When I evaluate freshness against "15 Nov 2023 22:13:20 GMT"
+    Then the resource is not modified
+
+  Scenario: a non-zero numeric offset is normalised to UTC
+    Given a resource last modified at epoch 1700086400
+    When I evaluate freshness against "Wed, 15 Nov 2023 23:13:20 +0100"
+    Then the resource is not modified
+
+  Scenario: an unparseable date serves the resource
+    Given a resource last modified at epoch 1700086400
+    When I evaluate freshness against "yesterday afternoon"
+    Then the resource is modified

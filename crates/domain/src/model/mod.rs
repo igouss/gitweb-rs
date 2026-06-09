@@ -1,5 +1,6 @@
 //! Domain entities: pure git-domain value objects carrying business logic.
 
+pub mod accept;
 pub mod action;
 pub mod age;
 pub mod binary;
@@ -12,6 +13,7 @@ pub mod commit;
 pub mod commit_date;
 pub mod commitdiff;
 pub mod commitdiff_plain;
+pub mod conditional;
 pub mod config_chain;
 pub mod content_type;
 pub mod diff;

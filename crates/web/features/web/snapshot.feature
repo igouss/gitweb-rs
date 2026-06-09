@@ -72,3 +72,24 @@ Feature: Serving a downloadable snapshot archive (snapshot action)
     Given the snapshot action is served with formats "tgz"
     When I GET "/?p=ghost.git&a=snapshot&h=HEAD&sf=tgz"
     Then the response status is 404
+
+  Scenario: a snapshot whose cached copy is current returns 304 with no body
+    Given the snapshot action is served with formats "tgz"
+    When I GET "/?p=t.git&a=snapshot&h=refs/tags/v1.0&sf=tgz" if not modified since "Mon, 1 Jan 2035 00:00:00 GMT"
+    Then the response status is 304
+    And the response has a last-modified header
+    And the response body is empty
+
+  Scenario: a snapshot whose cached copy is stale is served in full
+    Given the snapshot action is served with formats "tgz"
+    When I GET "/?p=t.git&a=snapshot&h=refs/tags/v1.0&sf=tgz" if not modified since "Thu, 1 Jan 2015 00:00:00 GMT"
+    Then the response status is 200
+    And the response body begins with the gzip magic
+
+  Scenario: a HEAD snapshot request returns the headers but no body
+    Given the snapshot action is served with formats "tgz"
+    When I HEAD "/?p=t.git&a=snapshot&h=refs/tags/v1.0&sf=tgz"
+    Then the response status is 200
+    And the response content type is "application/x-gzip"
+    And the response has a last-modified header
+    And the response body is empty

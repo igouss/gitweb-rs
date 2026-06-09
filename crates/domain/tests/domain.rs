@@ -6,6 +6,7 @@
 use cucumber::gherkin::Step;
 use cucumber::{World, given, then, when};
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::accept::prefer_text_xml_feed;
 use gitweb_domain::model::action::Action;
 use gitweb_domain::model::age::{Age, AgeClass};
 use gitweb_domain::model::binary::is_binary;
@@ -17,6 +18,7 @@ use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::commit_date::CommitDate;
 use gitweb_domain::model::commitdiff::{DiffBase, diff_base};
 use gitweb_domain::model::commitdiff_plain::CommitdiffPlain;
+use gitweb_domain::model::conditional::{Freshness, freshness};
 use gitweb_domain::model::config_chain::{ConfigChain, ConfigSlot};
 use gitweb_domain::model::content_type::PlainHeaders;
 use gitweb_domain::model::diff::{CombinedDiffEntry, CombinedParent};
@@ -205,6 +207,10 @@ struct DomainWorld {
     tag_age_now: i64,
     tag_age_creation: Option<i64>,
     tag_age_result: Option<TagAge>,
+    cond_epoch: i64,
+    cond_result: Option<Freshness>,
+    accept_feed_type: String,
+    accept_result: Option<bool>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -3573,6 +3579,65 @@ fn then_marker_indirect(world: &mut DomainWorld, index: usize) {
 #[then(regex = r#"^marker (\d+) is not indirect$"#)]
 fn then_marker_direct(world: &mut DomainWorld, index: usize) {
     assert!(!computed_marker(world, index).indirect());
+}
+
+// --- conditional GET: If-Modified-Since freshness ----------------------------
+
+#[given(regex = r#"^a resource last modified at epoch (\d+)$"#)]
+fn given_resource_epoch(world: &mut DomainWorld, epoch: i64) {
+    world.cond_epoch = epoch;
+}
+
+#[when("I evaluate freshness with no cached copy")]
+fn evaluate_freshness_none(world: &mut DomainWorld) {
+    world.cond_result = Some(freshness(world.cond_epoch, None));
+}
+
+#[when(regex = r#"^I evaluate freshness against "(.*)"$"#)]
+fn evaluate_freshness_against(world: &mut DomainWorld, header: String) {
+    world.cond_result = Some(freshness(world.cond_epoch, Some(&header)));
+}
+
+#[then("the resource is not modified")]
+fn then_not_modified(world: &mut DomainWorld) {
+    assert_eq!(world.cond_result, Some(Freshness::NotModified));
+}
+
+#[then("the resource is modified")]
+fn then_modified(world: &mut DomainWorld) {
+    assert_eq!(world.cond_result, Some(Freshness::Modified));
+}
+
+// --- feed content-type negotiation: Accept -----------------------------------
+
+#[given("an RSS feed")]
+fn given_rss_feed(world: &mut DomainWorld) {
+    world.accept_feed_type = "application/rss+xml".to_owned();
+}
+
+#[given("an Atom feed")]
+fn given_atom_feed(world: &mut DomainWorld) {
+    world.accept_feed_type = "application/atom+xml".to_owned();
+}
+
+#[when("I negotiate with no Accept header")]
+fn negotiate_no_accept(world: &mut DomainWorld) {
+    world.accept_result = Some(prefer_text_xml_feed(None, &world.accept_feed_type));
+}
+
+#[when(regex = r#"^I negotiate with Accept "(.*)"$"#)]
+fn negotiate_with_accept(world: &mut DomainWorld, header: String) {
+    world.accept_result = Some(prefer_text_xml_feed(Some(&header), &world.accept_feed_type));
+}
+
+#[then("the feed type is kept")]
+fn then_feed_kept(world: &mut DomainWorld) {
+    assert_eq!(world.accept_result, Some(false));
+}
+
+#[then("the feed type is downgraded to text/xml")]
+fn then_feed_downgraded(world: &mut DomainWorld) {
+    assert_eq!(world.accept_result, Some(true));
 }
 
 #[tokio::main]

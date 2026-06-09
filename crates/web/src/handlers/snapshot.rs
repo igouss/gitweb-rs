@@ -68,7 +68,9 @@ impl Handler for SnapshotHandler {
 
         let content_type: &'static str = view.content_type();
         let content_disposition: String = view.content_disposition().to_owned();
-        let last_modified: Option<String> = view.last_modified().map(Timestamp::rfc2822);
+        // The boundary formats the Last-Modified header and compares it against
+        // the client's If-Modified-Since, so the use case hands over the time.
+        let last_modified: Option<Timestamp> = view.last_modified().cloned();
         Ok(View::snapshot(
             content_type,
             content_disposition,

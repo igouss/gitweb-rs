@@ -36,3 +36,42 @@ Feature: Serving RSS and Atom feeds (rss / atom actions)
     And the feed actions are served
     When I GET "/?p=ghost.git&a=rss"
     Then the response status is 404
+
+  Scenario: a feed whose cached copy is current returns 304 with no body
+    Given a repository "fh.git" with a file history
+    And the feed actions are served
+    When I GET "/?p=fh.git&a=rss" if not modified since "Wed, 15 Nov 2023 22:13:20 +0000"
+    Then the response status is 304
+    And the response last-modified is "Wed, 15 Nov 2023 22:13:20 +0000"
+    And the response body is empty
+
+  Scenario: a feed whose cached copy is stale is served in full
+    Given a repository "fh.git" with a file history
+    And the feed actions are served
+    When I GET "/?p=fh.git&a=rss" if not modified since "Wed, 15 Nov 2023 21:13:20 +0000"
+    Then the response status is 200
+    And the response body contains "<rss version="2.0""
+
+  Scenario: a HEAD feed request returns the headers but no body
+    Given a repository "fh.git" with a file history
+    And the feed actions are served
+    When I HEAD "/?p=fh.git&a=rss"
+    Then the response status is 200
+    And the response content type is "application/rss+xml; charset=utf-8"
+    And the response last-modified is "Wed, 15 Nov 2023 22:13:20 +0000"
+    And the response body is empty
+
+  Scenario: a reader preferring text/xml receives the feed as text/xml
+    Given a repository "fh.git" with a file history
+    And the feed actions are served
+    When I GET "/?p=fh.git&a=rss" accepting "text/xml"
+    Then the response status is 200
+    And the response content type is "text/xml; charset=utf-8"
+    And the response body contains "<rss version="2.0""
+
+  Scenario: a reader accepting the feed's own type keeps it
+    Given a repository "fh.git" with a file history
+    And the feed actions are served
+    When I GET "/?p=fh.git&a=atom" accepting "application/atom+xml"
+    Then the response status is 200
+    And the response content type is "application/atom+xml; charset=utf-8"

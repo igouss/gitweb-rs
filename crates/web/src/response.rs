@@ -17,6 +17,9 @@ use std::borrow::Cow;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::accept::prefer_text_xml_feed;
+use gitweb_domain::model::conditional::{Freshness, freshness};
+use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_render::chrome::{DocumentHead, document};
 use gitweb_render::error::{HttpStatus, error_page, status_for};
 use gitweb_render::markup::Markup;
@@ -42,7 +45,13 @@ enum ViewBody {
 struct BodyView {
     content_type: Cow<'static, str>,
     content_disposition: Option<String>,
-    last_modified: Option<String>,
+    /// The resource's `Last-Modified` time, formatted into the header on the way
+    /// out and compared against the client's `If-Modified-Since` for the `304`
+    /// path. `None` for bodies gitweb does not date.
+    last_modified: Option<Timestamp>,
+    /// Whether this body is a feed whose media type may be renegotiated down to
+    /// `text/xml` when the reader's `Accept` prefers it (gitweb's `git_feed`).
+    feed_negotiable: bool,
     body: ViewBody,
 }
 
@@ -64,11 +73,12 @@ pub struct View {
 }
 
 impl View {
-    /// Wraps a `200 OK` body and its headers.
+    /// Wraps a `200 OK` body and its headers. Not feed-negotiable; feeds use
+    /// [`View::feed`].
     fn body(
         content_type: Cow<'static, str>,
         content_disposition: Option<String>,
-        last_modified: Option<String>,
+        last_modified: Option<Timestamp>,
         body: ViewBody,
     ) -> Self {
         Self {
@@ -76,6 +86,7 @@ impl View {
                 content_type,
                 content_disposition,
                 last_modified,
+                feed_negotiable: false,
                 body,
             }),
         }
@@ -118,18 +129,26 @@ impl View {
     }
 
     /// A syndication feed (gitweb's `rss`/`atom`): an XML body under its feed
-    /// media type, carrying the `Last-Modified` value gitweb derives from the
+    /// media type, carrying the `Last-Modified` time gitweb derives from the
     /// newest commit (`None` for an empty feed, which has no commit to date it).
-    /// The conditional-GET `304` path that consumes this header lives with the
-    /// caching cross-cut, not here.
+    /// Feed-negotiable: the boundary downgrades the media type to `text/xml` when
+    /// the reader's `Accept` prefers it, and honours `If-Modified-Since` against
+    /// the carried time — see [`View::into_response_with`].
     #[must_use]
-    pub fn feed(content_type: &'static str, body: String, last_modified: Option<String>) -> Self {
-        Self::body(
-            Cow::Borrowed(content_type),
-            None,
-            last_modified,
-            ViewBody::Text(body),
-        )
+    pub fn feed(
+        content_type: &'static str,
+        body: String,
+        last_modified: Option<Timestamp>,
+    ) -> Self {
+        Self {
+            kind: ViewKind::Body(BodyView {
+                content_type: Cow::Borrowed(content_type),
+                content_disposition: None,
+                last_modified,
+                feed_negotiable: true,
+                body: ViewBody::Text(body),
+            }),
+        }
     }
 
     /// A text body served under an explicit content type and offered inline
@@ -186,7 +205,7 @@ impl View {
     pub fn snapshot(
         content_type: &'static str,
         content_disposition: String,
-        last_modified: Option<String>,
+        last_modified: Option<Timestamp>,
         bytes: Vec<u8>,
     ) -> Self {
         Self::body(
@@ -221,26 +240,70 @@ impl View {
     }
 }
 
+/// The transport-level conditions a request carries that shape its response:
+/// the cache validator, the reader's media preference, and whether only headers
+/// are wanted. These live on the HTTP request, not in gitweb's `%input_params`,
+/// so the boundary extracts them and the handlers stay ignorant of them.
+#[derive(Debug, Default, Clone)]
+pub struct RequestConditions {
+    /// The client's `If-Modified-Since`, if any — drives the `304` path.
+    pub if_modified_since: Option<String>,
+    /// The client's `Accept`, if any — drives feed media-type negotiation.
+    pub accept: Option<String>,
+    /// Whether the request was a `HEAD`: emit the headers, drop the body.
+    pub is_head: bool,
+}
+
 impl IntoResponse for View {
+    /// Serves the view with no request conditions — the default for endpoints
+    /// outside gitweb's conditional-GET surface.
     fn into_response(self) -> Response {
+        self.into_response_with(&RequestConditions::default())
+    }
+}
+
+impl View {
+    /// Serves the view, applying the request's transport conditions: a current
+    /// cache short-circuits to a bare `304`; a feed renegotiates to `text/xml`
+    /// when the reader prefers it; a `HEAD` keeps the headers but drops the body.
+    #[must_use]
+    pub fn into_response_with(self, conditions: &RequestConditions) -> Response {
         match self.kind {
-            ViewKind::Body(view) => body_into_response(view),
+            ViewKind::Body(view) => body_into_response(view, conditions),
             ViewKind::Redirect { location } => redirect_into_response(&location),
         }
     }
 }
 
-/// Serves a `200 OK` body with its content type and any optional headers.
-fn body_into_response(view: BodyView) -> Response {
-    let body: Body = match view.body {
-        ViewBody::Text(text) => Body::from(text),
-        ViewBody::Bytes(bytes) => Body::from(bytes),
+/// Serves a body, honouring the conditional-GET, `Accept`, and `HEAD` behaviours
+/// gitweb applies at its feed/snapshot sites.
+fn body_into_response(view: BodyView, conditions: &RequestConditions) -> Response {
+    // gitweb's exit_if_unmodified_since runs first: a resource no newer than the
+    // client's cache earns a bare 304 (Last-Modified only, no body).
+    if let Some(stamp) = view.last_modified.as_ref() {
+        let validator: Option<&str> = conditions.if_modified_since.as_deref();
+        if freshness(stamp.epoch(), validator) == Freshness::NotModified {
+            return not_modified_response(stamp);
+        }
+    }
+    // gitweb downgrades a feed to text/xml when the reader's Accept prefers it.
+    let content_type: Cow<'static, str> =
+        negotiate_content_type(&view, conditions.accept.as_deref());
+
+    let body: Body = if conditions.is_head {
+        // gitweb's HEAD optimisation: the same headers, no body.
+        Body::empty()
+    } else {
+        match view.body {
+            ViewBody::Text(text) => Body::from(text),
+            ViewBody::Bytes(bytes) => Body::from(bytes),
+        }
     };
     let mut response: Response = body.into_response();
     // `from_bytes` permits the obs-text range (0x80–0xFF), so a non-ASCII
     // file name in the disposition (a latin1 blob name) is preserved rather
     // than dropped; a value with control bytes is simply omitted.
-    if let Ok(value) = HeaderValue::from_bytes(view.content_type.as_bytes()) {
+    if let Ok(value) = HeaderValue::from_bytes(content_type.as_bytes()) {
         response.headers_mut().insert(header::CONTENT_TYPE, value);
     }
     if let Some(value) = view
@@ -253,8 +316,36 @@ fn body_into_response(view: BodyView) -> Response {
     }
     if let Some(value) = view
         .last_modified
-        .and_then(|stamp: String| HeaderValue::from_str(&stamp).ok())
+        .and_then(|stamp: Timestamp| HeaderValue::from_str(&stamp.rfc2822()).ok())
     {
+        response.headers_mut().insert(header::LAST_MODIFIED, value);
+    }
+    response
+}
+
+/// gitweb's `Accept`-driven content-type: a feed-negotiable body downgrades to
+/// `text/xml` when the reader's `Accept` prefers it over the feed's own bare
+/// media type; everything else keeps its declared type.
+fn negotiate_content_type(view: &BodyView, accept: Option<&str>) -> Cow<'static, str> {
+    if view.feed_negotiable {
+        let bare_type: &str = view
+            .content_type
+            .split(';')
+            .next()
+            .unwrap_or_default()
+            .trim();
+        if prefer_text_xml_feed(accept, bare_type) {
+            return Cow::Borrowed("text/xml; charset=utf-8");
+        }
+    }
+    view.content_type.clone()
+}
+
+/// gitweb's `304 Not Modified`: the status and the resource's `Last-Modified`,
+/// with no body.
+fn not_modified_response(stamp: &Timestamp) -> Response {
+    let mut response: Response = StatusCode::NOT_MODIFIED.into_response();
+    if let Ok(value) = HeaderValue::from_str(&stamp.rfc2822()) {
         response.headers_mut().insert(header::LAST_MODIFIED, value);
     }
     response

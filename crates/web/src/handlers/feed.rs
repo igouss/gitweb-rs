@@ -296,7 +296,9 @@ impl Handler for FeedHandler {
         let rev: Option<&str> = request.hash.as_ref().map(SafeRef::as_str);
         let path: Option<&str> = request.file_name.as_ref().map(SafePath::as_str);
         let feed: Feed = assemble_feed(repository.as_ref(), rev, path, now_epoch())?;
-        let last_modified: Option<String> = feed.latest().map(Timestamp::rfc2822);
+        // The boundary formats the Last-Modified header and compares it against
+        // the client's If-Modified-Since, so the use case hands over the time.
+        let last_modified: Option<Timestamp> = feed.latest().cloned();
         let feed_request: FeedRequest<'_> = FeedRequest {
             format,
             project,

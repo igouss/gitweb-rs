@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::extract::State;
-use axum::http::Uri;
+use axum::http::{HeaderMap, Method, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use gitweb_domain::error::DomainError;
@@ -25,7 +25,7 @@ use crate::assets;
 use crate::diff_text;
 use crate::dispatch::Dispatcher;
 use crate::request::resolve;
-use crate::response::{View, error_to_response};
+use crate::response::{RequestConditions, View, error_to_response};
 
 /// The state every request handler shares: the project store (for the inbound
 /// project-prefix walk) and the dispatcher (the action table).
@@ -62,17 +62,45 @@ async fn handle_diff_text(State(state): State<AppState>, uri: Uri) -> Response {
 }
 
 /// The catch-all: gitweb's request loop for one request. Decode the URL, resolve
-/// it into a validated request, dispatch it, and render the result — turning any
-/// domain failure into gitweb's `die_error` page.
-async fn handle(State(state): State<AppState>, uri: Uri) -> Response {
+/// it into a validated request, dispatch it, and render the result — applying the
+/// transport conditions (`If-Modified-Since`, `Accept`, `HEAD`) gitweb honours at
+/// its feed/snapshot sites, and turning any domain failure into gitweb's
+/// `die_error` page. Headers and method ride alongside the view rather than
+/// through the handlers, which only see gitweb's `%input_params`.
+async fn handle(
+    State(state): State<AppState>,
+    method: Method,
+    headers: HeaderMap,
+    uri: Uri,
+) -> Response {
     let path: String = decode_path(uri.path());
     let query: Vec<(String, String)> = decode_query(uri.query());
     let view: Result<View, DomainError> = resolve(state.store.as_ref(), &query, &path)
         .and_then(|resolved| state.dispatcher.dispatch(&resolved.request));
+    let conditions: RequestConditions = request_conditions(&method, &headers);
     match view {
-        Ok(view) => view.into_response(),
+        Ok(view) => view.into_response_with(&conditions),
         Err(error) => error_to_response(&error),
     }
+}
+
+/// Lifts the transport-level request conditions out of the HTTP method and
+/// headers: the cache validator, the media preference, and the headers-only flag.
+fn request_conditions(method: &Method, headers: &HeaderMap) -> RequestConditions {
+    RequestConditions {
+        if_modified_since: header_str(headers, header::IF_MODIFIED_SINCE),
+        accept: header_str(headers, header::ACCEPT),
+        is_head: method == Method::HEAD,
+    }
+}
+
+/// Reads a header as an owned UTF-8 string, dropping a value that is not valid
+/// UTF-8 (an `If-Modified-Since`/`Accept` never legitimately is).
+fn header_str(headers: &HeaderMap, name: header::HeaderName) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|value: &header::HeaderValue| value.to_str().ok())
+        .map(str::to_owned)
 }
 
 /// Percent-decodes the request path into gitweb's PATH_INFO (the CGI server
