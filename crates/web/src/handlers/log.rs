@@ -12,6 +12,7 @@
 use std::sync::Arc;
 
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::ref_marker::RefMarker;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::SafeRef;
 use gitweb_domain::model::settings::Settings;
@@ -25,6 +26,7 @@ use gitweb_render::markup::Markup;
 use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
+use crate::handlers::ref_markers::marker_view;
 use crate::response::View;
 use crate::url::href;
 
@@ -150,7 +152,7 @@ fn scoped_href(project: &str, action: &str, param: &str, rev: Option<&str>) -> S
 
 /// Maps a use-case log row to a render entry, building the per-commit links. The
 /// age, timestamp, and message body are already resolved by the domain; only the
-/// URLs are built here, keyed on the commit id.
+/// URLs are built here, keyed on the commit id — including the ref badges' links.
 fn render_row(project: &str, row: &LogRow) -> LogEntryView {
     let id: &str = row.id();
     LogEntryView {
@@ -162,6 +164,11 @@ fn render_row(project: &str, row: &LogRow) -> LogEntryView {
         commit: href(&[("p", project), ("a", "commit"), ("h", id)]),
         commitdiff: href(&[("p", project), ("a", "commitdiff"), ("h", id)]),
         tree: href(&[("p", project), ("a", "tree"), ("h", id), ("hb", id)]),
+        refs: row
+            .markers()
+            .iter()
+            .map(|marker: &RefMarker| marker_view(project, marker))
+            .collect(),
     }
 }
 

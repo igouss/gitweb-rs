@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::object_kind::ObjectKind;
+use gitweb_domain::model::ref_marker::RefMarker;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::settings::Settings;
@@ -30,6 +31,7 @@ use gitweb_render::markup::Markup;
 use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
+use crate::handlers::ref_markers::marker_view;
 use crate::response::View;
 use crate::url::href;
 
@@ -195,6 +197,11 @@ fn history_entry(
         diff_to_current: row
             .diff_to_current()
             .map(|parent: &str| blobdiff_href(project, path, rev, view.file_hash(), parent, id)),
+        refs: row
+            .markers()
+            .iter()
+            .map(|marker: &RefMarker| marker_view(project, marker))
+            .collect(),
     }
 }
 

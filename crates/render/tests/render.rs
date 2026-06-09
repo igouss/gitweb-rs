@@ -762,6 +762,7 @@ fn history_blob_entry(
         commitdiff: format!("{base}/diff"),
         raw: Some(format!("{base}/raw")),
         diff_to_current: None,
+        refs: Vec::new(),
     }
 }
 
@@ -859,6 +860,7 @@ fn given_history_tree_row(
         commitdiff: format!("{base}/diff"),
         raw: None,
         diff_to_current: None,
+        refs: Vec::new(),
     });
 }
 
@@ -874,6 +876,28 @@ fn given_history_diff_to_current(world: &mut RenderWorld, href: String) {
 #[given(regex = r#"^the history offers more at "([^"]*)" labelled "([^"]*)"$"#)]
 fn given_history_more(world: &mut RenderWorld, href: String, label: String) {
     world.history_more = Some(MoreLink { href, label });
+}
+
+#[given(
+    regex = r#"^a history blob row badged a "([^"]*)" ref "([^"]*)" titled "([^"]*)" linking "([^"]*)"$"#
+)]
+fn given_history_badged(
+    world: &mut RenderWorld,
+    class: String,
+    name: String,
+    title: String,
+    href: String,
+) {
+    world.history_object_label = Some("blob".to_owned());
+    let mut entry: HistoryEntryView =
+        history_blob_entry("Alice", "Alice", "x", "x", "now", "now", "/c");
+    entry.refs.push(RefMarkerView {
+        name,
+        class,
+        title,
+        href,
+    });
+    world.history_entries.push(entry);
 }
 
 #[when("I render the history table")]
@@ -904,6 +928,7 @@ fn log_entry(author: &str, title: &str, age: &str, base: &str) -> LogEntryView {
         commit: base.to_owned(),
         commitdiff: format!("{base}/diff"),
         tree: format!("{base}/tree"),
+        refs: Vec::new(),
     }
 }
 
@@ -941,6 +966,26 @@ fn given_log_body_autolink(world: &mut RenderWorld, label: String, url: String) 
 #[given(regex = r#"^the log offers more at "([^"]*)" labelled "([^"]*)"$"#)]
 fn given_log_more(world: &mut RenderWorld, href: String, label: String) {
     world.log_more = Some(MoreLink { href, label });
+}
+
+#[given(
+    regex = r#"^a log entry badged a "([^"]*)" ref "([^"]*)" titled "([^"]*)" linking "([^"]*)"$"#
+)]
+fn given_log_badged(
+    world: &mut RenderWorld,
+    class: String,
+    name: String,
+    title: String,
+    href: String,
+) {
+    let mut entry: LogEntryView = log_entry("Alice", "x", "now", "/c");
+    entry.refs.push(RefMarkerView {
+        name,
+        class,
+        title,
+        href,
+    });
+    world.log_entries.push(entry);
 }
 
 #[when("I render the log entries")]

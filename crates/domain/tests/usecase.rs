@@ -1971,6 +1971,11 @@ fn log_entry_body_begins(world: &mut UsecaseWorld, name: String, expected: Strin
     assert_eq!(first, &LogLine::Text(expected));
 }
 
+#[then(regex = r#"^the log entry "([^"]*)" carries the marker "(.*)"$"#)]
+fn log_entry_carries_marker(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(format_markers(log_row(world, &name).markers()), expected);
+}
+
 // --- summary: accessors ------------------------------------------------------
 
 /// The assembled summary view, or a panic if the scenario produced an error.
@@ -2557,6 +2562,14 @@ fn history_row_offers_diff(world: &mut UsecaseWorld, name: String, blob: String)
 #[then(regex = r#"^the history row "([^"]*)" offers no diff to current$"#)]
 fn history_row_offers_no_diff(world: &mut UsecaseWorld, name: String) {
     assert_eq!(history_row(world, &name).diff_to_current(), None);
+}
+
+#[then(regex = r#"^the history row "([^"]*)" carries the marker "(.*)"$"#)]
+fn history_row_carries_marker(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(
+        format_markers(history_row(world, &name).markers()),
+        expected
+    );
 }
 
 // --- tree: accessors ---------------------------------------------------------

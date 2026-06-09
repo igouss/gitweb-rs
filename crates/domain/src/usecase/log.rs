@@ -16,9 +16,11 @@ use crate::error::DomainError;
 use crate::model::age::Age;
 use crate::model::commit::Commit;
 use crate::model::message_body::{LogLine, log_lines};
+use crate::model::ref_marker::{MarkerView, RefMarker};
 use crate::model::timestamp::Timestamp;
 use crate::port::repository::{Page, Repository};
 use crate::usecase::log_generic::{CommitWindow, walk_commits};
+use crate::usecase::ref_markers::{RefMarkerIndex, assemble_ref_markers};
 
 /// One commit as the verbose log shows it: its identity, the header age and
 /// subject, the authorship, and the message body.
@@ -30,6 +32,7 @@ pub struct LogRow {
     timestamp: Timestamp,
     title: String,
     comment: Vec<LogLine>,
+    markers: Vec<RefMarker>,
 }
 
 impl LogRow {
@@ -68,6 +71,14 @@ impl LogRow {
     #[must_use]
     pub fn comment(&self) -> &[LogLine] {
         &self.comment
+    }
+
+    /// The ref badges decorating this commit (gitweb's `format_ref_marker`), in
+    /// ref-name order — empty when no ref tip is this commit. A direct ref links to
+    /// the log; an annotated tag links to its tag page.
+    #[must_use]
+    pub fn markers(&self) -> &[RefMarker] {
+        &self.markers
     }
 }
 
@@ -108,10 +119,13 @@ pub fn assemble_log(
     page: Page,
 ) -> Result<LogView, DomainError> {
     let window: CommitWindow = walk_commits(repo, rev, None, page)?;
+    // gitweb reads every ref once (git_get_references) before badging each row;
+    // the verbose log is one of the views format_ref_marker links by name.
+    let markers: RefMarkerIndex = assemble_ref_markers(repo, MarkerView::Log)?;
     let rows: Vec<LogRow> = window
         .commits
         .into_iter()
-        .map(|commit: Commit| row_of(&commit, now))
+        .map(|commit: Commit| row_of(&commit, now, &markers))
         .collect();
     Ok(LogView {
         rows,
@@ -121,8 +135,8 @@ pub fn assemble_log(
 
 /// Maps one commit into a verbose log row: its id, the relative header age (from
 /// the committer time), the author and the author's absolute date, the subject,
-/// and the processed message body.
-fn row_of(commit: &Commit, now: i64) -> LogRow {
+/// the processed message body, and the ref badges whose tip is this commit.
+fn row_of(commit: &Commit, now: i64, markers: &RefMarkerIndex) -> LogRow {
     let age: Age = Age::from_seconds(now - commit.committer().epoch());
     LogRow {
         id: commit.id().as_str().to_owned(),
@@ -131,5 +145,6 @@ fn row_of(commit: &Commit, now: i64) -> LogRow {
         timestamp: Timestamp::from_signature(commit.author()),
         title: commit.title(),
         comment: log_lines(commit.message()),
+        markers: markers.for_commit(commit.id()),
     }
 }

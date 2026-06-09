@@ -40,3 +40,12 @@ Feature: Serving a file's history (history action)
     And the history action is served
     When I GET "/?p=fh.git&a=history&f=ghost.txt"
     Then the response status is 500
+
+  Scenario: the commit at the branch tip is badged with its ref
+    Given a repository "fh.git" with a file history
+    And the history action is served
+    When I GET "/?p=fh.git&a=history&f=file.txt"
+    Then the response status is 200
+    And the response body contains "<span class="refs">"
+    And the response body contains "class="ref head""
+    And the response body contains ">main</a>"

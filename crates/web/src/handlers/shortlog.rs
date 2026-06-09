@@ -21,12 +21,12 @@ use gitweb_domain::port::repository::{Page, Repository};
 use gitweb_domain::usecase::shortlog::{ShortlogRow, ShortlogView, assemble_shortlog};
 use gitweb_render::chrome::{Crumb, DocumentHead, MoreLink, NavItem, document};
 use gitweb_render::markup::Markup;
-use gitweb_render::refs::RefMarkerView;
 use gitweb_render::shortlog::{ShortlogEntryView, ShortlogPage, ShortlogTable, shortlog_body};
 
 use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
+use crate::handlers::ref_markers::marker_view;
 use crate::response::View;
 use crate::url::href;
 
@@ -171,27 +171,6 @@ pub(crate) fn shortlog_entry(project: &str, row: &ShortlogRow) -> ShortlogEntryV
             .iter()
             .map(|marker: &RefMarker| marker_view(project, marker))
             .collect(),
-    }
-}
-
-/// Maps a domain ref marker to the render badge, building its link from the
-/// marker's destination action and ref (gitweb's `href(action=>..., hash=>...)`).
-/// The CSS class is the ref kind, plus `indirect` for an annotated tag.
-fn marker_view(project: &str, marker: &RefMarker) -> RefMarkerView {
-    let class: String = if marker.indirect() {
-        format!("{} indirect", marker.kind().class_token())
-    } else {
-        marker.kind().class_token().to_owned()
-    };
-    RefMarkerView {
-        name: marker.name().to_owned(),
-        class,
-        title: marker.title().to_owned(),
-        href: href(&[
-            ("p", project),
-            ("a", marker.action().as_str()),
-            ("h", marker.dest()),
-        ]),
     }
 }
 

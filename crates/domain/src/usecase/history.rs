@@ -27,8 +27,10 @@ use crate::model::commit::Commit;
 use crate::model::commit_date::CommitDate;
 use crate::model::object_id::ObjectId;
 use crate::model::object_kind::ObjectKind;
+use crate::model::ref_marker::{MarkerView, RefMarker};
 use crate::port::repository::{Page, Repository};
 use crate::usecase::log_generic::{CommitWindow, walk_commits};
+use crate::usecase::ref_markers::{RefMarkerIndex, assemble_ref_markers};
 
 /// gitweb's `format_author_html('td', \%co, 15, 3)` — the history row author
 /// bound (15 characters, 3 of word slack), tighter than the shortlog's 10.
@@ -48,6 +50,7 @@ pub struct HistoryRow {
     title: String,
     title_short: String,
     diff_to_current: Option<String>,
+    markers: Vec<RefMarker>,
 }
 
 impl HistoryRow {
@@ -95,6 +98,14 @@ impl HistoryRow {
     #[must_use]
     pub fn diff_to_current(&self) -> Option<&str> {
         self.diff_to_current.as_deref()
+    }
+
+    /// The ref badges decorating this commit (gitweb's `format_ref_marker`), in
+    /// ref-name order — empty when no ref tip is this commit. A direct ref links to
+    /// the history; an annotated tag links to its tag page.
+    #[must_use]
+    pub fn markers(&self) -> &[RefMarker] {
+        &self.markers
     }
 }
 
@@ -166,10 +177,13 @@ pub fn assemble_history(
     let file_hash: ObjectId = current_blob(repo, &window.commits, path)?
         .ok_or_else(|| DomainError::Backend("Unknown type of object".to_owned()))?;
     let file_type: ObjectKind = repo.object_kind(&file_hash)?;
+    // gitweb reads every ref once (git_get_references) before badging each row;
+    // the per-path history is one of the views format_ref_marker links by name.
+    let markers: RefMarkerIndex = assemble_ref_markers(repo, MarkerView::History)?;
     let rows: Vec<HistoryRow> = window
         .commits
         .iter()
-        .map(|commit: &Commit| row_of(repo, commit, path, &file_hash, file_type, now))
+        .map(|commit: &Commit| row_of(repo, commit, path, &file_hash, file_type, now, &markers))
         .collect::<Result<Vec<HistoryRow>, DomainError>>()?;
     Ok(HistoryView {
         file_name: path.to_owned(),
@@ -198,8 +212,9 @@ fn current_blob(
 }
 
 /// Maps one commit into a history row: its id, the date cell, the author (full
-/// and chopped to gitweb's 15/3 bound), the subject, and the "diff to current"
-/// blob when this is a file whose content here differs from the current one.
+/// and chopped to gitweb's 15/3 bound), the subject, the "diff to current" blob
+/// when this is a file whose content here differs from the current one, and the
+/// ref badges whose tip is this commit.
 fn row_of(
     repo: &dyn Repository,
     commit: &Commit,
@@ -207,6 +222,7 @@ fn row_of(
     file_hash: &ObjectId,
     file_type: ObjectKind,
     now: i64,
+    markers: &RefMarkerIndex,
 ) -> Result<HistoryRow, DomainError> {
     let author: String = commit.author().name().to_owned();
     let author_short: String = chop_str(&author, AUTHOR_LEN, AUTHOR_SLACK, ChopMode::Right);
@@ -220,6 +236,7 @@ fn row_of(
         title: commit.title(),
         title_short: commit.title_short(),
         diff_to_current,
+        markers: markers.for_commit(commit.id()),
     })
 }
 

@@ -13,10 +13,13 @@
 //! The file's type is constant across the history (gitweb's `$ftype`), so it is
 //! the table's, labelling every ftype link the same way. The date swap, the
 //! author chop, and the diff-to-current decision are all the domain's calls; URLs
-//! are the web boundary's. This view only places finished strings.
+//! are the web boundary's. This view only places finished strings. The ref badges
+//! after the subject are gitweb's `format_ref_marker` (the domain rule + the
+//! shared [`crate::refs`] view).
 
 use crate::chrome::{Crumb, MoreLink, NavItem, PageFooter, footer, page_header, page_nav};
 use crate::markup::{Markup, html};
+use crate::refs::{RefMarkerView, ref_markers};
 
 /// One history row: the date cell (the swap already resolved into the shown text
 /// and its tooltip), the author (full and chopped), the subject (full and short),
@@ -46,6 +49,9 @@ pub struct HistoryEntryView {
     /// `blobdiff` URL, present only when this commit's content differs from the
     /// view's current version (gitweb's "diff to current").
     pub diff_to_current: Option<String>,
+    /// The ref badges whose tip is this commit (gitweb's `format_ref_marker`),
+    /// rendered after the subject; empty when no ref points here.
+    pub refs: Vec<RefMarkerView>,
 }
 
 /// The history table: the file-type label every ftype link carries, the commit
@@ -123,7 +129,7 @@ fn history_row(row: &HistoryEntryView, object_label: &str) -> Markup {
         tr {
             td class="date" title=(row.date_tooltip) { i { (row.date_displayed) } }
             (author_cell(row))
-            td class="subject" { (subject_link(row)) }
+            td class="subject" { (subject_link(row)) (ref_markers(&row.refs)) }
             td class="links" {
                 a href=(row.object) { (object_label) }
                 " | "

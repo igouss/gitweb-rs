@@ -59,3 +59,11 @@ Feature: Log (verbose recent history, a block per commit)
     And a commit "c1" at epoch 1780583445 by "Alice" titled "branch tip"
     When I assemble the log of "topic" with page size 16
     Then the logged commits are "c1"
+
+  Scenario: A commit at a branch tip carries its ref badge
+    Given the current time is 1780842645
+    And the repository HEAD is at commit "c1"
+    And a commit "c1" at epoch 1780583445 by "Alice" titled "Add the thing"
+    And branch "release" points at commit "c1"
+    When I assemble the log of the default branch with page size 16
+    Then the log entry "c1" carries the marker "head:release"

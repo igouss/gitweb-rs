@@ -116,3 +116,12 @@ Feature: History (per-path commit log)
     And commit "c1" changes file "a.txt" to blob "v1"
     When I assemble the history of "a.txt" from "topic" with page size 16
     Then the history lists "c1"
+
+  Scenario: a commit at a branch tip carries its ref badge
+    Given the current time is 1780842645
+    And the repository HEAD is at commit "c1"
+    And a commit "c1" at epoch 1780583445 by "Alice" titled "Add the thing"
+    And commit "c1" changes file "a.txt" to blob "v1"
+    And branch "release" points at commit "c1"
+    When I assemble the history of "a.txt" from the default branch with page size 16
+    Then the history row "c1" carries the marker "head:release"

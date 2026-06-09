@@ -30,3 +30,12 @@ Feature: Serving a project's verbose log (log action)
     And the log action is served
     When I GET "/?p=ghost.git&a=log"
     Then the response status is 404
+
+  Scenario: the commit at the branch tip is badged with its ref
+    Given a project root containing repository "repo.git"
+    And the log action is served
+    When I GET "/?p=repo.git&a=log"
+    Then the response status is 200
+    And the response body contains "<span class="refs">"
+    And the response body contains "class="ref head""
+    And the response body contains ">main</a>"

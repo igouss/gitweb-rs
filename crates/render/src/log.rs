@@ -10,14 +10,16 @@
 //! The date swap, the age, and the line classification are the domain's calls;
 //! the timestamp markup is the shared [`timestamp_badge`]. URLs are gitweb's
 //! `href()`, the web boundary's job, so every link arrives finished. The ref
-//! markers, avatars, and the SHA-token links gitweb also weaves in are their own
-//! features and are not wired here.
+//! badges after the header subject are gitweb's `format_ref_marker` (the domain
+//! rule + the shared [`crate::refs`] view). The avatars and the SHA-token links
+//! gitweb also weaves in are their own features and are not wired here.
 
 use gitweb_domain::model::message_body::LogLine;
 use gitweb_domain::model::timestamp::Timestamp;
 
 use crate::chrome::{Crumb, MoreLink, NavItem, PageFooter, footer, page_header, page_nav};
 use crate::markup::{Markup, html};
+use crate::refs::{RefMarkerView, ref_markers};
 use crate::timestamp::timestamp_badge;
 
 /// One verbose log entry: the header age and subject, the authorship, the message
@@ -40,6 +42,9 @@ pub struct LogEntryView {
     pub commitdiff: String,
     /// `tree` URL for this commit.
     pub tree: String,
+    /// The ref badges whose tip is this commit (gitweb's `format_ref_marker`),
+    /// rendered after the header subject; empty when no ref points here.
+    pub refs: Vec<RefMarkerView>,
 }
 
 /// The whole verbose-log page body: the breadcrumb header, the action navigation,
@@ -103,6 +108,7 @@ fn log_entry(entry: &LogEntryView) -> Markup {
                     " "
                     (entry.title)
                 }
+                (ref_markers(&entry.refs))
             }
             div class="title_text" {
                 div class="log_link" {
