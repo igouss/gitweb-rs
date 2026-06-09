@@ -31,8 +31,8 @@ use gitweb_web::handlers::{
     BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
     CommitdiffHandler, CommitdiffPlainHandler, DefaultObjectResolver, FeedHandler, HeadsHandler,
     HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, PatchHandler, PatchesHandler,
-    ProjectIndexHandler, ProjectListHandler, RemotesHandler, SearchHelpHandler, ShortlogHandler,
-    SnapshotHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler,
+    ProjectIndexHandler, ProjectListHandler, RemotesHandler, SearchHandler, SearchHelpHandler,
+    ShortlogHandler, SnapshotHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -805,6 +805,43 @@ fn register_search_help(world: &mut WebWorld, settings: Settings) {
         Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
     let handler: Arc<dyn Handler> = Arc::new(SearchHelpHandler::new(store, Arc::new(settings)));
     world.dispatcher.register(Action::SearchHelp, handler);
+}
+
+#[given("the search action is served")]
+fn given_search_served(world: &mut WebWorld) {
+    register_search(world, Settings::builtin());
+}
+
+#[given("the search action is served with search disabled")]
+fn given_search_served_disabled(world: &mut WebWorld) {
+    register_search(world, search_off_settings());
+}
+
+/// Registers the search handler over the given settings.
+fn register_search(world: &mut WebWorld, settings: Settings) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let handler: Arc<dyn Handler> = Arc::new(SearchHandler::new(store, Arc::new(settings)));
+    world.dispatcher.register(Action::Search, handler);
+}
+
+/// Settings whose `search` feature is turned off (gitweb's 403 "Search is
+/// disabled").
+fn search_off_settings() -> Settings {
+    let mut features: BTreeMap<FeatureName, FeatureLayer> = BTreeMap::new();
+    features.insert(
+        FeatureName::Search,
+        FeatureLayer {
+            default: Some(vec!["0".to_owned()]),
+            overridable: None,
+        },
+    );
+    let layer: SettingsLayer = SettingsLayer {
+        features,
+        ..SettingsLayer::default()
+    };
+    Settings::resolve(&[layer])
 }
 
 // --- snapshot: the served handler with site-configured formats ---------------

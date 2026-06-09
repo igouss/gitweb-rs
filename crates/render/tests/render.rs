@@ -40,6 +40,7 @@ use gitweb_render::project_list::{
 };
 use gitweb_render::refs::RefMarkerView;
 use gitweb_render::remotes::{RemoteBlockView, RemoteUrlLine, RemotesPage, remotes_body};
+use gitweb_render::search::{SearchEntryView, SearchPage, SearchPaging, SnippetView, search_body};
 use gitweb_render::search_help::{SearchHelpPage, search_help_body};
 use gitweb_render::shortlog::{ShortlogEntryView, ShortlogTable, shortlog_table};
 use gitweb_render::summary::{
@@ -65,6 +66,9 @@ struct RenderWorld {
     tags_more: Option<MoreLink>,
     shortlog_entries: Vec<ShortlogEntryView>,
     shortlog_more: Option<MoreLink>,
+    search_entries: Vec<SearchEntryView>,
+    search_paging: SearchPaging,
+    search_no_match: bool,
     history_entries: Vec<HistoryEntryView>,
     history_object_label: Option<String>,
     history_more: Option<MoreLink>,
@@ -737,6 +741,86 @@ fn when_render_shortlog_table(world: &mut RenderWorld) {
         more: world.shortlog_more.take(),
     };
     world.output = Some(shortlog_table(&table).into_string());
+}
+
+// ---- search results ----------------------------------------------------------
+
+/// Builds a search result row from its display fields and a commit href, with
+/// the given highlighted snippets. The author and subject are left unchopped (the
+/// chop is the use case's call), and the per-commit links hang off the href.
+fn search_entry(
+    author: &str,
+    title: &str,
+    displayed: &str,
+    href: &str,
+    snippets: Vec<SnippetView>,
+) -> SearchEntryView {
+    SearchEntryView {
+        date_displayed: displayed.to_owned(),
+        date_tooltip: displayed.to_owned(),
+        author: author.to_owned(),
+        author_short: author.to_owned(),
+        title: title.to_owned(),
+        title_short: title.to_owned(),
+        commit: href.to_owned(),
+        commitdiff: format!("{href}/diff"),
+        tree: format!("{href}/tree"),
+        snippets,
+    }
+}
+
+#[given(regex = r#"^a search result by "([^"]*)" titled "([^"]*)" dated "([^"]*)" at "([^"]*)"$"#)]
+fn given_search_result(
+    world: &mut RenderWorld,
+    author: String,
+    title: String,
+    dated: String,
+    href: String,
+) {
+    world
+        .search_entries
+        .push(search_entry(&author, &title, &dated, &href, Vec::new()));
+}
+
+#[given(regex = r#"^a search result highlighting lead "([^"]*)" match "([^"]*)" trail "([^"]*)"$"#)]
+fn given_search_highlight(world: &mut RenderWorld, lead: String, matched: String, trail: String) {
+    let snippet: SnippetView = SnippetView {
+        lead,
+        matched,
+        trail,
+    };
+    world
+        .search_entries
+        .push(search_entry("Ada", "msg", "now", "/c", vec![snippet]));
+}
+
+#[given("the search has no matches")]
+fn given_search_no_matches(world: &mut RenderWorld) {
+    world.search_no_match = true;
+}
+
+#[given(regex = r#"^the search offers a next page at "([^"]*)"$"#)]
+fn given_search_next(world: &mut RenderWorld, href: String) {
+    world.search_paging.next = Some(href);
+}
+
+#[given(regex = r#"^the search offers first and previous pages at "([^"]*)" and "([^"]*)"$"#)]
+fn given_search_first_prev(world: &mut RenderWorld, first: String, prev: String) {
+    world.search_paging.first = Some(first);
+    world.search_paging.prev = Some(prev);
+}
+
+#[when("I render the search page")]
+fn when_render_search(world: &mut RenderWorld) {
+    let page: SearchPage = SearchPage {
+        crumbs: Vec::new(),
+        nav: Vec::new(),
+        paging: std::mem::take(&mut world.search_paging),
+        header_title: "base commit".to_owned(),
+        rows: std::mem::take(&mut world.search_entries),
+        no_match: world.search_no_match,
+    };
+    world.output = Some(search_body(&page).into_string());
 }
 
 // ---- history table ----------------------------------------------------------

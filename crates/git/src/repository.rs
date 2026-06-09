@@ -26,6 +26,7 @@ use gitweb_domain::model::patch::{FilePatch, Patch};
 use gitweb_domain::model::ref_name::RefName;
 use gitweb_domain::model::reference::{DereferencedRef, Reference};
 use gitweb_domain::model::remote::Remote;
+use gitweb_domain::model::search_pattern::SearchPattern;
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::tag::Tag;
 use gitweb_domain::model::tree::{Tree, TreeEntry};
@@ -164,11 +165,6 @@ impl GixRepository {
             leaves.insert(record.filepath.to_string(), (mode, oid));
         }
         Ok(leaves)
-    }
-
-    /// The revision gitweb roots a search at: the object `HEAD` resolves to.
-    fn search_base(&self) -> Result<ObjectId, DomainError> {
-        Ok(self.head()?.target().clone())
     }
 
     /// History reachable from `start`, newest first, keeping the commits for
@@ -827,25 +823,31 @@ impl Repository for GixRepository {
         crate::archive::archive_bytes(&self.repo, tree_id, format, options)
     }
 
-    fn search(&self, query: &SearchQuery, page: Page) -> Result<Vec<Commit>, DomainError> {
-        // gitweb roots search at the current view's revision; with none selected
-        // that is HEAD. Message/author/committer are a case-insensitive substring
-        // (gitweb's `--regexp-ignore-case --fixed-strings`); pickaxe is git's
-        // `-S`, a case-sensitive change in a pattern's occurrence count.
-        let start: ObjectId = self.search_base()?;
-        let pattern: &str = &query.pattern;
+    fn search(
+        &self,
+        base: &ObjectId,
+        query: &SearchQuery,
+        page: Page,
+    ) -> Result<Vec<Commit>, DomainError> {
+        // The walk roots at `base` (the caller resolved gitweb's `$hash`, HEAD by
+        // default). Message/author/committer apply the validated SearchPattern —
+        // a case-insensitive fixed string or regular expression, gitweb's
+        // `--regexp-ignore-case` with `--fixed-strings` / `--extended-regexp`.
+        // Pickaxe is git's `-S`, a case-sensitive change in the pattern's literal
+        // occurrence count, so it reads the raw bytes rather than the matcher.
+        let pattern: &SearchPattern = &query.pattern;
         match query.kind {
-            SearchKind::Commit => self.walk_matching(&start, page, |commit: &Commit| {
-                Ok(contains_ci(commit.message(), pattern))
+            SearchKind::Commit => self.walk_matching(base, page, |commit: &Commit| {
+                Ok(pattern.is_match(commit.message()))
             }),
-            SearchKind::Author => self.walk_matching(&start, page, |commit: &Commit| {
-                Ok(contains_ci(&ident_string(commit.author()), pattern))
+            SearchKind::Author => self.walk_matching(base, page, |commit: &Commit| {
+                Ok(pattern.is_match(&ident_string(commit.author())))
             }),
-            SearchKind::Committer => self.walk_matching(&start, page, |commit: &Commit| {
-                Ok(contains_ci(&ident_string(commit.committer()), pattern))
+            SearchKind::Committer => self.walk_matching(base, page, |commit: &Commit| {
+                Ok(pattern.is_match(&ident_string(commit.committer())))
             }),
-            SearchKind::Pickaxe => self.walk_matching(&start, page, |commit: &Commit| {
-                self.pickaxe_matches(commit, pattern)
+            SearchKind::Pickaxe => self.walk_matching(base, page, |commit: &Commit| {
+                self.pickaxe_matches(commit, pattern.raw())
             }),
         }
     }
@@ -968,14 +970,6 @@ fn combined_status(parent_side: Option<&Side>, merge_side: Option<&Side>) -> Cha
         // not differ from this parent, so it is never combined.
         (None, None) => ChangeStatus::from_modification(absent_mode(), absent_mode()),
     }
-}
-
-/// Case-insensitive substring test, matching git's `--regexp-ignore-case
-/// --fixed-strings`: ASCII case folding over a literal (non-regex) pattern.
-fn contains_ci(haystack: &str, needle: &str) -> bool {
-    haystack
-        .to_ascii_lowercase()
-        .contains(&needle.to_ascii_lowercase())
 }
 
 /// The `Name <email>` identity string git matches `--author=` / `--committer=`

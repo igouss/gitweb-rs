@@ -47,6 +47,8 @@ pub mod request;
 pub mod routing;
 pub mod safety;
 pub mod search_help;
+pub mod search_pattern;
+pub mod search_snippet;
 pub mod section;
 pub mod settings;
 pub mod signature;

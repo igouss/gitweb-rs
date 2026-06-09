@@ -31,6 +31,7 @@ pub mod project_index;
 pub mod project_list;
 pub mod refs;
 pub mod remotes;
+pub mod search;
 pub mod search_help;
 pub mod shortlog;
 pub mod summary;

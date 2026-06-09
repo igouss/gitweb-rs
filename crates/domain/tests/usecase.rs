@@ -47,7 +47,7 @@ use gitweb_domain::model::tag_age::TagAge;
 use gitweb_domain::model::tree::{Tree, TreeEntry};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::{
-    ArchiveFormat, ArchiveOptions, Page, RenameDetection, Repository, SearchQuery,
+    ArchiveFormat, ArchiveOptions, Page, RenameDetection, Repository, SearchKind, SearchQuery,
 };
 use gitweb_domain::usecase::blob::{BlobView, assemble_blob};
 use gitweb_domain::usecase::blob_plain::{BlobPlainView, assemble_blob_plain};
@@ -72,6 +72,7 @@ use gitweb_domain::usecase::project_list::{
 };
 use gitweb_domain::usecase::ref_markers::{RefMarkerIndex, assemble_ref_markers};
 use gitweb_domain::usecase::remotes::{RemoteBlock, RemotesView, assemble_remotes};
+use gitweb_domain::usecase::search::{SearchCriteria, SearchRow, SearchView, assemble_search};
 use gitweb_domain::usecase::search_help::{SearchHelpView, assemble_search_help};
 use gitweb_domain::usecase::shortlog::{ShortlogRow, ShortlogView, assemble_shortlog};
 use gitweb_domain::usecase::snapshot::{SnapshotView, assemble_snapshot};
@@ -171,6 +172,8 @@ struct UsecaseWorld {
     tags_result: Option<Result<TagsView, DomainError>>,
     tag_result: Option<Result<TagView, DomainError>>,
     commits: Vec<FakeCommit>,
+    search_hits: Vec<FakeCommit>,
+    search_result: Option<Result<SearchView, DomainError>>,
     head_commit: Option<ObjectId>,
     shortlog_result: Option<Result<ShortlogView, DomainError>>,
     marker_index: Option<Result<RefMarkerIndex, DomainError>>,
@@ -364,6 +367,26 @@ fn fake_oid(seed: &str) -> ObjectId {
     ObjectId::parse(&hex).expect("a 40-character hex object id")
 }
 
+/// Builds a domain [`Commit`] from a declared [`FakeCommit`]: a synthetic
+/// `Name <a@example.com> epoch +0000` signature for both author and committer
+/// and the title as the whole message. Shared by `history` (the log walk) and
+/// `search` (the result list) so both render rows from the same shape.
+fn commit_from_fake(commit: &FakeCommit) -> Commit {
+    let who: Signature = Signature::parse(&format!(
+        "{} <a@example.com> {} +0000",
+        commit.author, commit.epoch
+    ))
+    .expect("a valid fixture signature");
+    Commit::new(
+        commit.id.clone(),
+        fake_oid("tree"),
+        Vec::new(),
+        who.clone(),
+        who,
+        format!("{}\n", commit.title),
+    )
+}
+
 /// An in-memory [`Repository`] over a fixed set of branches and tags. It serves
 /// the reads the heads and tags use cases make — `head`, `references`,
 /// `object_kind`, `find_commit`, `find_tag` — and leaves every other port method
@@ -375,6 +398,10 @@ struct FakeRepository {
     branches: Vec<FakeBranch>,
     tags: Vec<FakeTag>,
     commits: Vec<FakeCommit>,
+    /// The commits `search` returns (windowed by the page it is asked for). Kept
+    /// separate from `commits` so a search result set is independent of the log
+    /// walk, and so the base commit the search roots at is not itself a hit.
+    search_hits: Vec<FakeCommit>,
     remotes: Vec<Remote>,
     remote_branches: Vec<FakeRemoteBranch>,
     tree_commit_title: Option<String>,
@@ -895,21 +922,7 @@ impl Repository for FakeRepository {
             })
             .skip(page.skip)
             .take(page.limit)
-            .map(|commit: &FakeCommit| {
-                let who: Signature = Signature::parse(&format!(
-                    "{} <a@example.com> {} +0000",
-                    commit.author, commit.epoch
-                ))
-                .expect("a valid fixture signature");
-                Commit::new(
-                    commit.id.clone(),
-                    fake_oid("tree"),
-                    Vec::new(),
-                    who.clone(),
-                    who,
-                    format!("{}\n", commit.title),
-                )
-            })
+            .map(commit_from_fake)
             .collect();
         Ok(commits)
     }
@@ -1068,8 +1081,23 @@ impl Repository for FakeRepository {
         .into_bytes())
     }
 
-    fn search(&self, _query: &SearchQuery, _page: Page) -> Result<Vec<Commit>, DomainError> {
-        unimplemented!("the heads use case never searches")
+    fn search(
+        &self,
+        _base: &ObjectId,
+        _query: &SearchQuery,
+        page: Page,
+    ) -> Result<Vec<Commit>, DomainError> {
+        // The matching and rooting are the adapter's conformance; this fake just
+        // returns the configured hit set windowed by the page, so the use case's
+        // own logic (gating, base resolution, paging, row assembly) is exercised.
+        let hits: Vec<Commit> = self
+            .search_hits
+            .iter()
+            .skip(page.skip)
+            .take(page.limit)
+            .map(commit_from_fake)
+            .collect();
+        Ok(hits)
     }
 
     fn grep(&self, _revision: &ObjectId, _pattern: &str) -> Result<GrepResults, DomainError> {
@@ -1847,6 +1875,162 @@ fn row_carries_marker(world: &mut UsecaseWorld, name: String, expected: String) 
     );
 }
 
+// --- search: accessors -------------------------------------------------------
+
+fn search_view(world: &UsecaseWorld) -> &SearchView {
+    world
+        .search_result
+        .as_ref()
+        .expect("assemble the search first")
+        .as_ref()
+        .expect("assembly succeeded")
+}
+
+fn search_error(world: &UsecaseWorld) -> &DomainError {
+    world
+        .search_result
+        .as_ref()
+        .expect("assemble the search first")
+        .as_ref()
+        .expect_err("assembly failed")
+}
+
+/// The assembled search row for the commit declared as `name`, by its fake id.
+fn search_row<'a>(world: &'a UsecaseWorld, name: &str) -> &'a SearchRow {
+    let id: ObjectId = fake_oid(name);
+    search_view(world)
+        .rows()
+        .iter()
+        .find(|row: &&SearchRow| row.id() == id.as_str())
+        .unwrap_or_else(|| panic!("no search row for {name}"))
+}
+
+/// Runs the search use case with the given gates and page, recording the result.
+fn run_assemble_search(
+    world: &mut UsecaseWorld,
+    enabled: bool,
+    base_rev: Option<&str>,
+    text: &str,
+    use_regexp: bool,
+    page: Page,
+) {
+    let repo: FakeRepository = fake_repo(world);
+    let criteria: SearchCriteria = SearchCriteria {
+        kind: SearchKind::Commit,
+        text: text.to_owned(),
+        use_regexp,
+    };
+    world.search_result = Some(assemble_search(
+        &repo, enabled, base_rev, &criteria, world.now, page,
+    ));
+}
+
+// --- search: Givens ----------------------------------------------------------
+
+#[given(regex = r#"^a search hit "([^"]*)" at epoch (\d+) by "([^"]*)" titled "(.*)"$"#)]
+fn repo_has_search_hit(
+    world: &mut UsecaseWorld,
+    name: String,
+    epoch: i64,
+    author: String,
+    title: String,
+) {
+    world.search_hits.push(FakeCommit {
+        id: fake_oid(&name),
+        epoch,
+        author,
+        title,
+        touches: Vec::new(),
+        present: Vec::new(),
+    });
+}
+
+// --- search: Whens -----------------------------------------------------------
+
+#[when(regex = r#"^I assemble a message search for "([^"]*)"$"#)]
+fn assemble_message_search(world: &mut UsecaseWorld, text: String) {
+    run_assemble_search(world, true, None, &text, false, Page::new(0, 100));
+}
+
+#[when(regex = r#"^I assemble a disabled message search for "([^"]*)"$"#)]
+fn assemble_disabled_search(world: &mut UsecaseWorld, text: String) {
+    run_assemble_search(world, false, None, &text, false, Page::new(0, 100));
+}
+
+#[when(regex = r#"^I assemble a regexp message search for "([^"]*)"$"#)]
+fn assemble_regexp_search(world: &mut UsecaseWorld, text: String) {
+    run_assemble_search(world, true, None, &text, true, Page::new(0, 100));
+}
+
+#[when(regex = r#"^I assemble a message search for "([^"]*)" rooted at "([^"]*)"$"#)]
+fn assemble_rooted_search(world: &mut UsecaseWorld, text: String, base: String) {
+    run_assemble_search(world, true, Some(&base), &text, false, Page::new(0, 100));
+}
+
+#[when(regex = r#"^I assemble a message search for "([^"]*)" with page size (\d+)$"#)]
+fn assemble_paged_search(world: &mut UsecaseWorld, text: String, size: usize) {
+    run_assemble_search(world, true, None, &text, false, Page::new(0, size));
+}
+
+// --- search: Thens -----------------------------------------------------------
+
+#[then("the search is forbidden")]
+fn search_is_forbidden(world: &mut UsecaseWorld) {
+    assert!(matches!(search_error(world), DomainError::Forbidden(_)));
+}
+
+#[then("the search is invalid")]
+fn search_is_invalid(world: &mut UsecaseWorld) {
+    assert!(matches!(search_error(world), DomainError::Invalid(_)));
+}
+
+#[then("the search reports an unknown commit object")]
+fn search_unknown_commit(world: &mut UsecaseWorld) {
+    assert!(
+        matches!(search_error(world), DomainError::NotFound(what) if what == "Unknown commit object")
+    );
+}
+
+#[then("no commits are listed in the search")]
+fn search_lists_nothing(world: &mut UsecaseWorld) {
+    assert!(search_view(world).rows().is_empty());
+}
+
+#[then(regex = r"^the search lists (\d+) commits$")]
+fn search_lists_count(world: &mut UsecaseWorld, count: usize) {
+    assert_eq!(search_view(world).rows().len(), count);
+}
+
+#[then("the search has a further page")]
+fn search_has_further_page(world: &mut UsecaseWorld) {
+    assert!(search_view(world).has_more());
+}
+
+#[then("the search has no further page")]
+fn search_has_no_further_page(world: &mut UsecaseWorld) {
+    assert!(!search_view(world).has_more());
+}
+
+#[then(regex = r#"^search row "([^"]*)" shows the subject "(.*)"$"#)]
+fn search_row_subject(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(search_row(world, &name).title(), expected);
+}
+
+#[then(regex = r#"^search row "([^"]*)" highlights "(.*)"$"#)]
+fn search_row_highlights(world: &mut UsecaseWorld, name: String, expected: String) {
+    let matched: &str = search_row(world, &name)
+        .snippets()
+        .first()
+        .expect("a highlighted snippet")
+        .matched();
+    assert_eq!(matched, expected);
+}
+
+#[then(regex = r#"^search row "([^"]*)" author shortens to "(.*)"$"#)]
+fn search_row_author_short(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(search_row(world, &name).author_short(), expected);
+}
+
 // --- ref markers: accessors --------------------------------------------------
 
 /// Renders a marker list as `kind[*]:name` items (the `*` flags an indirect,
@@ -1982,6 +2166,7 @@ fn fake_repo(world: &UsecaseWorld) -> FakeRepository {
         branches: world.branches.clone(),
         tags: world.tags.clone(),
         commits: world.commits.clone(),
+        search_hits: world.search_hits.clone(),
         remotes: world.remotes.clone(),
         remote_branches: world.remote_branches.clone(),
         tree_commit_title: world.tree_commit_title.clone(),

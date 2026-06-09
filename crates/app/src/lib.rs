@@ -29,8 +29,8 @@ use gitweb_web::{
     CommitdiffHandler, CommitdiffPlainHandler, DefaultObjectResolver, Dispatcher, FeedHandler,
     Handler, HeadsHandler, HistoryHandler, LogHandler, ObjectHandler, ObjectKindResolver,
     OpmlHandler, PatchHandler, PatchesHandler, ProjectIndexHandler, ProjectListHandler,
-    RemotesHandler, SearchHelpHandler, ShortlogHandler, SnapshotHandler, SummaryHandler,
-    TagHandler, TagsHandler, TreeHandler, router,
+    RemotesHandler, SearchHandler, SearchHelpHandler, ShortlogHandler, SnapshotHandler,
+    SummaryHandler, TagHandler, TagsHandler, TreeHandler, router,
 };
 use tower_http::services::ServeDir;
 
@@ -254,6 +254,12 @@ fn build_dispatcher(
         Arc::clone(&settings),
     ));
     dispatcher.register(Action::SearchHelp, search_help);
+
+    let search: Arc<dyn Handler> = Arc::new(SearchHandler::new(
+        Arc::clone(&store),
+        Arc::clone(&settings),
+    ));
+    dispatcher.register(Action::Search, search);
 
     let remotes: Arc<dyn Handler> = Arc::new(RemotesHandler::new(store, settings));
     dispatcher.register(Action::Remotes, remotes);

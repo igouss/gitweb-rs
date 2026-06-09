@@ -51,6 +51,8 @@ use gitweb_domain::model::request::Request;
 use gitweb_domain::model::routing::{Dispatch, route};
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::search_help::{SearchHelpTopic, help_topics};
+use gitweb_domain::model::search_pattern::SearchPattern;
+use gitweb_domain::model::search_snippet::{MatchSnippet, highlight_line};
 use gitweb_domain::model::section::Section;
 use gitweb_domain::model::settings::{FeatureName, Settings, SettingsLayer};
 use gitweb_domain::model::signature::Signature;
@@ -74,6 +76,8 @@ struct DomainWorld {
     signature: Option<Signature>,
     chop_text: String,
     chopped: Option<String>,
+    search_pattern: Option<SearchPattern>,
+    snippet_result: Option<Option<MatchSnippet>>,
     search_help_topics: Option<Vec<SearchHelpTopic>>,
     ref_name: Option<RefName>,
     short_ref: Option<String>,
@@ -627,6 +631,94 @@ fn center_chop(world: &mut DomainWorld, len: usize, add_len: usize) {
 #[then(regex = r#"^the chopped text is "(.*)"$"#)]
 fn chopped_text_is(world: &mut DomainWorld, expected: String) {
     assert_eq!(world.chopped.as_deref(), Some(expected.as_str()));
+}
+
+// --- search pattern ----------------------------------------------------------
+
+#[given(regex = r#"^the fixed search pattern "([^"]*)"$"#)]
+fn given_fixed_pattern(world: &mut DomainWorld, pattern: String) {
+    world.search_pattern = Some(SearchPattern::new(&pattern, false).expect("a fixed pattern"));
+}
+
+#[given(regex = r#"^the regexp search pattern "([^"]*)"$"#)]
+fn given_regexp_pattern(world: &mut DomainWorld, pattern: String) {
+    world.search_pattern = Some(SearchPattern::new(&pattern, true).expect("a valid regexp"));
+}
+
+#[given(regex = r#"^the regexp search pattern "([^"]*)" is rejected as invalid$"#)]
+fn given_regexp_rejected(_world: &mut DomainWorld, pattern: String) {
+    assert!(SearchPattern::new(&pattern, true).is_err());
+}
+
+#[then(regex = r#"^it matches "([^"]*)"$"#)]
+fn pattern_matches(world: &mut DomainWorld, haystack: String) {
+    let pattern: &SearchPattern = world.search_pattern.as_ref().expect("a pattern");
+    assert!(pattern.is_match(&haystack));
+}
+
+#[then(regex = r#"^it does not match "([^"]*)"$"#)]
+fn pattern_does_not_match(world: &mut DomainWorld, haystack: String) {
+    let pattern: &SearchPattern = world.search_pattern.as_ref().expect("a pattern");
+    assert!(!pattern.is_match(&haystack));
+}
+
+#[then(regex = r#"^the first match in "([^"]*)" spans bytes (\d+) to (\d+)$"#)]
+fn pattern_first_match(world: &mut DomainWorld, line: String, start: usize, end: usize) {
+    let pattern: &SearchPattern = world.search_pattern.as_ref().expect("a pattern");
+    assert_eq!(pattern.first_match(&line), Some((start, end)));
+}
+
+// --- search snippet highlight ------------------------------------------------
+
+#[when(regex = r#"^I highlight "([^"]*)"$"#)]
+fn highlight(world: &mut DomainWorld, line: String) {
+    let pattern: &SearchPattern = world.search_pattern.as_ref().expect("a pattern");
+    world.snippet_result = Some(highlight_line(&line, pattern));
+}
+
+#[then(regex = r#"^highlighting "([^"]*)" yields no snippet$"#)]
+fn highlight_yields_none(world: &mut DomainWorld, line: String) {
+    let pattern: &SearchPattern = world.search_pattern.as_ref().expect("a pattern");
+    assert!(highlight_line(&line, pattern).is_none());
+}
+
+fn snippet(world: &DomainWorld) -> &MatchSnippet {
+    world
+        .snippet_result
+        .as_ref()
+        .expect("highlight a line first")
+        .as_ref()
+        .expect("the line matched")
+}
+
+#[then(regex = r#"^the snippet lead is "([^"]*)"$"#)]
+fn snippet_lead_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(snippet(world).lead(), expected);
+}
+
+#[then(regex = r#"^the snippet match is "([^"]*)"$"#)]
+fn snippet_match_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(snippet(world).matched(), expected);
+}
+
+#[then(regex = r#"^the snippet trail is "([^"]*)"$"#)]
+fn snippet_trail_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(snippet(world).trail(), expected);
+}
+
+#[then(regex = r#"^the snippet match contains "([^"]*)"$"#)]
+fn snippet_match_contains(world: &mut DomainWorld, expected: String) {
+    assert!(snippet(world).matched().contains(&expected));
+}
+
+#[then(regex = r#"^the snippet lead starts with "([^"]*)"$"#)]
+fn snippet_lead_starts_with(world: &mut DomainWorld, expected: String) {
+    assert!(snippet(world).lead().starts_with(&expected));
+}
+
+#[then(regex = r#"^the snippet trail ends with "([^"]*)"$"#)]
+fn snippet_trail_ends_with(world: &mut DomainWorld, expected: String) {
+    assert!(snippet(world).trail().ends_with(&expected));
 }
 
 #[when(regex = r"^the search help topics are listed with grep (on|off) and pickaxe (on|off)$")]

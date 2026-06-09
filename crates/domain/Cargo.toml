@@ -11,6 +11,11 @@ description = "Framework-free git-domain entities, ports, and use cases for gitw
 unsafe_code = "forbid"
 
 [dependencies]
+# gitweb's `search_use_regexp` toggle: the search pattern matcher is a pure rule
+# (fixed-string or case-insensitive regular expression), so it lives here. A regex
+# engine is a library, not a framework, and crosses no port — see the workspace
+# manifest for the rationale.
+regex = { workspace = true }
 
 [dev-dependencies]
 cucumber = { workspace = true }

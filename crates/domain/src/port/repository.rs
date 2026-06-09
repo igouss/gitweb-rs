@@ -21,6 +21,7 @@ use crate::model::object_kind::ObjectKind;
 use crate::model::patch::Patch;
 use crate::model::reference::{DereferencedRef, Reference};
 use crate::model::remote::Remote;
+use crate::model::search_pattern::SearchPattern;
 use crate::model::tag::Tag;
 use crate::model::tree::Tree;
 
@@ -120,13 +121,17 @@ impl RenameDetection {
     }
 }
 
-/// A commit search request: what to match and the pattern to match it with.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A commit search request: which facet to search and the pattern to match it
+/// with. The pattern is the already-validated [`SearchPattern`], so the
+/// fixed-vs-regexp / case rules (gitweb's `search_use_regexp`) live in one place
+/// and the adapter just applies it; pickaxe, which feeds git its raw bytes, reads
+/// [`SearchPattern::raw`].
+#[derive(Debug, Clone)]
 pub struct SearchQuery {
     /// Which facet of history to search.
     pub kind: SearchKind,
     /// The pattern to match.
-    pub pattern: String,
+    pub pattern: SearchPattern,
 }
 
 /// Read access to a single git repository.
@@ -264,11 +269,17 @@ pub trait Repository {
         options: &ArchiveOptions,
     ) -> Result<Vec<u8>, DomainError>;
 
-    /// Commits matching `query`, rooted at `HEAD` and windowed by `page`
+    /// Commits matching `query`, reachable from `base` and windowed by `page`
     /// (message / author / committer / pickaxe search). gitweb roots its search
-    /// at the current view's revision; with no revision selected that is `HEAD`,
-    /// which is the base this port searches from.
-    fn search(&self, query: &SearchQuery, page: Page) -> Result<Vec<Commit>, DomainError>;
+    /// at the current view's revision (`$hash`); resolving that — defaulting to
+    /// `HEAD` when no revision is selected — is the caller's policy, so the base
+    /// arrives already resolved rather than being baked into the adapter.
+    fn search(
+        &self,
+        base: &ObjectId,
+        query: &SearchQuery,
+        page: Page,
+    ) -> Result<Vec<Commit>, DomainError>;
 
     /// Content matches for the literal `pattern` over the regular files of
     /// `revision`'s tree, mirroring gitweb's `git_search_files` (`git grep -n -z

@@ -52,3 +52,9 @@ tower-http = { version = "0.6", features = ["fs"] }
 # serde stays a pure data dependency; only the config adapter knows the format.
 serde = { version = "1", features = ["derive"] }
 toml = "0.9"
+# Pure-computation regex engine for gitweb's `search_use_regexp` toggle: a search
+# pattern is either a fixed string or a (case-insensitive) regular expression, and
+# emulating `git log --extended-regexp` / the highlight split needs a real matcher.
+# It is a library, not a framework, and depends on nothing of ours, so it lives in
+# the domain alongside the other pure primitives (it never crosses a port).
+regex = "1"

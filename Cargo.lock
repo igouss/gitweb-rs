@@ -792,6 +792,7 @@ name = "gitweb-domain"
 version = "0.0.0"
 dependencies = [
  "cucumber",
+ "regex",
  "tokio",
 ]
 

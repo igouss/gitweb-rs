@@ -4,10 +4,13 @@ Feature: Searching commit history through the gix adapter
   with `--regexp-ignore-case --fixed-strings`: a case-insensitive substring over
   the commit message or the matched identity. Pickaxe search is `git log -M -S`:
   the commits where the number of occurrences of the pattern changed in some
-  file — a case-sensitive, count-aware match, not mere presence. This is the gix
-  adapter honouring the Repository port's `search` operation, rooted at HEAD the
-  way gitweb roots its search at the current view, over deterministic gix-built
-  fixtures whose ids, identities, and commit times are pinned.
+  file — a case-sensitive, count-aware match, not mere presence. The pattern is
+  fixed-string by default but a (case-insensitive) POSIX extended regular
+  expression when gitweb's `search_use_regexp` is set, and the walk roots at a
+  base revision the caller supplies — gitweb's `$hash`, the current view, HEAD by
+  default. This is the gix adapter honouring the Repository port's `search`
+  operation over deterministic gix-built fixtures whose ids, identities, and
+  commit times are pinned.
 
   (The `grep` facet — `git grep` listing file/line hits at one revision — returns
   lines, not commits, so it is a separate capability and not part of this port.)
@@ -41,6 +44,36 @@ Feature: Searching commit history through the gix adapter
     Given a searchable history
     When I search messages for "xylophone"
     Then 0 commits are found
+
+  # --- regexp toggle: the pattern as a POSIX extended regular expression ---
+
+  Scenario: a regexp message search matches by pattern, not literally
+    Given a searchable history
+    When I regexp-search messages for "rec.pe"
+    Then 3 commits are found
+    And found commit 0 is "c4"
+    And found commit 1 is "c3"
+    And found commit 2 is "c2"
+
+  Scenario: the same pattern as a fixed string treats the dot literally and matches nothing
+    Given a searchable history
+    When I search messages for "rec.pe"
+    Then 0 commits are found
+
+  Scenario: a regexp message search is case-insensitive too
+    Given a searchable history
+    When I regexp-search messages for "F[il]X"
+    Then 1 commit is found
+    And found commit 0 is "c3"
+
+  # --- non-HEAD rooting: the walk starts from the requested revision ---
+
+  Scenario: a search rooted at an older commit ignores commits it cannot reach
+    Given a searchable history
+    When I search messages for "recipe" rooted at "c3"
+    Then 2 commits are found
+    And found commit 0 is "c3"
+    And found commit 1 is "c2"
 
   # --- author search: the matched "Name <email>" identity ---
 

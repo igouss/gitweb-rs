@@ -19,6 +19,7 @@ use cucumber::{World, given, then, when};
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::object_id::ObjectId;
+use gitweb_domain::model::search_pattern::SearchPattern;
 use gitweb_domain::port::repository::{Page, Repository, SearchKind, SearchQuery};
 use gitweb_fixtures::{CommitSpec, Identity, Mode, ObjectId as FixtureOid, RepoBuilder, TreeEntry};
 use gitweb_git::GixRepository;
@@ -177,12 +178,31 @@ fn ok_results(world: &SearchWorld) -> &[Commit] {
         .expect("the search succeeded")
 }
 
-fn run_search(world: &mut SearchWorld, kind: SearchKind, pattern: &str, page: Page) {
-    let query: SearchQuery = SearchQuery {
-        kind,
-        pattern: pattern.to_owned(),
-    };
-    world.results = Some(repo(world).search(&query, page));
+/// The base the search roots at: a named fixture commit, or HEAD's target when
+/// the scenario names none (gitweb's default `$hash`).
+fn search_base(world: &SearchWorld, base_name: Option<&str>) -> ObjectId {
+    match base_name {
+        Some(name) => oid(world, name),
+        None => repo(world)
+            .head()
+            .expect("the fixture has a HEAD")
+            .target()
+            .clone(),
+    }
+}
+
+fn run_search(
+    world: &mut SearchWorld,
+    kind: SearchKind,
+    pattern: &str,
+    use_regexp: bool,
+    base_name: Option<&str>,
+    page: Page,
+) {
+    let base: ObjectId = search_base(world, base_name);
+    let pattern: SearchPattern = SearchPattern::new(pattern, use_regexp).expect("a valid pattern");
+    let query: SearchQuery = SearchQuery { kind, pattern };
+    world.results = Some(repo(world).search(&base, &query, page));
 }
 
 // --- Givens ------------------------------------------------------------------
@@ -196,22 +216,74 @@ fn given_searchable(world: &mut SearchWorld) {
 
 #[when(regex = r#"^I search messages for "([^"]*)"$"#)]
 fn search_messages(world: &mut SearchWorld, pattern: String) {
-    run_search(world, SearchKind::Commit, &pattern, Page::new(0, 100));
+    run_search(
+        world,
+        SearchKind::Commit,
+        &pattern,
+        false,
+        None,
+        Page::new(0, 100),
+    );
+}
+
+#[when(regex = r#"^I regexp-search messages for "([^"]*)"$"#)]
+fn regexp_search_messages(world: &mut SearchWorld, pattern: String) {
+    run_search(
+        world,
+        SearchKind::Commit,
+        &pattern,
+        true,
+        None,
+        Page::new(0, 100),
+    );
+}
+
+#[when(regex = r#"^I search messages for "([^"]*)" rooted at "([^"]*)"$"#)]
+fn search_messages_rooted(world: &mut SearchWorld, pattern: String, base: String) {
+    run_search(
+        world,
+        SearchKind::Commit,
+        &pattern,
+        false,
+        Some(&base),
+        Page::new(0, 100),
+    );
 }
 
 #[when(regex = r#"^I search authors for "([^"]*)"$"#)]
 fn search_authors(world: &mut SearchWorld, pattern: String) {
-    run_search(world, SearchKind::Author, &pattern, Page::new(0, 100));
+    run_search(
+        world,
+        SearchKind::Author,
+        &pattern,
+        false,
+        None,
+        Page::new(0, 100),
+    );
 }
 
 #[when(regex = r#"^I search committers for "([^"]*)"$"#)]
 fn search_committers(world: &mut SearchWorld, pattern: String) {
-    run_search(world, SearchKind::Committer, &pattern, Page::new(0, 100));
+    run_search(
+        world,
+        SearchKind::Committer,
+        &pattern,
+        false,
+        None,
+        Page::new(0, 100),
+    );
 }
 
 #[when(regex = r#"^I pickaxe-search for "([^"]*)"$"#)]
 fn search_pickaxe(world: &mut SearchWorld, pattern: String) {
-    run_search(world, SearchKind::Pickaxe, &pattern, Page::new(0, 100));
+    run_search(
+        world,
+        SearchKind::Pickaxe,
+        &pattern,
+        false,
+        None,
+        Page::new(0, 100),
+    );
 }
 
 #[when(regex = r#"^I search messages for "([^"]*)" on page (\d+) of size (\d+)$"#)]
@@ -220,6 +292,8 @@ fn search_messages_paged(world: &mut SearchWorld, pattern: String, page: usize, 
         world,
         SearchKind::Commit,
         &pattern,
+        false,
+        None,
         Page::from_page(page, size),
     );
 }
