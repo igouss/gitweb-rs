@@ -35,7 +35,12 @@ Feature: Per-project metadata through the gix ProjectStore adapter
     When I read the metadata of "solo.git"
     Then there is no description
 
-  # --- owner ---
+  # --- owner: file / config win, then the filesystem owner (get_file_owner) ---
+  # gitweb resolves an owner from the projects-list file, then the gitweb.owner
+  # config, and only as a last resort from the operating-system owner of the
+  # repository directory (get_file_owner: the user that owns the directory on
+  # disk). The uid -> name step is seamed so this pins a name deterministically
+  # instead of leaning on the host's passwd database.
 
   Scenario: an owner is read from gitweb config
     Given a project root containing repository "solo.git"
@@ -43,7 +48,20 @@ Feature: Per-project metadata through the gix ProjectStore adapter
     When I read the metadata of "solo.git"
     Then the owner is "Ada Lovelace"
 
-  Scenario: a project with no configured owner has no owner
+  Scenario: with no file or config owner, the filesystem owner is used
+    Given a project root containing repository "solo.git"
+    And the repository directory's operating-system owner resolves to "Grace Hopper"
+    When I read the metadata of "solo.git"
+    Then the owner is "Grace Hopper"
+
+  Scenario: the gitweb config owner wins over the filesystem owner
+    Given a project root containing repository "solo.git"
+    And "solo.git" has gitweb config "owner" set to "Ada Lovelace"
+    And the repository directory's operating-system owner resolves to "Grace Hopper"
+    When I read the metadata of "solo.git"
+    Then the owner is "Ada Lovelace"
+
+  Scenario: with no owner anywhere and no passwd entry, there is no owner
     Given a project root containing repository "solo.git"
     When I read the metadata of "solo.git"
     Then there is no owner

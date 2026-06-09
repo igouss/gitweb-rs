@@ -23,6 +23,7 @@ use gitweb_domain::port::repository::Repository;
 
 use crate::conv::{backend, to_signature};
 use crate::repository::GixRepository;
+use crate::user_directory::{SystemUserDirectory, UserDirectory};
 
 /// Discovery and opening of the repositories under one project root, backed by
 /// the filesystem and gix.
@@ -35,6 +36,11 @@ use crate::repository::GixRepository;
 pub struct GixProjectStore {
     root: PathBuf,
     list_file: Option<PathBuf>,
+    /// Resolves the filesystem owner of a repository directory (gitweb's
+    /// `get_file_owner`), the last-resort owner source. Defaults to the system
+    /// passwd database; a conformance spec injects a pinned one via
+    /// [`with_user_directory`](Self::with_user_directory).
+    users: Box<dyn UserDirectory>,
 }
 
 impl GixProjectStore {
@@ -44,6 +50,7 @@ impl GixProjectStore {
         Self {
             root,
             list_file: None,
+            users: Box::new(SystemUserDirectory),
         }
     }
 
@@ -54,7 +61,17 @@ impl GixProjectStore {
         Self {
             root,
             list_file: Some(list_file),
+            users: Box::new(SystemUserDirectory),
         }
+    }
+
+    /// Replaces the user directory used for the filesystem owner fallback, so a
+    /// test can pin the uid → name mapping that is otherwise the host's
+    /// non-reproducible passwd database.
+    #[must_use]
+    pub fn with_user_directory(mut self, users: Box<dyn UserDirectory>) -> Self {
+        self.users = users;
+        self
     }
 
     /// Resolves a store-relative `name` to its on-disk git directory, validating
@@ -105,6 +122,17 @@ impl GixProjectStore {
             .find(|entry: &ProjectListEntry| entry.path() == name)
             .and_then(|entry: ProjectListEntry| entry.owner().map(str::to_owned))
     }
+
+    /// gitweb's `get_file_owner` fallback: the display name of the user that owns
+    /// the repository directory on disk. `stat`s the directory for its owning
+    /// uid (following symlinks, as gitweb's `stat` does) and resolves that uid
+    /// through the [`UserDirectory`] seam. `None` when the directory cannot be
+    /// stat'd or the uid has no passwd entry, so the owner is simply absent.
+    fn file_owner(&self, git_dir: &Path) -> Option<String> {
+        use std::os::unix::fs::MetadataExt;
+        let uid: u32 = fs::metadata(git_dir).ok()?.uid();
+        self.users.display_name(uid)
+    }
 }
 
 impl ProjectStore for GixProjectStore {
@@ -142,11 +170,12 @@ impl ProjectStore for GixProjectStore {
             info = info.with_description(description);
         }
         // Owner precedence (gitweb's git_get_project_owner): the projects-list
-        // file wins, then the gitweb.owner config value. The filesystem owner is
-        // a later slice.
+        // file wins, then the gitweb.owner config value, and only as a last
+        // resort the operating-system owner of the directory (get_file_owner).
         if let Some(owner) = self
             .list_owner(name)
             .or_else(|| config.string("gitweb.owner").map(cow_to_string))
+            .or_else(|| self.file_owner(&git_dir))
         {
             info = info.with_owner(owner);
         }

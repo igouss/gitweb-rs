@@ -16,6 +16,8 @@ mod archive;
 mod conv;
 mod project_store;
 mod repository;
+mod user_directory;
 
 pub use project_store::GixProjectStore;
 pub use repository::GixRepository;
+pub use user_directory::{SystemUserDirectory, UserDirectory};

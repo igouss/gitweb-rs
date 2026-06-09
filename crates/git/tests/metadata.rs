@@ -14,13 +14,30 @@ use gitweb_domain::error::DomainError;
 use gitweb_domain::model::project_info::ProjectInfo;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_fixtures::ProjectRoot;
-use gitweb_git::GixProjectStore;
+use gitweb_git::{GixProjectStore, UserDirectory};
 
 #[derive(Debug, Default, World)]
 struct MetadataWorld {
     root: Option<ProjectRoot>,
-    store: Option<GixProjectStore>,
+    /// The name the pinned user directory returns for the repository
+    /// directory's owning uid, exercising gitweb's `get_file_owner` fallback.
+    /// Absent means the host has no passwd entry for the uid.
+    dir_owner: Option<String>,
     info: Option<Result<ProjectInfo, DomainError>>,
+}
+
+/// A pinned [`UserDirectory`]: every uid resolves to the same configured name
+/// (or to none), so the filesystem owner fallback is deterministic in a spec
+/// instead of depending on the host's passwd database.
+#[derive(Debug, Default)]
+struct FakeUserDirectory {
+    name: Option<String>,
+}
+
+impl UserDirectory for FakeUserDirectory {
+    fn display_name(&self, _uid: u32) -> Option<String> {
+        self.name.clone()
+    }
 }
 
 // --- fixture construction ----------------------------------------------------
@@ -29,10 +46,7 @@ fn ensure_root(world: &mut MetadataWorld) {
     if world.root.is_some() {
         return;
     }
-    let root: ProjectRoot = ProjectRoot::new();
-    let store: GixProjectStore = GixProjectStore::new(root.path().to_path_buf());
-    world.root = Some(root);
-    world.store = Some(store);
+    world.root = Some(ProjectRoot::new());
 }
 
 fn root(world: &MetadataWorld) -> &ProjectRoot {
@@ -40,10 +54,6 @@ fn root(world: &MetadataWorld) -> &ProjectRoot {
         .root
         .as_ref()
         .expect("a project root must exist first")
-}
-
-fn store(world: &MetadataWorld) -> &GixProjectStore {
-    world.store.as_ref().expect("a store must be opened first")
 }
 
 fn ok_info(world: &MetadataWorld) -> &ProjectInfo {
@@ -93,6 +103,11 @@ fn given_gitweb_config(world: &mut MetadataWorld, name: String, key: String, val
     root(world).set_gitweb_config(&name, &key, &value);
 }
 
+#[given(regex = r#"^the repository directory's operating-system owner resolves to "(.*)"$"#)]
+fn given_dir_owner(world: &mut MetadataWorld, owner: String) {
+    world.dir_owner = Some(owner);
+}
+
 #[given(regex = r#"^a project root containing an empty repository "([^"]*)"$"#)]
 fn given_root_with_empty_repo(world: &mut MetadataWorld, name: String) {
     ensure_root(world);
@@ -113,7 +128,12 @@ fn given_tag_at(world: &mut MetadataWorld, name: String, tag: String, epoch: i64
 
 #[when(regex = r#"^I read the metadata of "([^"]*)"$"#)]
 fn read_metadata(world: &mut MetadataWorld, name: String) {
-    world.info = Some(store(world).info(&name));
+    let users: Box<dyn UserDirectory> = Box::new(FakeUserDirectory {
+        name: world.dir_owner.clone(),
+    });
+    let store: GixProjectStore =
+        GixProjectStore::new(root(world).path().to_path_buf()).with_user_directory(users);
+    world.info = Some(store.info(&name));
 }
 
 // --- Thens: resolved metadata ------------------------------------------------
