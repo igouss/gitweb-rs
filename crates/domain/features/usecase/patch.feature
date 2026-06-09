@@ -29,6 +29,20 @@ Feature: The patch use case (single commit as a format-patch mail)
     Then the patch stream has a line "Subject: [PATCH] Add the engine"
     And the patch stream has a line "The first program."
 
+  Scenario: A binary file shows a Bin diffstat and the --no-binary notice
+    # gitweb streams `git format-patch`, which embeds a binary file as a base85
+    # `GIT binary patch` of git's own zlib output — unreproducible by the gix-only,
+    # no-unsafe port. The port emits git's `--no-binary` form instead: the
+    # `Binary files … differ` notice, while the `Bin <old> -> <new> bytes` diffstat
+    # row (read from the blob sizes over the port) is still byte-exact.
+    Given a commit "b1a0c0" with author "Ada Lovelace <ada@example.com> 1700000000 +0000"
+    And the commit message is "Add a binary asset"
+    And the commit diff modifies binary "logo.bin" from 5 to 7 bytes
+    When I assemble the patch for "HEAD" with limit 16 and version "2.54.0"
+    Then the patch stream has a line " logo.bin | Bin 5 -> 7 bytes"
+    And the patch stream has a line "Binary files a/logo.bin and b/logo.bin differ"
+    And the patch stream does not contain "GIT binary patch"
+
   Scenario: The patches feature being off forbids the view
     Given a commit "c0ffee" with author "Ada Lovelace <ada@example.com> 1700000000 +0000"
     And the commit diff creates "engine.txt"

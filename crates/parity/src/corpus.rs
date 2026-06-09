@@ -52,6 +52,16 @@ pub struct Corpus {
     /// `[PATCH 2/2]` numbered stream. The root's id is unchanged by stacking this
     /// commit, so the single-commit `patch` golden stays byte-identical.
     pub texts_head: ObjectId,
+    /// The head commit of the `binmix` branch — the binary `patch` golden's `h`. A
+    /// commit modifying one text file and one binary file. `git format-patch` (what
+    /// gitweb streams) embeds the binary file as a base85 `GIT binary patch` of
+    /// git's own zlib output, which the gix-only, no-unsafe port cannot reproduce;
+    /// our port emits git's `--no-binary` form instead (the `Binary files … differ`
+    /// notice with an abbreviated `index`). So this commit's golden pins the parts
+    /// we DO match (mailbox header, the `Bin <old> -> <new> bytes` diffstat, the
+    /// text file's diff, the signature) and documents the binary-body divergence.
+    /// Off `HEAD` like the other branches, so every existing golden is untouched.
+    pub binmix_head: ObjectId,
 }
 
 impl Corpus {
@@ -93,6 +103,18 @@ impl Corpus {
     /// golden's `[PATCH 2/2]` carries a create diff alongside the `greeting.txt`
     /// modification, exercising a multi-file mixed diffstat.
     pub const TEXT_NOTES: &'static str = "notes.md";
+
+    /// The `binmix` branch's text file, modified by its head commit — the diff
+    /// whose hunk and `name | N +-` diffstat row our binary `patch` golden pins
+    /// byte-for-byte against gitweb, proving the non-binary parts still match.
+    pub const BINMIX_TEXT: &'static str = "notes.txt";
+    /// The `binmix` branch's binary file, modified by its head commit. It is named
+    /// to sort *after* [`Corpus::BINMIX_TEXT`] so its (divergent) diff is the
+    /// mail's trailing region: everything ahead of its `diff --git` line — the
+    /// header, the `Bin <old> -> <new> bytes` diffstat, the text diff — and the
+    /// `-- ` signature after it match gitweb exactly, isolating the divergence to
+    /// this one file's body.
+    pub const BINMIX_BINARY: &'static str = "zdata.bin";
 
     /// The object id of the blob named `name`.
     ///
@@ -304,6 +326,60 @@ fn build_texts_branch(builder: &RepoBuilder, who: &Identity) -> (ObjectId, Objec
     (root, head)
 }
 
+/// The `binmix` branch the binary `patch` golden is captured over: a root commit
+/// creating a text file and a binary file, then a head commit modifying both. The
+/// head's `git format-patch` mail mixes a text diff (a hunk and a `notes.txt | 2
+/// +-` stat row) with a binary diff (`zdata.bin | Bin 5 -> 7 bytes`, then the
+/// `GIT binary patch` body gitweb emits and the port renders as `--no-binary`).
+/// The binary file sorts last, so its body is the only region that diverges; the
+/// header, the whole diffstat, the text diff, and the signature match byte-for-byte.
+/// It hangs off no other ref, leaving every other golden untouched.
+///
+/// Returns the head commit id — the binary `patch` golden's `h`.
+fn build_binmix_branch(builder: &RepoBuilder, who: &Identity) -> ObjectId {
+    let root_tree: ObjectId = builder.tree(&[
+        TreeEntry {
+            name: Corpus::BINMIX_TEXT.to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(b"first line\nsecond line\n"),
+        },
+        TreeEntry {
+            name: Corpus::BINMIX_BINARY.to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(&[0x00, 0x01, 0x02, 0x03, 0x04]),
+        },
+    ]);
+    let root: ObjectId = builder.commit(&CommitSpec {
+        tree: root_tree,
+        parents: Vec::new(),
+        author: who.clone(),
+        committer: who.clone(),
+        message: "binmix base\n".to_owned(),
+    });
+
+    let head_tree: ObjectId = builder.tree(&[
+        TreeEntry {
+            name: Corpus::BINMIX_TEXT.to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(b"first line\nSECOND line\n"),
+        },
+        TreeEntry {
+            name: Corpus::BINMIX_BINARY.to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(&[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
+        },
+    ]);
+    let head: ObjectId = builder.commit(&CommitSpec {
+        tree: head_tree,
+        parents: vec![root],
+        author: who.clone(),
+        committer: who.clone(),
+        message: "binmix head\n".to_owned(),
+    });
+    builder.branch("binmix", head);
+    head
+}
+
 /// Pins the project's `gitweb.owner` config and `description` file, so the feed
 /// metadata is reproducible across machines. Both gitweb (at capture) and the
 /// gix adapter (at test time) read these back; written to the files directly,
@@ -390,6 +466,10 @@ pub fn build(project_root: &Path) -> Corpus {
     // existing golden stay byte-identical.
     let (text_commit, texts_head): (ObjectId, ObjectId) = build_texts_branch(&builder, &who);
 
+    // The `binmix` branch the binary `patch` golden frames — a text+binary commit.
+    // Off HEAD like the others, so every existing golden stays byte-identical.
+    let binmix_head: ObjectId = build_binmix_branch(&builder, &who);
+
     pin_metadata(&repo_path);
 
     Corpus {
@@ -400,5 +480,6 @@ pub fn build(project_root: &Path) -> Corpus {
         diff_head,
         text_commit,
         texts_head,
+        binmix_head,
     }
 }

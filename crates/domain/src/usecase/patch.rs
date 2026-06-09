@@ -19,6 +19,18 @@
 //! encoding; the volatile git version on the signature is the boundary's, passed
 //! through to [`FormatPatch`].
 //!
+//! A binary file is the one place this mail diverges from gitweb. gitweb streams
+//! `git format-patch` verbatim, which embeds a binary file as a base85 `GIT binary
+//! patch` of git's own zlib output (plus a literal-vs-delta heuristic) — bytes the
+//! gix-only, no-unsafe port cannot reproduce (a zlib-identical deflate would need
+//! C bindings, and git's binary delta encoder a reimplementation). So the port
+//! emits git's `--no-binary` form instead: the `Binary files … differ` notice with
+//! an abbreviated `index` (see [`FileContent::Binary`](crate::model::patch::FileContent::Binary)),
+//! a real, coherent git mode. The `Bin <old> -> <new> bytes` diffstat row stays
+//! byte-exact ([`binary_change`] reads the blob sizes over the port). This is a
+//! deliberate, documented divergence, pinned by the `parity` crate's binary
+//! `patch` golden against both gitweb and `git format-patch --no-binary`.
+//!
 //! [`Repository`]: crate::port::repository::Repository
 
 use crate::error::DomainError;

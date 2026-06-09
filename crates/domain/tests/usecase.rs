@@ -489,9 +489,24 @@ struct FakeCommitFixture {
     diff: Vec<DiffEntry>,
     combined: Vec<CombinedDiffEntry>,
     patch: Patch,
+    /// The byte sizes of the blobs the patch's binary files diff across, keyed by
+    /// object id — what [`Repository::object_size`] reports so the `patch` use
+    /// case's diffstat renders a binary `Bin <old> -> <new> bytes` row.
+    binary_sizes: Vec<(ObjectId, u64)>,
     /// The `name-rev --tags` name of this commit, when tag-named; drives the
     /// commitdiff_plain `X-Git-Tag` line through [`Repository::rev_name_tag`].
     rev_name_tag: Option<String>,
+}
+
+impl FakeCommitFixture {
+    /// The declared byte size of the blob `oid`, if this commit's patch diffs a
+    /// binary file across it.
+    fn binary_size(&self, oid: &ObjectId) -> Option<u64> {
+        self.binary_sizes
+            .iter()
+            .find(|(id, _): &&(ObjectId, u64)| id == oid)
+            .map(|(_, size): &(ObjectId, u64)| *size)
+    }
 }
 
 /// The `patches` range fixture: the commits of the series, declared oldest-first
@@ -903,6 +918,16 @@ impl Repository for FakeRepository {
     }
 
     fn object_size(&self, oid: &ObjectId) -> Result<u64, DomainError> {
+        // A binary file in a commit fixture's patch declares its blob sizes
+        // directly (no tree node to hang them off), so the diffstat's `Bin <old>
+        // -> <new> bytes` row resolves; every other caller reads a tree entry.
+        if let Some(size) = self
+            .commit_fixture
+            .as_ref()
+            .and_then(|fixture: &FakeCommitFixture| fixture.binary_size(oid))
+        {
+            return Ok(size);
+        }
         let entry: &FakeTreeEntry = self
             .tree_entry_by_oid(oid)
             .ok_or_else(|| DomainError::NotFound(oid.as_str().to_owned()))?;
@@ -4224,6 +4249,7 @@ fn given_commit(world: &mut UsecaseWorld, id: String, ident: String) {
         diff: Vec::new(),
         combined: Vec::new(),
         patch: Patch::new(Vec::new()),
+        binary_sizes: Vec::new(),
         rev_name_tag: None,
     });
 }
@@ -4294,6 +4320,33 @@ fn created_file(path: &str) -> FilePatch {
 #[given(regex = r#"^the commit diff creates "([^"]*)"$"#)]
 fn given_commitdiff_creates(world: &mut UsecaseWorld, path: String) {
     commit_fixture_mut(world).patch = Patch::new(vec![created_file(&path)]);
+}
+
+/// A single-file binary modify patch for `path`: a `FilePatch` whose content git
+/// treats as binary, with distinct from/to blob ids whose `old`/`new` byte sizes
+/// the diffstat reads back through [`Repository::object_size`].
+fn modified_binary_file(path: &str) -> FilePatch {
+    FilePatch::new(
+        ChangeStatus::parse("M").expect("M is a valid status"),
+        regular_file_mode(),
+        regular_file_mode(),
+        fake_oid(&format!("binfrom-{path}")),
+        fake_oid(&format!("binto-{path}")),
+        path.to_owned(),
+        path.to_owned(),
+        FileContent::Binary,
+    )
+}
+
+#[given(regex = r#"^the commit diff modifies binary "([^"]*)" from (\d+) to (\d+) bytes$"#)]
+fn given_commitdiff_modifies_binary(world: &mut UsecaseWorld, path: String, old: u64, new: u64) {
+    let file: FilePatch = modified_binary_file(&path);
+    let from_oid: ObjectId = file.from_oid().clone();
+    let to_oid: ObjectId = file.to_oid().clone();
+    let fixture: &mut FakeCommitFixture = commit_fixture_mut(world);
+    fixture.patch = Patch::new(vec![file]);
+    fixture.binary_sizes.push((from_oid, old));
+    fixture.binary_sizes.push((to_oid, new));
 }
 
 #[when(regex = r#"^I assemble the commitdiff text for "([^"]*)"$"#)]
@@ -4457,6 +4510,15 @@ fn then_patch_contains(world: &mut UsecaseWorld, expected: String) {
     assert!(
         stream.contains(&expected),
         "expected patch stream to contain {expected:?}, got:\n{stream}"
+    );
+}
+
+#[then(regex = r#"^the patch stream does not contain "(.*)"$"#)]
+fn then_patch_not_contains(world: &mut UsecaseWorld, unexpected: String) {
+    let stream: String = patch_stream(world);
+    assert!(
+        !stream.contains(&unexpected),
+        "expected patch stream not to contain {unexpected:?}, got:\n{stream}"
     );
 }
 

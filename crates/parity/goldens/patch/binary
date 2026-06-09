@@ -1,0 +1,35 @@
+Expires: Wed, 10 Jun 2026 23:09:25 GMT
+Date: Tue, 09 Jun 2026 23:09:25 GMT
+Content-disposition: inline; filename="repo.git-9e0d55cde9be040decd6ded85d9d5eb3cb12db67.patch"
+Content-Type: text/plain; charset=utf-8
+
+From 9e0d55cde9be040decd6ded85d9d5eb3cb12db67 Mon Sep 17 00:00:00 2001
+From: Ada Lovelace <ada@example.com>
+Date: Tue, 14 Nov 2023 22:13:20 +0000
+Subject: [PATCH] binmix head
+
+---
+ notes.txt |   2 +-
+ zdata.bin | Bin 5 -> 7 bytes
+ 2 files changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/notes.txt b/notes.txt
+index 06fcdd7..f7ea055 100644
+--- a/notes.txt
++++ b/notes.txt
+@@ -1,2 +1,2 @@
+ first line
+-second line
++SECOND line
+diff --git a/zdata.bin b/zdata.bin
+index 85025d98693fe77b700bcf818dfd8fcd13c4e961..aa13906c40562856bc2174d8187b0d3236ad6d2b 100644
+GIT binary patch
+literal 7
+OcmZQzWMXDvWdi^JKL8d0
+
+literal 5
+McmZQzWMXCk000>P3jhEB
+
+-- 
+2.54.0
+

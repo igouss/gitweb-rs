@@ -1,0 +1,24 @@
+From 9e0d55cde9be040decd6ded85d9d5eb3cb12db67 Mon Sep 17 00:00:00 2001
+From: Ada Lovelace <ada@example.com>
+Date: Tue, 14 Nov 2023 22:13:20 +0000
+Subject: [PATCH] binmix head
+
+---
+ notes.txt |   2 +-
+ zdata.bin | Bin 5 -> 7 bytes
+ 2 files changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/notes.txt b/notes.txt
+index 06fcdd7..f7ea055 100644
+--- a/notes.txt
++++ b/notes.txt
+@@ -1,2 +1,2 @@
+ first line
+-second line
++SECOND line
+diff --git a/zdata.bin b/zdata.bin
+index 85025d9..aa13906 100644
+Binary files a/zdata.bin and b/zdata.bin differ
+-- 
+2.54.0
+
