@@ -14,11 +14,14 @@
 //! so this view takes the two finished strings and only places them; likewise the
 //! author chop is the use case's call, so this view only decides whether the full
 //! name still warrants a tooltip. URLs are gitweb's `href()`, the web boundary's
-//! job, so every link arrives finished. The avatar, the search-author link, and
-//! the ref markers gitweb adds are their own features and are not wired here.
+//! job, so every link arrives finished. The ref badges after the subject are
+//! gitweb's `format_ref_marker` (the domain rule + the shared [`crate::refs`]
+//! view). The avatar and the search-author link are their own features and are
+//! not wired here.
 
 use crate::chrome::{Crumb, MoreLink, NavItem, PageFooter, footer, page_header, page_nav};
 use crate::markup::{Markup, html};
+use crate::refs::{RefMarkerView, ref_markers};
 
 /// One shortlog row: its date cell (the swap already resolved by the domain into
 /// the shown text and the tooltip behind it), the author (full and chopped for
@@ -44,6 +47,9 @@ pub struct ShortlogEntryView {
     pub commitdiff: String,
     /// `tree` URL for this commit.
     pub tree: String,
+    /// The ref badges whose tip is this commit (gitweb's `format_ref_marker`),
+    /// rendered after the subject; empty when no ref points here.
+    pub refs: Vec<RefMarkerView>,
 }
 
 /// The shortlog table: the commit rows and an optional trailing "more" row.
@@ -114,7 +120,7 @@ fn shortlog_row(row: &ShortlogEntryView) -> Markup {
         tr {
             td class="date" title=(row.date_tooltip) { i { (row.date_displayed) } }
             (author_cell(row))
-            td class="subject" { (subject_link(row)) }
+            td class="subject" { (subject_link(row)) (ref_markers(&row.refs)) }
             td class="links" {
                 a href=(row.commit) { "commit" }
                 " | "

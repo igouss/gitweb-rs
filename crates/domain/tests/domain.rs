@@ -37,7 +37,9 @@ use gitweb_domain::model::path_info::PathInfo;
 use gitweb_domain::model::project_info::{CategoryGroup, ProjectInfo, group_by_category};
 use gitweb_domain::model::project_order::ProjectOrder;
 use gitweb_domain::model::projects_list::{ProjectListEntry, parse_project_line};
+use gitweb_domain::model::ref_marker::{MarkerView, RefMarker, markers_for};
 use gitweb_domain::model::ref_name::RefName;
+use gitweb_domain::model::reference::DereferencedRef;
 use gitweb_domain::model::remote::{Remote, RemoteUrl};
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::routing::{Dispatch, route};
@@ -66,6 +68,8 @@ struct DomainWorld {
     chopped: Option<String>,
     ref_name: Option<RefName>,
     short_ref: Option<String>,
+    deref_refs: Vec<DereferencedRef>,
+    markers: Option<Vec<RefMarker>>,
     privacy_line: String,
     redacted: Option<String>,
     bytes: Vec<u8>,
@@ -3155,6 +3159,97 @@ fn when_build_snapshot_name(world: &mut DomainWorld) {
 #[then(regex = r#"^the snapshot name is "([^"]*)"$"#)]
 fn then_snapshot_name_is(world: &mut DomainWorld, expected: String) {
     assert_eq!(world.snapshot_name_out.as_deref(), Some(expected.as_str()));
+}
+
+fn marker_view_of(name: &str) -> MarkerView {
+    match name {
+        "shortlog" => MarkerView::Shortlog,
+        "log" => MarkerView::Log,
+        "history" => MarkerView::History,
+        "tag" => MarkerView::Tag,
+        _ => MarkerView::Other,
+    }
+}
+
+fn push_deref_ref(world: &mut DomainWorld, full: String, target: String, indirect: bool) {
+    let oid: ObjectId = ObjectId::parse(&target).expect("a 40-character hex object id");
+    world
+        .deref_refs
+        .push(DereferencedRef::new(RefName::new(full), oid, indirect));
+}
+
+fn computed_markers(world: &DomainWorld) -> &[RefMarker] {
+    world.markers.as_deref().expect("markers must be computed")
+}
+
+fn computed_marker(world: &DomainWorld, index: usize) -> &RefMarker {
+    &computed_markers(world)[index - 1]
+}
+
+#[given(regex = r#"^a ref "(.*)" targeting commit "([0-9a-f]+)"$"#)]
+fn given_direct_ref(world: &mut DomainWorld, full: String, target: String) {
+    push_deref_ref(world, full, target, false);
+}
+
+#[given(regex = r#"^an annotated tag ref "(.*)" targeting commit "([0-9a-f]+)"$"#)]
+fn given_annotated_ref(world: &mut DomainWorld, full: String, target: String) {
+    push_deref_ref(world, full, target, true);
+}
+
+#[when(regex = r#"^I compute ref markers for commit "([0-9a-f]+)" in the "(.*)" view$"#)]
+fn when_compute_markers(world: &mut DomainWorld, commit: String, view: String) {
+    let oid: ObjectId = ObjectId::parse(&commit).expect("a 40-character hex object id");
+    world.markers = Some(markers_for(&world.deref_refs, &oid, marker_view_of(&view)));
+}
+
+#[then("there are no markers")]
+fn then_no_markers(world: &mut DomainWorld) {
+    assert!(computed_markers(world).is_empty());
+}
+
+#[then("there is 1 marker")]
+fn then_one_marker(world: &mut DomainWorld) {
+    assert_eq!(computed_markers(world).len(), 1);
+}
+
+#[then(regex = r#"^there are (\d+) markers$"#)]
+fn then_n_markers(world: &mut DomainWorld, count: usize) {
+    assert_eq!(computed_markers(world).len(), count);
+}
+
+#[then(regex = r#"^marker (\d+) has kind "(.*)"$"#)]
+fn then_marker_kind(world: &mut DomainWorld, index: usize, kind: String) {
+    assert_eq!(computed_marker(world, index).kind().class_token(), kind);
+}
+
+#[then(regex = r#"^marker (\d+) shows "(.*)"$"#)]
+fn then_marker_name(world: &mut DomainWorld, index: usize, name: String) {
+    assert_eq!(computed_marker(world, index).name(), name);
+}
+
+#[then(regex = r#"^marker (\d+) is titled "(.*)"$"#)]
+fn then_marker_title(world: &mut DomainWorld, index: usize, title: String) {
+    assert_eq!(computed_marker(world, index).title(), title);
+}
+
+#[then(regex = r#"^marker (\d+) links to the "(.*)" action$"#)]
+fn then_marker_action(world: &mut DomainWorld, index: usize, action: String) {
+    assert_eq!(computed_marker(world, index).action().as_str(), action);
+}
+
+#[then(regex = r#"^marker (\d+) targets ref "(.*)"$"#)]
+fn then_marker_dest(world: &mut DomainWorld, index: usize, dest: String) {
+    assert_eq!(computed_marker(world, index).dest(), dest);
+}
+
+#[then(regex = r#"^marker (\d+) is indirect$"#)]
+fn then_marker_indirect(world: &mut DomainWorld, index: usize) {
+    assert!(computed_marker(world, index).indirect());
+}
+
+#[then(regex = r#"^marker (\d+) is not indirect$"#)]
+fn then_marker_direct(world: &mut DomainWorld, index: usize) {
+    assert!(!computed_marker(world, index).indirect());
 }
 
 #[tokio::main]

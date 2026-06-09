@@ -12,6 +12,7 @@
 use std::sync::Arc;
 
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::ref_marker::RefMarker;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::SafeRef;
 use gitweb_domain::model::settings::Settings;
@@ -20,6 +21,7 @@ use gitweb_domain::port::repository::{Page, Repository};
 use gitweb_domain::usecase::shortlog::{ShortlogRow, ShortlogView, assemble_shortlog};
 use gitweb_render::chrome::{Crumb, DocumentHead, MoreLink, NavItem, document};
 use gitweb_render::markup::Markup;
+use gitweb_render::refs::RefMarkerView;
 use gitweb_render::shortlog::{ShortlogEntryView, ShortlogPage, ShortlogTable, shortlog_body};
 
 use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
@@ -164,6 +166,32 @@ pub(crate) fn shortlog_entry(project: &str, row: &ShortlogRow) -> ShortlogEntryV
         commit: href(&[("p", project), ("a", "commit"), ("h", id)]),
         commitdiff: href(&[("p", project), ("a", "commitdiff"), ("h", id)]),
         tree: href(&[("p", project), ("a", "tree"), ("h", id), ("hb", id)]),
+        refs: row
+            .markers()
+            .iter()
+            .map(|marker: &RefMarker| marker_view(project, marker))
+            .collect(),
+    }
+}
+
+/// Maps a domain ref marker to the render badge, building its link from the
+/// marker's destination action and ref (gitweb's `href(action=>..., hash=>...)`).
+/// The CSS class is the ref kind, plus `indirect` for an annotated tag.
+fn marker_view(project: &str, marker: &RefMarker) -> RefMarkerView {
+    let class: String = if marker.indirect() {
+        format!("{} indirect", marker.kind().class_token())
+    } else {
+        marker.kind().class_token().to_owned()
+    };
+    RefMarkerView {
+        name: marker.name().to_owned(),
+        class,
+        title: marker.title().to_owned(),
+        href: href(&[
+            ("p", project),
+            ("a", marker.action().as_str()),
+            ("h", marker.dest()),
+        ]),
     }
 }
 

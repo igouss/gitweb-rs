@@ -20,8 +20,10 @@ use crate::error::DomainError;
 use crate::model::chop::{ChopMode, chop_str};
 use crate::model::commit::Commit;
 use crate::model::commit_date::CommitDate;
+use crate::model::ref_marker::{MarkerView, RefMarker};
 use crate::port::repository::{Page, Repository};
 use crate::usecase::log_generic::{CommitWindow, walk_commits};
+use crate::usecase::ref_markers::{RefMarkerIndex, assemble_ref_markers};
 
 /// gitweb's `chop_str($author_name, 10)` — the row author bound.
 const AUTHOR_LEN: usize = 10;
@@ -37,6 +39,7 @@ pub struct ShortlogRow {
     author_short: String,
     title: String,
     title_short: String,
+    markers: Vec<RefMarker>,
 }
 
 impl ShortlogRow {
@@ -74,6 +77,13 @@ impl ShortlogRow {
     #[must_use]
     pub fn title_short(&self) -> &str {
         &self.title_short
+    }
+
+    /// The ref badges decorating this commit (gitweb's `format_ref_marker`), in
+    /// ref-name order — empty when no ref tip is this commit.
+    #[must_use]
+    pub fn markers(&self) -> &[RefMarker] {
+        &self.markers
     }
 }
 
@@ -114,10 +124,13 @@ pub fn assemble_shortlog(
     page: Page,
 ) -> Result<ShortlogView, DomainError> {
     let window: CommitWindow = walk_commits(repo, rev, None, page)?;
+    // gitweb reads every ref once (git_get_references) before badging each row;
+    // the shortlog body is one of the views format_ref_marker links by name.
+    let markers: RefMarkerIndex = assemble_ref_markers(repo, MarkerView::Shortlog)?;
     let rows: Vec<ShortlogRow> = window
         .commits
         .into_iter()
-        .map(|commit: Commit| row_of(&commit, now))
+        .map(|commit: Commit| row_of(&commit, now, &markers))
         .collect();
     Ok(ShortlogView {
         rows,
@@ -126,8 +139,9 @@ pub fn assemble_shortlog(
 }
 
 /// Turns one commit into a shortlog row: its id, the date cell, the author name
-/// (full and chopped to gitweb's 10 characters), and the subject.
-fn row_of(commit: &Commit, now: i64) -> ShortlogRow {
+/// (full and chopped to gitweb's 10 characters), the subject, and the ref badges
+/// whose tip is this commit.
+fn row_of(commit: &Commit, now: i64, markers: &RefMarkerIndex) -> ShortlogRow {
     let author: String = commit.author().name().to_owned();
     let author_short: String = chop_str(&author, AUTHOR_LEN, AUTHOR_SLACK, ChopMode::Right);
     ShortlogRow {
@@ -137,5 +151,6 @@ fn row_of(commit: &Commit, now: i64) -> ShortlogRow {
         author,
         title: commit.title(),
         title_short: commit.title_short(),
+        markers: markers.for_commit(commit.id()),
     }
 }

@@ -36,6 +36,7 @@ use gitweb_render::project_index::{ProjectIndexEntry, ProjectIndexView, project_
 use gitweb_render::project_list::{
     ProjectLinks, ProjectList, ProjectRow, SortHeader, project_list,
 };
+use gitweb_render::refs::RefMarkerView;
 use gitweb_render::remotes::{RemoteBlockView, RemoteUrlLine, RemotesPage, remotes_body};
 use gitweb_render::shortlog::{ShortlogEntryView, ShortlogTable, shortlog_table};
 use gitweb_render::summary::{
@@ -619,6 +620,7 @@ fn shortlog_entry(
         commit: base.to_owned(),
         commitdiff: format!("{base}/diff"),
         tree: format!("{base}/tree"),
+        refs: Vec::new(),
     }
 }
 
@@ -692,6 +694,27 @@ fn given_shortlog_chopped_subject(
 #[given(regex = r#"^the shortlog offers more at "([^"]*)" labelled "([^"]*)"$"#)]
 fn given_shortlog_more(world: &mut RenderWorld, href: String, label: String) {
     world.shortlog_more = Some(MoreLink { href, label });
+}
+
+#[given(
+    regex = r#"^a shortlog commit badged a "([^"]*)" ref "([^"]*)" titled "([^"]*)" linking "([^"]*)"$"#
+)]
+fn given_shortlog_badged(
+    world: &mut RenderWorld,
+    class: String,
+    name: String,
+    title: String,
+    href: String,
+) {
+    let mut entry: ShortlogEntryView =
+        shortlog_entry("Alice", "Alice", "x", "x", "now", "now", "/c");
+    entry.refs.push(RefMarkerView {
+        name,
+        class,
+        title,
+        href,
+    });
+    world.shortlog_entries.push(entry);
 }
 
 #[given(regex = r#"^the heads offer more at "([^"]*)" labelled "([^"]*)"$"#)]

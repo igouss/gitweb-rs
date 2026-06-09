@@ -34,8 +34,9 @@ use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::patch::{FileContent, FilePatch, Patch};
 use gitweb_domain::model::project::Project;
 use gitweb_domain::model::project_info::ProjectInfo;
+use gitweb_domain::model::ref_marker::{MarkerView, RefMarker};
 use gitweb_domain::model::ref_name::RefName;
-use gitweb_domain::model::reference::Reference;
+use gitweb_domain::model::reference::{DereferencedRef, Reference};
 use gitweb_domain::model::remote::{Remote, RemoteUrl};
 use gitweb_domain::model::settings::{FeatureLayer, FeatureName, Settings, SettingsLayer};
 use gitweb_domain::model::signature::Signature;
@@ -64,6 +65,7 @@ use gitweb_domain::usecase::project_index::{
 use gitweb_domain::usecase::project_list::{
     ProjectListRow, ProjectListView, assemble_project_list,
 };
+use gitweb_domain::usecase::ref_markers::{RefMarkerIndex, assemble_ref_markers};
 use gitweb_domain::usecase::remotes::{RemoteBlock, RemotesView, assemble_remotes};
 use gitweb_domain::usecase::shortlog::{ShortlogRow, ShortlogView, assemble_shortlog};
 use gitweb_domain::usecase::snapshot::{SnapshotView, assemble_snapshot};
@@ -165,6 +167,7 @@ struct UsecaseWorld {
     commits: Vec<FakeCommit>,
     head_commit: Option<ObjectId>,
     shortlog_result: Option<Result<ShortlogView, DomainError>>,
+    marker_index: Option<Result<RefMarkerIndex, DomainError>>,
     log_result: Option<Result<LogView, DomainError>>,
     history_result: Option<Result<HistoryView, DomainError>>,
     summary_name: Option<String>,
@@ -518,6 +521,41 @@ impl Repository for FakeRepository {
             .chain(remote_branches)
             .filter(|reference: &Reference| reference.name().full().starts_with(prefix))
             .collect())
+    }
+
+    fn dereferenced_references(&self) -> Result<Vec<DereferencedRef>, DomainError> {
+        // show-ref --dereference: branches and remote-tracking refs point straight
+        // at their commit (direct); a tag is peeled to the object it ultimately
+        // names (`object`) and is indirect exactly when it is annotated.
+        let branches = self.branches.iter().map(|branch: &FakeBranch| {
+            DereferencedRef::new(
+                RefName::new(format!("refs/heads/{}", branch.name)),
+                branch.tip.clone(),
+                false,
+            )
+        });
+        let remote_branches = self
+            .remote_branches
+            .iter()
+            .map(|branch: &FakeRemoteBranch| {
+                DereferencedRef::new(
+                    RefName::new(format!("refs/remotes/{}/{}", branch.remote, branch.name)),
+                    branch.tip.clone(),
+                    false,
+                )
+            });
+        let tags = self.tags.iter().map(|tag: &FakeTag| {
+            DereferencedRef::new(
+                RefName::new(tag.full_name.clone()),
+                tag.object.clone(),
+                tag.annotated,
+            )
+        });
+        let mut out: Vec<DereferencedRef> = branches.chain(remote_branches).chain(tags).collect();
+        out.sort_by(|a: &DereferencedRef, b: &DereferencedRef| {
+            a.name().full().cmp(b.name().full())
+        });
+        Ok(out)
     }
 
     fn remotes(&self) -> Result<Vec<Remote>, DomainError> {
@@ -1698,6 +1736,118 @@ fn commit_shows_subject(world: &mut UsecaseWorld, name: String, expected: String
 #[then(regex = r#"^the commit "([^"]*)" date cell shows "(.*)"$"#)]
 fn commit_date_cell_shows(world: &mut UsecaseWorld, name: String, expected: String) {
     assert_eq!(shortlog_row(world, &name).date().displayed(), expected);
+}
+
+#[then(regex = r#"^the row for commit "([^"]*)" carries the marker "(.*)"$"#)]
+fn row_carries_marker(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(
+        format_markers(shortlog_row(world, &name).markers()),
+        expected
+    );
+}
+
+// --- ref markers: accessors --------------------------------------------------
+
+/// Renders a marker list as `kind[*]:name` items (the `*` flags an indirect,
+/// annotated-tag marker), so one assertion pins kind, indirect and name at once.
+fn format_markers(markers: &[RefMarker]) -> String {
+    markers
+        .iter()
+        .map(|marker: &RefMarker| {
+            let indirect: &str = if marker.indirect() { "*" } else { "" };
+            format!(
+                "{}{}:{}",
+                marker.kind().class_token(),
+                indirect,
+                marker.name()
+            )
+        })
+        .collect::<Vec<String>>()
+        .join(", ")
+}
+
+fn marker_view_of(name: &str) -> MarkerView {
+    match name {
+        "shortlog" => MarkerView::Shortlog,
+        "log" => MarkerView::Log,
+        "history" => MarkerView::History,
+        "tag" => MarkerView::Tag,
+        _ => MarkerView::Other,
+    }
+}
+
+fn marker_index(world: &UsecaseWorld) -> &RefMarkerIndex {
+    world
+        .marker_index
+        .as_ref()
+        .expect("index the ref markers first")
+        .as_ref()
+        .expect("indexing succeeded")
+}
+
+// --- ref markers: Givens -----------------------------------------------------
+
+#[given(regex = r#"^branch "([^"]*)" points at commit "([^"]*)"$"#)]
+fn branch_points_at(world: &mut UsecaseWorld, name: String, commit: String) {
+    world.branches.push(FakeBranch {
+        name,
+        tip: fake_oid(&commit),
+        epoch: 0,
+    });
+}
+
+#[given(regex = r#"^a lightweight tag "([^"]*)" points at commit "([^"]*)"$"#)]
+fn lightweight_tag_points_at(world: &mut UsecaseWorld, name: String, commit: String) {
+    let target: ObjectId = fake_oid(&commit);
+    world.tags.push(FakeTag {
+        full_name: format!("refs/tags/{name}"),
+        ref_target: target.clone(),
+        object: target,
+        object_kind: ObjectKind::Commit,
+        annotated: false,
+        epoch: 0,
+        message: String::new(),
+        has_tagger: false,
+    });
+}
+
+#[given(regex = r#"^an annotated tag "([^"]*)" points at commit "([^"]*)"$"#)]
+fn annotated_tag_points_at(world: &mut UsecaseWorld, name: String, commit: String) {
+    world.tags.push(FakeTag {
+        full_name: format!("refs/tags/{name}"),
+        ref_target: fake_oid(&format!("tagobj-{name}")),
+        object: fake_oid(&commit),
+        object_kind: ObjectKind::Commit,
+        annotated: true,
+        epoch: 0,
+        message: "release\n".to_owned(),
+        has_tagger: true,
+    });
+}
+
+// --- ref markers: When -------------------------------------------------------
+
+#[when(regex = r#"^I index ref markers for the "([^"]*)" view$"#)]
+fn index_ref_markers(world: &mut UsecaseWorld, view: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.marker_index = Some(assemble_ref_markers(&repo, marker_view_of(&view)));
+}
+
+// --- ref markers: Thens ------------------------------------------------------
+
+#[then(regex = r#"^commit "([^"]*)" has no markers$"#)]
+fn commit_has_no_markers(world: &mut UsecaseWorld, commit: String) {
+    assert!(
+        marker_index(world)
+            .for_commit(&fake_oid(&commit))
+            .is_empty()
+    );
+}
+
+#[then(regex = r#"^the markers for commit "([^"]*)" are "(.*)"$"#)]
+fn markers_for_commit_are(world: &mut UsecaseWorld, commit: String, expected: String) {
+    let markers: Vec<RefMarker> = marker_index(world).for_commit(&fake_oid(&commit));
+    assert_eq!(format_markers(&markers), expected);
 }
 
 // --- log: accessors ----------------------------------------------------------

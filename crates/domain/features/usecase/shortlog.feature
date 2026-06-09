@@ -60,3 +60,11 @@ Feature: Shortlog (recent history, one line per commit)
     When I assemble the shortlog of the default branch with page size 16
     Then the commit "c1" is by "Maximilian Schell"
     And the commit "c1" author shortens to "Maximilian... "
+
+  Scenario: A commit at a branch tip carries its ref badge
+    Given the current time is 1780842645
+    And the repository HEAD is at commit "c1"
+    And a commit "c1" at epoch 1780583445 by "Alice" titled "Add the thing"
+    And branch "release" points at commit "c1"
+    When I assemble the shortlog of the default branch with page size 16
+    Then the row for commit "c1" carries the marker "head:release"

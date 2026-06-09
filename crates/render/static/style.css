@@ -347,3 +347,54 @@ table.blob tr:target {
 	background: var(--surface);
 	padding: 0.5rem;
 }
+
+/* Ref badges after a commit subject (modernized format_ref_marker): the branch
+   heads, tags and remote-tracking refs whose tip is that commit. */
+.refs {
+	display: inline-flex;
+	gap: 0.3rem;
+	margin-left: 0.4rem;
+	vertical-align: baseline;
+}
+
+.ref {
+	font-family: var(--sans);
+	font-size: 0.75em;
+	line-height: 1.4;
+	padding: 0 0.4em;
+	border: 1px solid var(--border);
+	border-radius: 0.6em;
+	background: var(--surface);
+	color: var(--fg-muted);
+	text-decoration: none;
+	white-space: nowrap;
+}
+
+.ref:hover {
+	border-color: var(--accent);
+	color: var(--fg);
+}
+
+/* A branch head. */
+.ref.head {
+	border-color: var(--age-fresh);
+	color: var(--age-fresh);
+}
+
+/* A tag; an annotated (indirect) tag is filled to set it apart from lightweight. */
+.ref.tag {
+	border-color: var(--accent);
+	color: var(--accent);
+}
+
+.ref.tag.indirect {
+	background: var(--cntrl-bg);
+	border-color: var(--cntrl-fg);
+	color: var(--cntrl-fg);
+}
+
+/* A remote-tracking branch. */
+.ref.remote {
+	border-color: var(--link-visited);
+	color: var(--link-visited);
+}

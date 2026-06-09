@@ -24,6 +24,7 @@ pub mod object;
 pub mod opml;
 pub mod project_index;
 pub mod project_list;
+pub mod ref_markers;
 pub mod remotes;
 pub mod shortlog;
 pub mod snapshot;

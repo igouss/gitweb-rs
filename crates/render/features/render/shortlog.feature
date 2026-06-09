@@ -52,3 +52,17 @@ Feature: Rendering the shortlog table
     Given a shortlog commit by "Alice" titled "x" dated "now" at "/c"
     When I render the shortlog table
     Then the result does not contain "pg=1"
+
+  Scenario: a commit at a ref tip shows the ref badge after its subject
+    Given a shortlog commit badged a "tag indirect" ref "v2.0" titled "tags/v2.0" linking "/r/tag/v2.0"
+    When I render the shortlog table
+    Then the result contains "<span class="refs">"
+    And the result contains "class="ref tag indirect""
+    And the result contains "title="tags/v2.0""
+    And the result contains "/r/tag/v2.0"
+    And the result contains ">v2.0</a>"
+
+  Scenario: a commit with no ref tip has no refs span
+    Given a shortlog commit by "Alice" titled "x" dated "now" at "/c"
+    When I render the shortlog table
+    Then the result does not contain "class="refs""

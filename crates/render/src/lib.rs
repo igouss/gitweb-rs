@@ -29,6 +29,7 @@ pub mod message;
 pub mod opml;
 pub mod project_index;
 pub mod project_list;
+pub mod refs;
 pub mod remotes;
 pub mod shortlog;
 pub mod summary;

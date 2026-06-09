@@ -19,7 +19,7 @@ use crate::model::grep::GrepResults;
 use crate::model::object_id::ObjectId;
 use crate::model::object_kind::ObjectKind;
 use crate::model::patch::Patch;
-use crate::model::reference::Reference;
+use crate::model::reference::{DereferencedRef, Reference};
 use crate::model::remote::Remote;
 use crate::model::tag::Tag;
 use crate::model::tree::Tree;
@@ -137,6 +137,13 @@ pub trait Repository {
     /// All references whose full name starts with `prefix`
     /// (e.g. `"refs/heads/"`).
     fn references(&self, prefix: &str) -> Result<Vec<Reference>, DomainError>;
+
+    /// Every reference resolved to the object it ultimately points at, the way
+    /// `git show-ref --dereference` reports it (gitweb's `git_get_references`):
+    /// an annotated tag arrives peeled to its target object and flagged
+    /// indirect. Feeds the ref badges (`format_ref_marker`) on commit rows, so
+    /// the order is the refs' name order, deterministically.
+    fn dereferenced_references(&self) -> Result<Vec<DereferencedRef>, DomainError>;
 
     /// The configured remotes, each with the fetch and push URLs `git remote -v`
     /// reports (gitweb's `git_get_remotes_list`), in name order. The

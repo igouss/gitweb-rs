@@ -24,7 +24,7 @@ use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::patch::{FilePatch, Patch};
 use gitweb_domain::model::ref_name::RefName;
-use gitweb_domain::model::reference::Reference;
+use gitweb_domain::model::reference::{DereferencedRef, Reference};
 use gitweb_domain::model::remote::Remote;
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::tag::Tag;
@@ -433,6 +433,36 @@ impl Repository for GixRepository {
             };
             out.push(Reference::new(RefName::new(full), target));
         }
+        Ok(out)
+    }
+
+    fn dereferenced_references(&self) -> Result<Vec<DereferencedRef>, DomainError> {
+        // gitweb's `git_get_references`: `show-ref --dereference`. Every ref is
+        // followed to the object it ultimately names; an annotated tag's ref
+        // points at a tag object that peels to that object, so it arrives
+        // `indirect`. A symbolic ref (no direct id, e.g. `refs/remotes/*/HEAD`)
+        // is followed too but is not a tag, so it is never flagged indirect.
+        let platform: gix::reference::iter::Platform<'_> =
+            self.repo.references().map_err(backend)?;
+        let mut out: Vec<DereferencedRef> = Vec::new();
+        for item in platform.all().map_err(backend)? {
+            let reference: gix::Reference<'_> = item.map_err(backend)?;
+            let full: String = reference.name().as_bstr().to_string();
+            let direct: Option<gix::ObjectId> =
+                reference.try_id().map(|id: gix::Id<'_>| id.detach());
+            let peeled: gix::ObjectId = reference.into_fully_peeled_id().map_err(backend)?.detach();
+            let indirect: bool = direct.is_some_and(|id: gix::ObjectId| id != peeled);
+            out.push(DereferencedRef::new(
+                RefName::new(full),
+                to_domain_oid(peeled),
+                indirect,
+            ));
+        }
+        // gitweb badges refs in show-ref order (sorted by full name); gix yields
+        // them packed-then-loose, so sort to keep the badges deterministic.
+        out.sort_by(|a: &DereferencedRef, b: &DereferencedRef| {
+            a.name().full().cmp(b.name().full())
+        });
         Ok(out)
     }
 

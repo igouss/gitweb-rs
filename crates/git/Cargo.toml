@@ -118,3 +118,10 @@ harness = false
 [[test]]
 name = "remotes"
 harness = false
+
+# Conformance for `dereferenced_references` (gitweb's git_get_references /
+# show-ref --dereference): every ref peeled to its target, annotated tags flagged
+# indirect, in ref-name order — the source of the format_ref_marker badges.
+[[test]]
+name = "refs"
+harness = false
