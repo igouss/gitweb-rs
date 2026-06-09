@@ -21,25 +21,23 @@ use std::sync::atomic::AtomicBool;
 use gix::worktree::archive::{Format, Options};
 
 use gitweb_domain::error::DomainError;
-use gitweb_domain::port::repository::ArchiveFormat;
+use gitweb_domain::port::repository::{ArchiveFormat, ArchiveOptions};
 
 use crate::conv::backend;
 
-/// The modification time stamped on every archived entry. The adapter is handed
-/// a tree, not the commit whose date gitweb stamps, so it uses a fixed epoch for
-/// reproducibility; the snapshot endpoint supplies the real commit time when it
-/// lands and needs byte-exact parity.
-const REPRODUCIBLE_MTIME: i64 = 0;
-
-/// The snapshot archive of an already-resolved `tree_id` in `format`.
+/// The snapshot archive of an already-resolved `tree_id` in `format`, wrapped in
+/// the directory and stamped with the entry time `options` carries.
 ///
 /// `tree_id` must name a tree — the caller resolves a commit or tree-ish to its
 /// tree (and rejects a non-tree) before calling, so any failure here is a
-/// backend fault, not bad input.
+/// backend fault, not bad input. The same tree, options, and format always yield
+/// the same bytes: gitweb cache-validates snapshots on the entry time, which the
+/// caller pins to the commit time (or zero for a tree with no commit).
 pub(crate) fn archive_bytes(
     repo: &gix::Repository,
     tree_id: gix::ObjectId,
     format: ArchiveFormat,
+    options: &ArchiveOptions,
 ) -> Result<Vec<u8>, DomainError> {
     match format {
         ArchiveFormat::TarGz => write_archive(
@@ -48,6 +46,7 @@ pub(crate) fn archive_bytes(
             Format::TarGz {
                 compression_level: None,
             },
+            options,
         ),
         ArchiveFormat::Zip => write_archive(
             repo,
@@ -55,13 +54,14 @@ pub(crate) fn archive_bytes(
             Format::Zip {
                 compression_level: None,
             },
+            options,
         ),
         ArchiveFormat::TarBz2 => {
-            let tar: Vec<u8> = write_archive(repo, tree_id, Format::Tar)?;
+            let tar: Vec<u8> = write_archive(repo, tree_id, Format::Tar, options)?;
             bzip2_bytes(&tar)
         }
         ArchiveFormat::TarXz => {
-            let tar: Vec<u8> = write_archive(repo, tree_id, Format::Tar)?;
+            let tar: Vec<u8> = write_archive(repo, tree_id, Format::Tar, options)?;
             xz_bytes(&tar)
         }
     }
@@ -69,18 +69,25 @@ pub(crate) fn archive_bytes(
 
 /// Streams `tree_id` through gix-archive into an in-memory buffer. The buffer is
 /// a [`Cursor`] because the zip writer needs `Seek`; tar formats only ever write
-/// forward.
+/// forward. A non-empty prefix becomes gix's `tree_prefix`, which requires a
+/// trailing slash (gitweb's `--prefix=<name>/`).
 fn write_archive(
     repo: &gix::Repository,
     tree_id: gix::ObjectId,
     format: Format,
+    archive: &ArchiveOptions,
 ) -> Result<Vec<u8>, DomainError> {
     let (stream, _index): (gix::worktree::stream::Stream, gix::index::File) =
         repo.worktree_stream(tree_id).map_err(backend)?;
+    let tree_prefix: Option<gix::bstr::BString> = if archive.prefix.is_empty() {
+        None
+    } else {
+        Some(gix::bstr::BString::from(format!("{}/", archive.prefix)))
+    };
     let options: Options = Options {
         format,
-        tree_prefix: None,
-        modification_time: REPRODUCIBLE_MTIME,
+        tree_prefix,
+        modification_time: archive.modification_time,
     };
     let mut out: Cursor<Vec<u8>> = Cursor::new(Vec::new());
     let interrupt: AtomicBool = AtomicBool::new(false);

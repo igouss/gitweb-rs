@@ -24,6 +24,10 @@ use crate::model::remote::Remote;
 use crate::model::tag::Tag;
 use crate::model::tree::Tree;
 
+// The snapshot value objects are owned by `model::snapshot` (the format table and
+// its rules); the port re-exports the two its `archive` signature names.
+pub use crate::model::snapshot::{ArchiveFormat, ArchiveOptions};
+
 /// A half-open window into a list: skip `skip`, then take at most `limit`.
 ///
 /// gitweb paginates the log this way (`--skip=$page*100 --max-count=100`); the
@@ -52,19 +56,6 @@ impl Page {
             limit: per_page,
         }
     }
-}
-
-/// A snapshot archive format, matching gitweb's enabled snapshot formats.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ArchiveFormat {
-    /// gzip-compressed tar (`tgz`).
-    TarGz,
-    /// bzip2-compressed tar (`tbz2`).
-    TarBz2,
-    /// xz-compressed tar (`txz`).
-    TarXz,
-    /// zip (`zip`).
-    Zip,
 }
 
 /// How a commit search interprets its pattern, matching gitweb's `searchtype`.
@@ -255,8 +246,16 @@ pub trait Repository {
     /// Line-by-line blame of `path` as of commit `at`.
     fn blame(&self, at: &ObjectId, path: &str) -> Result<Blame, DomainError>;
 
-    /// A snapshot archive of `tree` in the given `format`.
-    fn archive(&self, tree: &ObjectId, format: ArchiveFormat) -> Result<Vec<u8>, DomainError>;
+    /// A snapshot archive of `tree` in the given `format`, with the top-level
+    /// directory and entry modification time `options` carries (gitweb's
+    /// `git archive --prefix=<name>/`, stamped with the commit time). `tree` may
+    /// be any tree-ish — a commit, tag, or tree — which the adapter peels.
+    fn archive(
+        &self,
+        tree: &ObjectId,
+        format: ArchiveFormat,
+        options: &ArchiveOptions,
+    ) -> Result<Vec<u8>, DomainError>;
 
     /// Commits matching `query`, rooted at `HEAD` and windowed by `page`
     /// (message / author / committer / pickaxe search). gitweb roots its search

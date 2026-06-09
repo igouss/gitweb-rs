@@ -42,6 +42,7 @@ pub mod safety;
 pub mod section;
 pub mod settings;
 pub mod signature;
+pub mod snapshot;
 pub mod tag;
 pub mod timestamp;
 pub mod tree;

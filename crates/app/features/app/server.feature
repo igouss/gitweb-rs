@@ -94,5 +94,5 @@ Feature: The composition root serves a wired gitweb-rs over a real project root
   Scenario: a project action with no handler yet takes the die_error path
     Given a project root
     And the root contains repository "alpha.git"
-    When I GET "/?p=alpha.git&a=snapshot"
+    When I GET "/?p=alpha.git&a=search"
     Then the response status is 400

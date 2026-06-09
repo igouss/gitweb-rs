@@ -177,6 +177,26 @@ impl View {
         )
     }
 
+    /// A snapshot archive (gitweb's `snapshot`): the bytes under the format's
+    /// media type, offered inline under the download file name, and dated with the
+    /// commit's `Last-Modified` (absent for a tree-ish with no commit). The media
+    /// type is one of the fixed format strings, so it is borrowed; the disposition
+    /// and date are per-request, so they are owned.
+    #[must_use]
+    pub fn snapshot(
+        content_type: &'static str,
+        content_disposition: String,
+        last_modified: Option<String>,
+        bytes: Vec<u8>,
+    ) -> Self {
+        Self::body(
+            Cow::Borrowed(content_type),
+            Some(content_disposition),
+            last_modified,
+            ViewBody::Bytes(bytes),
+        )
+    }
+
     /// A raw blob streamed verbatim (gitweb's `blob_plain`): the bytes under a
     /// content type and content disposition the use case derived from the blob's
     /// content and file name. Both header values are dynamic, so they are owned.

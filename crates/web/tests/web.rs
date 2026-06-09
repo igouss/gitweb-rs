@@ -31,7 +31,8 @@ use gitweb_web::handlers::{
     BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
     CommitdiffHandler, CommitdiffPlainHandler, FeedHandler, HeadsHandler, HistoryHandler,
     LogHandler, ObjectHandler, OpmlHandler, ProjectIndexHandler, ProjectListHandler,
-    RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler,
+    RemotesHandler, ShortlogHandler, SnapshotHandler, SummaryHandler, TagHandler, TagsHandler,
+    TreeHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -50,6 +51,7 @@ struct WebWorld {
     response_last_modified: Option<String>,
     response_location: Option<String>,
     response_body: Option<String>,
+    response_body_bytes: Option<Vec<u8>>,
     built_url: Option<String>,
 }
 
@@ -675,6 +677,92 @@ fn register_remotes(world: &mut WebWorld, enabled: bool) {
     world.dispatcher.register(Action::Remotes, handler);
 }
 
+// --- snapshot: the served handler with site-configured formats ---------------
+
+/// Settings whose `snapshot` feature enables exactly `formats` (a comma-separated
+/// list, empty for none) — gitweb's `$feature{snapshot}{default}`.
+fn snapshot_settings(formats: &str) -> Settings {
+    let options: Vec<String> = if formats.trim().is_empty() {
+        Vec::new()
+    } else {
+        formats
+            .split(',')
+            .map(|token: &str| token.trim().to_owned())
+            .collect()
+    };
+    let mut features: BTreeMap<FeatureName, FeatureLayer> = BTreeMap::new();
+    features.insert(
+        FeatureName::Snapshot,
+        FeatureLayer {
+            default: Some(options),
+            overridable: None,
+        },
+    );
+    let layer: SettingsLayer = SettingsLayer {
+        features,
+        ..SettingsLayer::default()
+    };
+    Settings::resolve(&[layer])
+}
+
+#[given(regex = r#"^the snapshot action is served with formats "([^"]*)"$"#)]
+fn given_snapshot_served(world: &mut WebWorld, formats: String) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(snapshot_settings(&formats));
+    let handler: Arc<dyn Handler> = Arc::new(SnapshotHandler::new(store, settings));
+    world.dispatcher.register(Action::Snapshot, handler);
+}
+
+/// The raw response bytes, or a panic if no response was captured.
+fn response_bytes(world: &WebWorld) -> &[u8] {
+    world
+        .response_body_bytes
+        .as_deref()
+        .expect("a response body must have been captured")
+}
+
+#[then("the response body begins with the gzip magic")]
+fn then_body_gzip_magic(world: &mut WebWorld) {
+    let bytes: &[u8] = response_bytes(world);
+    assert!(
+        bytes.starts_with(&[0x1f, 0x8b]),
+        "body did not begin with the gzip magic: {:02x?}",
+        &bytes[..bytes.len().min(4)]
+    );
+}
+
+#[then("the response body begins with the zip magic")]
+fn then_body_zip_magic(world: &mut WebWorld) {
+    let bytes: &[u8] = response_bytes(world);
+    assert!(
+        bytes.starts_with(b"PK\x03\x04"),
+        "body did not begin with the zip magic: {:02x?}",
+        &bytes[..bytes.len().min(4)]
+    );
+}
+
+#[then("the response has a last-modified header")]
+fn then_has_last_modified(world: &mut WebWorld) {
+    assert!(
+        world.response_last_modified.is_some(),
+        "no Last-Modified header was captured"
+    );
+}
+
+#[then(regex = r#"^the response content disposition contains "(.*)"$"#)]
+fn then_disposition_contains(world: &mut WebWorld, needle: String) {
+    let disposition: &str = world
+        .response_content_disposition
+        .as_deref()
+        .expect("a Content-Disposition header must have been captured");
+    assert!(
+        disposition.contains(&needle),
+        "disposition did not contain {needle:?}: {disposition}"
+    );
+}
+
 // --- summary: fixture metadata and the served handler ------------------------
 
 #[given(regex = r#"^"([^"]*)" has the description file "(.*)"$"#)]
@@ -830,6 +918,7 @@ async fn dispatch_capture(world: &mut WebWorld, uri: String) {
     world.response_last_modified = last_modified;
     world.response_location = location;
     world.response_body = Some(String::from_utf8_lossy(&bytes).into_owned());
+    world.response_body_bytes = Some(bytes.to_vec());
 }
 
 // --- Thens: the served response ----------------------------------------------

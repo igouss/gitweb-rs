@@ -21,7 +21,7 @@ use cucumber::{World, given, then, when};
 
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::object_id::ObjectId;
-use gitweb_domain::port::repository::{ArchiveFormat, Repository};
+use gitweb_domain::port::repository::{ArchiveFormat, ArchiveOptions, Repository};
 use gitweb_fixtures::{CommitSpec, Identity, Mode, ObjectId as FixtureOid, RepoBuilder, TreeEntry};
 use gitweb_git::GixRepository;
 
@@ -161,6 +161,16 @@ fn primary_format(world: &ArchiveWorld) -> ArchiveFormat {
 
 // --- format parsing and decoding (support, not test logic) -------------------
 
+/// The bare archive options this slice uses: no top-level directory and a fixed
+/// epoch, so the bytes stay prefix-less and reproducible. The prefix and the
+/// commit-time stamp are the snapshot endpoint's concern, exercised there.
+fn bare_options() -> ArchiveOptions {
+    ArchiveOptions {
+        prefix: String::new(),
+        modification_time: 0,
+    }
+}
+
 /// Parses a feature's format token into the port's [`ArchiveFormat`].
 fn parse_format(token: &str) -> ArchiveFormat {
     match token {
@@ -292,7 +302,7 @@ fn given_empty(world: &mut ArchiveWorld) {
 fn archive_tree(world: &mut ArchiveWorld, format: String) {
     let format: ArchiveFormat = parse_format(&format);
     let tree: ObjectId = oid(world, "tree");
-    world.result = Some(repo(world).archive(&tree, format));
+    world.result = Some(repo(world).archive(&tree, format, &bare_options()));
     world.format = Some(format);
 }
 
@@ -301,10 +311,10 @@ fn archive_tree_twice(world: &mut ArchiveWorld, format: String) {
     let format: ArchiveFormat = parse_format(&format);
     let tree: ObjectId = oid(world, "tree");
     let first: Vec<u8> = repo(world)
-        .archive(&tree, format)
+        .archive(&tree, format, &bare_options())
         .expect("the first archive succeeded");
     let second: Vec<u8> = repo(world)
-        .archive(&tree, format)
+        .archive(&tree, format, &bare_options())
         .expect("the second archive succeeded");
     world.result = Some(Ok(first));
     world.format = Some(format);
@@ -317,10 +327,10 @@ fn archive_tree_two_formats(world: &mut ArchiveWorld, other: String) {
     let other: ArchiveFormat = parse_format(&other);
     let tree: ObjectId = oid(world, "tree");
     let gzipped: Vec<u8> = repo(world)
-        .archive(&tree, ArchiveFormat::TarGz)
+        .archive(&tree, ArchiveFormat::TarGz, &bare_options())
         .expect("the tgz archive succeeded");
     let compressed: Vec<u8> = repo(world)
-        .archive(&tree, other)
+        .archive(&tree, other, &bare_options())
         .expect("the other archive succeeded");
     world.result = Some(Ok(gzipped));
     world.format = Some(ArchiveFormat::TarGz);
@@ -332,7 +342,7 @@ fn archive_tree_two_formats(world: &mut ArchiveWorld, other: String) {
 fn archive_blob(world: &mut ArchiveWorld, format: String) {
     let format: ArchiveFormat = parse_format(&format);
     let blob: ObjectId = oid(world, "blob");
-    world.result = Some(repo(world).archive(&blob, format));
+    world.result = Some(repo(world).archive(&blob, format, &bare_options()));
     world.format = Some(format);
 }
 

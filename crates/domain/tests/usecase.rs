@@ -43,7 +43,7 @@ use gitweb_domain::model::tag::Tag;
 use gitweb_domain::model::tree::{Tree, TreeEntry};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::{
-    ArchiveFormat, Page, RenameDetection, Repository, SearchQuery,
+    ArchiveFormat, ArchiveOptions, Page, RenameDetection, Repository, SearchQuery,
 };
 use gitweb_domain::usecase::blob::{BlobView, assemble_blob};
 use gitweb_domain::usecase::blob_plain::{BlobPlainView, assemble_blob_plain};
@@ -66,6 +66,7 @@ use gitweb_domain::usecase::project_list::{
 };
 use gitweb_domain::usecase::remotes::{RemoteBlock, RemotesView, assemble_remotes};
 use gitweb_domain::usecase::shortlog::{ShortlogRow, ShortlogView, assemble_shortlog};
+use gitweb_domain::usecase::snapshot::{SnapshotView, assemble_snapshot};
 use gitweb_domain::usecase::summary::{SummaryView, assemble_summary};
 use gitweb_domain::usecase::tag::{TagView, show_tag};
 use gitweb_domain::usecase::tags::{TagRow, TagsView, assemble_tags};
@@ -198,6 +199,10 @@ struct UsecaseWorld {
     blobdiff_plain_result: Option<Result<BlobdiffPlain, DomainError>>,
     blobdiff_result: Option<Result<BlobdiffView, DomainError>>,
     object_result: Option<Result<ObjectRedirect, DomainError>>,
+    snapshot: Option<FakeSnapshot>,
+    snapshot_project: String,
+    snapshot_configured: Vec<String>,
+    snapshot_result: Option<Result<SnapshotView, DomainError>>,
 }
 
 /// One directory in the fake repository's tree, listed by the `tree` use case.
@@ -359,6 +364,21 @@ struct FakeRepository {
     blob_base_title: Option<String>,
     blob_files: Vec<FakeBlobFile>,
     commit_fixture: Option<FakeCommitFixture>,
+    snapshot: Option<FakeSnapshot>,
+}
+
+/// The object a `snapshot` request resolves and archives: the revision name it
+/// answers to (`resolve`), its id and kind (`object_kind`), and, for a commit, the
+/// committer whose time dates the archive (`find_commit`). The `archive` call
+/// rejects a blob, as the gix adapter's `require_tree` does, and otherwise echoes
+/// the [`ArchiveOptions`] it was handed into the bytes, so the use case's prefix
+/// and modification-time threading is observable.
+#[derive(Debug, Clone)]
+struct FakeSnapshot {
+    rev: String,
+    id: ObjectId,
+    kind: ObjectKind,
+    committer: Option<Signature>,
 }
 
 /// A single commit the `commit` use case resolves and reads: the revision name it
@@ -505,6 +525,20 @@ impl Repository for FakeRepository {
     }
 
     fn find_commit(&self, oid: &ObjectId) -> Result<Commit, DomainError> {
+        if let Some(snapshot) = self.snapshot.as_ref().filter(|s| &s.id == oid) {
+            let committer: &Signature = snapshot
+                .committer
+                .as_ref()
+                .ok_or_else(|| DomainError::Invalid(format!("not a commit: {}", oid.as_str())))?;
+            return Ok(Commit::new(
+                snapshot.id.clone(),
+                fake_oid("snapshot-tree"),
+                Vec::new(),
+                committer.clone(),
+                committer.clone(),
+                "snapshot commit\n".to_owned(),
+            ));
+        }
         if let Some(fixture) = self.commit_fixture.as_ref().filter(|f| &f.id == oid) {
             return Ok(Commit::new(
                 fixture.id.clone(),
@@ -560,6 +594,9 @@ impl Repository for FakeRepository {
     }
 
     fn resolve(&self, rev: &str) -> Result<ObjectId, DomainError> {
+        if let Some(snapshot) = self.snapshot.as_ref().filter(|s| s.rev == rev) {
+            return Ok(snapshot.id.clone());
+        }
         if let Some(fixture) = self.commit_fixture.as_ref().filter(|f| f.rev == rev) {
             return Ok(fixture.id.clone());
         }
@@ -595,6 +632,9 @@ impl Repository for FakeRepository {
     }
 
     fn object_kind(&self, oid: &ObjectId) -> Result<ObjectKind, DomainError> {
+        if let Some(snapshot) = self.snapshot.as_ref().filter(|s| &s.id == oid) {
+            return Ok(snapshot.kind);
+        }
         if let Some(fixture) = self.commit_fixture.as_ref().filter(|f| &f.id == oid) {
             return Ok(fixture.kind);
         }
@@ -863,8 +903,34 @@ impl Repository for FakeRepository {
         unimplemented!("the heads use case never blames")
     }
 
-    fn archive(&self, _tree: &ObjectId, _format: ArchiveFormat) -> Result<Vec<u8>, DomainError> {
-        unimplemented!("the heads use case never archives")
+    fn archive(
+        &self,
+        tree: &ObjectId,
+        format: ArchiveFormat,
+        options: &ArchiveOptions,
+    ) -> Result<Vec<u8>, DomainError> {
+        let snapshot: &FakeSnapshot = self
+            .snapshot
+            .as_ref()
+            .filter(|s: &&FakeSnapshot| &s.id == tree)
+            .unwrap_or_else(|| unimplemented!("only the snapshot fixture archives"));
+        // The gix adapter peels to a tree and rejects a blob (require_tree); the
+        // fake mirrors that so the use case's tree-ish guard is exercised.
+        if snapshot.kind == ObjectKind::Blob {
+            return Err(DomainError::Invalid(format!(
+                "not a tree-ish: {}",
+                tree.as_str()
+            )));
+        }
+        // Echo the format and the threaded options so the orchestration is
+        // observable without a real archive.
+        Ok(format!(
+            "fmt={};prefix={};mtime={}",
+            format.key(),
+            options.prefix,
+            options.modification_time
+        )
+        .into_bytes())
     }
 
     fn search(&self, _query: &SearchQuery, _page: Page) -> Result<Vec<Commit>, DomainError> {
@@ -1672,6 +1738,7 @@ fn fake_repo(world: &UsecaseWorld) -> FakeRepository {
         blob_base_title: world.blob_base_title.clone(),
         blob_files: world.blob_files.clone(),
         commit_fixture: world.commit_fixture.clone(),
+        snapshot: world.snapshot.clone(),
     }
 }
 
@@ -3611,6 +3678,154 @@ fn assembling_commit_fails_with(world: &mut UsecaseWorld, expected: String) {
         Ok(view) => panic!("expected a failure, got a commit view: {view:?}"),
         Err(error) => assert_eq!(error.message(), expected),
     }
+}
+
+// --- snapshot: assembling the archive over the port --------------------------
+
+/// Builds the committer identity a snapshot commit is dated by.
+fn snapshot_committer(epoch: i64, tz: &str) -> Signature {
+    Signature::parse(&format!("Ada <ada@example.com> {epoch} {tz}")).expect("a valid identity line")
+}
+
+#[given(regex = r#"^a snapshot commit "([0-9a-f]+)" dated (\d+) ([+-]\d{4})$"#)]
+fn given_snapshot_commit(world: &mut UsecaseWorld, hex: String, epoch: i64, tz: String) {
+    world.snapshot = Some(FakeSnapshot {
+        id: ObjectId::parse(&hex).expect("a valid object id"),
+        rev: hex,
+        kind: ObjectKind::Commit,
+        committer: Some(snapshot_committer(epoch, &tz)),
+    });
+}
+
+#[given(regex = r#"^a snapshot tree "([0-9a-f]+)"$"#)]
+fn given_snapshot_tree(world: &mut UsecaseWorld, hex: String) {
+    world.snapshot = Some(FakeSnapshot {
+        id: ObjectId::parse(&hex).expect("a valid object id"),
+        rev: hex,
+        kind: ObjectKind::Tree,
+        committer: None,
+    });
+}
+
+#[given(regex = r#"^a snapshot blob "([0-9a-f]+)"$"#)]
+fn given_snapshot_blob(world: &mut UsecaseWorld, hex: String) {
+    world.snapshot = Some(FakeSnapshot {
+        id: ObjectId::parse(&hex).expect("a valid object id"),
+        rev: hex,
+        kind: ObjectKind::Blob,
+        committer: None,
+    });
+}
+
+#[given(regex = r#"^the snapshot project is "([^"]*)"$"#)]
+fn given_snapshot_project(world: &mut UsecaseWorld, project: String) {
+    world.snapshot_project = project;
+}
+
+#[given(regex = r#"^the site enables snapshot formats "([^"]*)"$"#)]
+fn given_site_snapshot_formats(world: &mut UsecaseWorld, list: String) {
+    world.snapshot_configured = if list.trim().is_empty() {
+        Vec::new()
+    } else {
+        list.split(',')
+            .map(|token: &str| token.trim().to_owned())
+            .collect()
+    };
+}
+
+/// Drives the snapshot use case with the world's project, configured formats, and
+/// the given hash / requested format.
+fn assemble_world_snapshot(world: &mut UsecaseWorld, hash: Option<&str>, requested: Option<&str>) {
+    let repo: FakeRepository = fake_repo(world);
+    world.snapshot_result = Some(assemble_snapshot(
+        &repo,
+        &world.snapshot_project,
+        &world.snapshot_configured,
+        requested,
+        hash,
+        &["heads"],
+    ));
+}
+
+#[when(regex = r#"^I assemble the snapshot of "([^"]*)" requesting "([^"]*)"$"#)]
+fn when_assemble_snapshot_requesting(world: &mut UsecaseWorld, hash: String, requested: String) {
+    assemble_world_snapshot(world, Some(&hash), Some(&requested));
+}
+
+#[when(regex = r#"^I assemble the snapshot of "([^"]*)" with no requested format$"#)]
+fn when_assemble_snapshot_default(world: &mut UsecaseWorld, hash: String) {
+    assemble_world_snapshot(world, Some(&hash), None);
+}
+
+#[when("I assemble the snapshot with no hash")]
+fn when_assemble_snapshot_no_hash(world: &mut UsecaseWorld) {
+    assemble_world_snapshot(world, None, Some("tgz"));
+}
+
+/// The assembled snapshot view, or a panic if the scenario produced an error.
+fn snapshot_view(world: &UsecaseWorld) -> &SnapshotView {
+    world
+        .snapshot_result
+        .as_ref()
+        .expect("assemble the snapshot first")
+        .as_ref()
+        .expect("snapshot assembly succeeded")
+}
+
+/// The snapshot failure, or a panic if the scenario produced a success.
+fn snapshot_error(world: &UsecaseWorld) -> &DomainError {
+    match world
+        .snapshot_result
+        .as_ref()
+        .expect("assemble the snapshot first")
+    {
+        Ok(_) => panic!("expected snapshot assembly to fail"),
+        Err(error) => error,
+    }
+}
+
+#[then(regex = r#"^the snapshot content type is "([^"]*)"$"#)]
+fn then_snapshot_content_type(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(snapshot_view(world).content_type(), expected);
+}
+
+#[then(regex = r#"^the snapshot is offered inline as "([^"]*)"$"#)]
+fn then_snapshot_inline_as(world: &mut UsecaseWorld, file_name: String) {
+    assert_eq!(
+        snapshot_view(world).content_disposition(),
+        format!(r#"inline; filename="{file_name}""#)
+    );
+}
+
+#[then("the snapshot is dated")]
+fn then_snapshot_dated(world: &mut UsecaseWorld) {
+    assert!(snapshot_view(world).last_modified().is_some());
+}
+
+#[then("the snapshot has no date")]
+fn then_snapshot_undated(world: &mut UsecaseWorld) {
+    assert!(snapshot_view(world).last_modified().is_none());
+}
+
+#[then(regex = r#"^the snapshot archive is "([^"]*)"$"#)]
+fn then_snapshot_archive_is(world: &mut UsecaseWorld, expected: String) {
+    let bytes: &[u8] = snapshot_view(world).bytes();
+    assert_eq!(String::from_utf8_lossy(bytes), expected);
+}
+
+#[then("assembling the snapshot fails as invalid")]
+fn then_snapshot_fails_invalid(world: &mut UsecaseWorld) {
+    assert!(matches!(snapshot_error(world), DomainError::Invalid(_)));
+}
+
+#[then("assembling the snapshot fails as forbidden")]
+fn then_snapshot_fails_forbidden(world: &mut UsecaseWorld) {
+    assert!(matches!(snapshot_error(world), DomainError::Forbidden(_)));
+}
+
+#[then("assembling the snapshot fails as not found")]
+fn then_snapshot_fails_not_found(world: &mut UsecaseWorld) {
+    assert!(matches!(snapshot_error(world), DomainError::NotFound(_)));
 }
 
 #[tokio::main]

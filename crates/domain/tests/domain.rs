@@ -45,6 +45,9 @@ use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::section::Section;
 use gitweb_domain::model::settings::{FeatureName, Settings, SettingsLayer};
 use gitweb_domain::model::signature::Signature;
+use gitweb_domain::model::snapshot::{
+    ArchiveFormat, enabled_formats, select_format, snapshot_name,
+};
 use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_domain::model::url::unescape;
 
@@ -172,6 +175,15 @@ struct DomainWorld {
     obj_lookup: Option<Result<Resolution, DomainError>>,
     obj_kind_in: Option<ObjectKind>,
     obj_action_out: Option<Action>,
+    snapshot_format: Option<ArchiveFormat>,
+    configured_formats: Vec<String>,
+    computed_formats: Option<Vec<ArchiveFormat>>,
+    selection_enabled: Vec<ArchiveFormat>,
+    selection_result: Option<Result<ArchiveFormat, DomainError>>,
+    snapshot_project: String,
+    snapshot_hash: String,
+    snapshot_short: String,
+    snapshot_name_out: Option<String>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -2980,6 +2992,169 @@ fn then_url_lines_are(world: &mut DomainWorld, expected: String) {
         .collect::<Vec<String>>()
         .join(", ");
     assert_eq!(rendered, expected);
+}
+
+// --- snapshot: format table, selection cascade, archive naming ----------------
+
+/// Parses a format token (`tgz`/`tbz2`/`txz`/`zip`) into an [`ArchiveFormat`].
+fn parse_archive_format(token: &str) -> ArchiveFormat {
+    ArchiveFormat::from_key(token)
+        .unwrap_or_else(|| panic!("unknown snapshot format token {token:?}"))
+}
+
+/// Splits a comma-separated list, trimming each token (empty for "").
+fn split_tokens(list: &str) -> Vec<String> {
+    if list.trim().is_empty() {
+        return Vec::new();
+    }
+    list.split(',')
+        .map(|token: &str| token.trim().to_owned())
+        .collect()
+}
+
+#[given(regex = r#"^the snapshot format "([^"]*)"$"#)]
+fn given_snapshot_format(world: &mut DomainWorld, key: String) {
+    world.snapshot_format = Some(parse_archive_format(&key));
+}
+
+#[then(regex = r#"^its content type is "([^"]*)"$"#)]
+fn then_format_content_type(world: &mut DomainWorld, expected: String) {
+    let format: ArchiveFormat = world.snapshot_format.expect("name a snapshot format first");
+    assert_eq!(format.content_type(), expected);
+}
+
+#[then(regex = r#"^its filename suffix is "([^"]*)"$"#)]
+fn then_format_suffix(world: &mut DomainWorld, expected: String) {
+    let format: ArchiveFormat = world.snapshot_format.expect("name a snapshot format first");
+    assert_eq!(format.suffix(), expected);
+}
+
+#[then(regex = r#"^its display name is "([^"]*)"$"#)]
+fn then_format_display(world: &mut DomainWorld, expected: String) {
+    let format: ArchiveFormat = world.snapshot_format.expect("name a snapshot format first");
+    assert_eq!(format.display(), expected);
+}
+
+#[then(regex = r#"^the snapshot format "([^"]*)" is disabled$"#)]
+fn then_format_disabled(_world: &mut DomainWorld, key: String) {
+    assert!(parse_archive_format(&key).is_disabled());
+}
+
+#[then(regex = r#"^the snapshot format "([^"]*)" is not disabled$"#)]
+fn then_format_not_disabled(_world: &mut DomainWorld, key: String) {
+    assert!(!parse_archive_format(&key).is_disabled());
+}
+
+#[given(regex = r#"^the configured snapshot formats "([^"]*)"$"#)]
+fn given_configured_formats(world: &mut DomainWorld, list: String) {
+    world.configured_formats = split_tokens(&list);
+}
+
+#[when("I compute the enabled snapshot formats")]
+fn when_compute_enabled(world: &mut DomainWorld) {
+    world.computed_formats = Some(enabled_formats(&world.configured_formats));
+}
+
+#[then(regex = r#"^the enabled formats are "([^"]*)"$"#)]
+fn then_enabled_formats_are(world: &mut DomainWorld, expected: String) {
+    let computed: &[ArchiveFormat] = world
+        .computed_formats
+        .as_deref()
+        .expect("compute the enabled formats first");
+    let rendered: String = computed
+        .iter()
+        .map(|format: &ArchiveFormat| format.key())
+        .collect::<Vec<&str>>()
+        .join(", ");
+    assert_eq!(rendered, expected);
+}
+
+#[then("no formats are enabled")]
+fn then_no_formats_enabled(world: &mut DomainWorld) {
+    let computed: &[ArchiveFormat] = world
+        .computed_formats
+        .as_deref()
+        .expect("compute the enabled formats first");
+    assert!(computed.is_empty());
+}
+
+#[given(regex = r#"^the enabled snapshot formats "([^"]*)"$"#)]
+fn given_enabled_formats(world: &mut DomainWorld, list: String) {
+    world.selection_enabled = split_tokens(&list)
+        .iter()
+        .map(|token: &String| parse_archive_format(token))
+        .collect();
+}
+
+#[given("no snapshot formats are enabled")]
+fn given_no_enabled_formats(world: &mut DomainWorld) {
+    world.selection_enabled = Vec::new();
+}
+
+#[when(regex = r#"^I select the snapshot format requested "(.*)"$"#)]
+fn when_select_format_requested(world: &mut DomainWorld, requested: String) {
+    world.selection_result = Some(select_format(Some(&requested), &world.selection_enabled));
+}
+
+#[when("I select the snapshot format with no request")]
+fn when_select_format_unset(world: &mut DomainWorld) {
+    world.selection_result = Some(select_format(None, &world.selection_enabled));
+}
+
+/// The selection outcome, or a panic if the When never ran.
+fn selection(world: &DomainWorld) -> &Result<ArchiveFormat, DomainError> {
+    world
+        .selection_result
+        .as_ref()
+        .expect("select a snapshot format first")
+}
+
+#[then(regex = r#"^the selected snapshot format is "([^"]*)"$"#)]
+fn then_selected_format_is(world: &mut DomainWorld, expected: String) {
+    let format: &ArchiveFormat = selection(world).as_ref().expect("selection succeeded");
+    assert_eq!(format.key(), expected);
+}
+
+#[then(regex = r#"^snapshot selection is forbidden as "([^"]*)"$"#)]
+fn then_selection_forbidden(world: &mut DomainWorld, message: String) {
+    match selection(world) {
+        Err(DomainError::Forbidden(actual)) => assert_eq!(actual, &message),
+        other => panic!("expected Forbidden({message:?}), got {other:?}"),
+    }
+}
+
+#[then(regex = r#"^snapshot selection is invalid as "([^"]*)"$"#)]
+fn then_selection_invalid(world: &mut DomainWorld, message: String) {
+    match selection(world) {
+        Err(DomainError::Invalid(actual)) => assert_eq!(actual, &message),
+        other => panic!("expected Invalid({message:?}), got {other:?}"),
+    }
+}
+
+#[given(regex = r#"^the project path "([^"]*)"$"#)]
+fn given_snapshot_project_path(world: &mut DomainWorld, project: String) {
+    world.snapshot_project = project;
+}
+
+#[given(regex = r#"^the snapshot hash "([^"]*)" abbreviating to "([^"]*)"$"#)]
+fn given_snapshot_hash(world: &mut DomainWorld, hash: String, short: String) {
+    world.snapshot_hash = hash;
+    world.snapshot_short = short;
+}
+
+#[when("I build the snapshot name")]
+fn when_build_snapshot_name(world: &mut DomainWorld) {
+    world.snapshot_name_out = Some(snapshot_name(
+        &world.snapshot_project,
+        &world.snapshot_hash,
+        &world.snapshot_short,
+        &["heads"],
+    ));
+}
+
+#[then(regex = r#"^the snapshot name is "([^"]*)"$"#)]
+fn then_snapshot_name_is(world: &mut DomainWorld, expected: String) {
+    assert_eq!(world.snapshot_name_out.as_deref(), Some(expected.as_str()));
 }
 
 #[tokio::main]

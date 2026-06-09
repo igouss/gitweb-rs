@@ -28,8 +28,8 @@ use gitweb_web::{
     BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
     CommitdiffHandler, CommitdiffPlainHandler, Dispatcher, FeedHandler, Handler, HeadsHandler,
     HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, ProjectIndexHandler,
-    ProjectListHandler, RemotesHandler, ShortlogHandler, SummaryHandler, TagHandler, TagsHandler,
-    TreeHandler, router,
+    ProjectListHandler, RemotesHandler, ShortlogHandler, SnapshotHandler, SummaryHandler,
+    TagHandler, TagsHandler, TreeHandler, router,
 };
 use tower_http::services::ServeDir;
 
@@ -202,6 +202,12 @@ fn build_dispatcher(
         base,
     ));
     dispatcher.register(Action::Opml, opml);
+
+    let snapshot: Arc<dyn Handler> = Arc::new(SnapshotHandler::new(
+        Arc::clone(&store),
+        Arc::clone(&settings),
+    ));
+    dispatcher.register(Action::Snapshot, snapshot);
 
     let remotes: Arc<dyn Handler> = Arc::new(RemotesHandler::new(store, settings));
     dispatcher.register(Action::Remotes, remotes);

@@ -30,7 +30,7 @@ use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::tag::Tag;
 use gitweb_domain::model::tree::{Tree, TreeEntry};
 use gitweb_domain::port::repository::{
-    ArchiveFormat, Page, RenameDetection, Repository, SearchKind, SearchQuery,
+    ArchiveFormat, ArchiveOptions, Page, RenameDetection, Repository, SearchKind, SearchQuery,
 };
 
 use gitweb_domain::model::diff::DiffEntry;
@@ -782,14 +782,19 @@ impl Repository for GixRepository {
         Ok(to_blame(outcome))
     }
 
-    fn archive(&self, tree: &ObjectId, format: ArchiveFormat) -> Result<Vec<u8>, DomainError> {
+    fn archive(
+        &self,
+        tree: &ObjectId,
+        format: ArchiveFormat,
+        options: &ArchiveOptions,
+    ) -> Result<Vec<u8>, DomainError> {
         // gitweb's git_snapshot archives `$hash` (a commit or tree-ish), peeling
         // to its tree; a non-tree-ish is a 400. `require_tree` gives the same
         // mapping: a missing object is NotFound, a blob or other non-tree-ish is
         // Invalid. The resolved tree id is what gix-archive streams.
         let resolved: gix::Tree<'_> = self.require_tree(tree)?;
         let tree_id: gix::ObjectId = resolved.id().detach();
-        crate::archive::archive_bytes(&self.repo, tree_id, format)
+        crate::archive::archive_bytes(&self.repo, tree_id, format, options)
     }
 
     fn search(&self, query: &SearchQuery, page: Page) -> Result<Vec<Commit>, DomainError> {
