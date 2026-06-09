@@ -30,9 +30,9 @@ use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
     BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
     CommitdiffHandler, CommitdiffPlainHandler, FeedHandler, HeadsHandler, HistoryHandler,
-    LogHandler, ObjectHandler, OpmlHandler, PatchHandler, ProjectIndexHandler, ProjectListHandler,
-    RemotesHandler, ShortlogHandler, SnapshotHandler, SummaryHandler, TagHandler, TagsHandler,
-    TreeHandler,
+    LogHandler, ObjectHandler, OpmlHandler, PatchHandler, PatchesHandler, ProjectIndexHandler,
+    ProjectListHandler, RemotesHandler, ShortlogHandler, SnapshotHandler, SummaryHandler,
+    TagHandler, TagsHandler, TreeHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -618,6 +618,29 @@ fn given_patch_served(world: &mut WebWorld) {
 #[given("the patch action is served with the patches feature off")]
 fn given_patch_served_disabled(world: &mut WebWorld) {
     register_patch(world, false);
+}
+
+fn register_patches(world: &mut WebWorld, enabled: bool) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(patches_settings(enabled));
+    let handler: Arc<dyn Handler> = Arc::new(PatchesHandler::new(
+        store,
+        settings,
+        PATCH_GIT_VERSION.to_owned(),
+    ));
+    world.dispatcher.register(Action::Patches, handler);
+}
+
+#[given("the patches action is served")]
+fn given_patches_served(world: &mut WebWorld) {
+    register_patches(world, true);
+}
+
+#[given("the patches action is served with the patches feature off")]
+fn given_patches_served_disabled(world: &mut WebWorld) {
+    register_patches(world, false);
 }
 
 #[given("the blobdiff_plain action is served")]

@@ -87,7 +87,8 @@ impl Handler for PatchHandler {
 /// gitweb's `($patch_max) = gitweb_get_feature('patches')`: the first `patches`
 /// option as an integer (the built-in `16`), `0` when the feature is off or its
 /// value is not a positive number — the value the use case's 403 gate reads.
-fn patches_max(settings: &Settings) -> usize {
+/// Shared with the sibling `patches` (range) handler.
+pub(crate) fn patches_max(settings: &Settings) -> usize {
     settings
         .feature(FeatureName::Patches)
         .default_options()
@@ -98,8 +99,9 @@ fn patches_max(settings: &Settings) -> usize {
 
 /// gitweb's `inline; filename="<project basename>-<hash>.patch"`. The basename is
 /// the project's last path segment, the hash the request value gitweb stamps the
-/// download with.
-fn content_disposition(project: &str, hash: &str) -> String {
+/// download with. Shared with the sibling `patches` (range) handler, whose
+/// filename gitweb stamps the same way (the range tip's request hash).
+pub(crate) fn content_disposition(project: &str, hash: &str) -> String {
     let basename: &str = project.rsplit('/').next().unwrap_or(project);
     format!("inline; filename=\"{basename}-{hash}.patch\"")
 }

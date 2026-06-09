@@ -27,9 +27,9 @@ use gitweb_git::GixProjectStore;
 use gitweb_web::{
     BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
     CommitdiffHandler, CommitdiffPlainHandler, Dispatcher, FeedHandler, Handler, HeadsHandler,
-    HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, PatchHandler, ProjectIndexHandler,
-    ProjectListHandler, RemotesHandler, ShortlogHandler, SnapshotHandler, SummaryHandler,
-    TagHandler, TagsHandler, TreeHandler, router,
+    HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, PatchHandler, PatchesHandler,
+    ProjectIndexHandler, ProjectListHandler, RemotesHandler, ShortlogHandler, SnapshotHandler,
+    SummaryHandler, TagHandler, TagsHandler, TreeHandler, router,
 };
 use tower_http::services::ServeDir;
 
@@ -222,15 +222,23 @@ fn build_dispatcher(
     ));
     dispatcher.register(Action::Snapshot, snapshot);
 
-    // The `patch` mail is `git format-patch` for one commit; its `patches` limit
-    // and 403 gate come from the resolved settings, its signature from the
-    // configured git version.
+    // The `patch` mail is `git format-patch` for one commit; the `patches` mail is
+    // the range form (up to the feature limit, numbered `[PATCH i/N]`). Both read
+    // the `patches` limit and 403 gate from the resolved settings and stamp their
+    // signatures with the configured git version.
     let patch: Arc<dyn Handler> = Arc::new(PatchHandler::new(
+        Arc::clone(&store),
+        Arc::clone(&settings),
+        git_version.clone(),
+    ));
+    dispatcher.register(Action::Patch, patch);
+
+    let patches: Arc<dyn Handler> = Arc::new(PatchesHandler::new(
         Arc::clone(&store),
         Arc::clone(&settings),
         git_version,
     ));
-    dispatcher.register(Action::Patch, patch);
+    dispatcher.register(Action::Patches, patches);
 
     let remotes: Arc<dyn Handler> = Arc::new(RemotesHandler::new(store, settings));
     dispatcher.register(Action::Remotes, remotes);

@@ -27,9 +27,9 @@ pub use dispatch::{Dispatcher, Handler};
 pub use handlers::{
     BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
     CommitdiffHandler, CommitdiffPlainHandler, FeedHandler, HeadsHandler, HistoryHandler,
-    LogHandler, ObjectHandler, OpmlHandler, PatchHandler, ProjectIndexHandler, ProjectListHandler,
-    RemotesHandler, ShortlogHandler, SnapshotHandler, SummaryHandler, TagHandler, TagsHandler,
-    TreeHandler,
+    LogHandler, ObjectHandler, OpmlHandler, PatchHandler, PatchesHandler, ProjectIndexHandler,
+    ProjectListHandler, RemotesHandler, ShortlogHandler, SnapshotHandler, SummaryHandler,
+    TagHandler, TagsHandler, TreeHandler,
 };
 pub use response::View;
 pub use server::router;

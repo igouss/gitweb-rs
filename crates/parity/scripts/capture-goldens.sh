@@ -166,9 +166,17 @@ capture "blobdiff_plain/rename" "p=repo.git;a=blobdiff_plain;f=new.txt;fp=old.tx
 # multi-file diffstat with its column alignment and `create mode` lines, the
 # create diff, the signature). By-hash like commitdiff_plain, so only the cache
 # headers are volatile; the golden compares the body.
-echo ">> capturing patch golden" >&2
-text_commit=$("$GIT" --git-dir="$project_root/repo.git" rev-parse texts)
-capture "patch/single" "p=repo.git;a=patch;h=$text_commit"
+# patches is the range form: gitweb streams `git format-patch -n --root <tip>`,
+# the most recent commits oldest-first, each Subject numbered `[PATCH i/N]`. It is
+# captured over the whole two-commit `texts` branch (tip), so the stream is the
+# `[PATCH 1/2]` root create plus the `[PATCH 2/2]` modify-and-add. The single
+# `patch` form is captured over the branch ROOT (texts~1) — the same root commit,
+# so its golden is byte-identical to before the second commit was stacked on.
+echo ">> capturing patch / patches goldens" >&2
+texts_head=$("$GIT" --git-dir="$project_root/repo.git" rev-parse texts)
+texts_root=$("$GIT" --git-dir="$project_root/repo.git" rev-parse texts~1)
+capture "patch/single"   "p=repo.git;a=patch;h=$texts_root"
+capture "patches/range"  "p=repo.git;a=patches;h=$texts_head"
 
 # The feed body carries a <generator> version composite ($version/$git_version).
 # $version is pinned via VERSION-FILE above; $git_version is the capturing git's

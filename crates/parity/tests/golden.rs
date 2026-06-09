@@ -27,7 +27,7 @@ use gitweb_domain::usecase::blobdiff_plain::assemble_blobdiff_plain;
 use gitweb_domain::usecase::commitdiff_plain::assemble_commitdiff_plain;
 use gitweb_domain::usecase::feed::assemble_feed;
 use gitweb_domain::usecase::opml::{Opml, assemble_opml};
-use gitweb_domain::usecase::patch::assemble_patch;
+use gitweb_domain::usecase::patch::{assemble_patch, assemble_patches};
 use gitweb_domain::usecase::project_index::{ProjectIndex, assemble_project_index};
 use gitweb_fixtures::ObjectId as FixtureOid;
 use gitweb_git::{GixProjectStore, GixRepository};
@@ -79,6 +79,11 @@ struct GoldenWorld {
     /// corpus `texts` branch commit.
     patch_body: Option<String>,
     patch_disposition: Option<String>,
+    /// The serialized patches (format-patch range) mail stream and the
+    /// Content-Disposition our endpoint derives — the exact bytes and header the
+    /// handler emits over the corpus `texts` branch tip.
+    patches_body: Option<String>,
+    patches_disposition: Option<String>,
     golden: Option<Golden>,
 }
 
@@ -361,6 +366,33 @@ fn patch_body(world: &GoldenWorld) -> &str {
     world.patch_body.as_deref().expect("serve the patch first")
 }
 
+#[when("I serve the patches of the corpus texts range")]
+fn serve_patches(world: &mut GoldenWorld) {
+    // Exactly what the handler emits over the by-hash request gitweb was captured
+    // with: the use case over the adapter for the corpus `texts` branch tip, the
+    // patches limit at its built-in default, each signature stamped with the
+    // captured git version, and the inline filename stamped with that tip hash.
+    let tip: String = corpus(world).texts_head.to_string();
+    let version: String = read_patch_version();
+    let stream = assemble_patches(repo(world), Some(&tip), 16, &version)
+        .expect("assemble the corpus patches");
+    world.patches_body = Some(stream.render());
+    world.patches_disposition = Some(format!(
+        "inline; filename=\"{}-{}.patch\"",
+        Corpus::PROJECT,
+        tip
+    ));
+    world.golden = Some(Golden::load("patches/range"));
+}
+
+/// The serialized patches body, or a panic if none was served.
+fn patches_body(world: &GoldenWorld) -> &str {
+    world
+        .patches_body
+        .as_deref()
+        .expect("serve the patches first")
+}
+
 // --- Then --------------------------------------------------------------------
 
 #[then("its body matches gitweb's reference output")]
@@ -534,6 +566,29 @@ fn patch_disposition_matches(world: &mut GoldenWorld) {
         .header("Content-Disposition")
         .expect("gitweb declares a Content-Disposition");
     assert_eq!(world.patch_disposition.as_deref(), Some(theirs));
+}
+
+#[then("the patches body matches gitweb's reference output")]
+fn patches_body_matches(world: &mut GoldenWorld) {
+    assert_eq!(patches_body(world).as_bytes(), golden(world).body());
+}
+
+#[then("the patches content type matches gitweb's")]
+fn patches_content_type_matches(world: &mut GoldenWorld) {
+    // gitweb sets `-type => 'text/plain', -charset => 'utf-8'`; our endpoint
+    // serves the same fixed type, so the whole Content-Type matches exactly.
+    let theirs: &str = golden(world)
+        .header("Content-Type")
+        .expect("gitweb declares a Content-Type");
+    assert_eq!("text/plain; charset=utf-8", theirs);
+}
+
+#[then("the patches content disposition matches gitweb's")]
+fn patches_disposition_matches(world: &mut GoldenWorld) {
+    let theirs: &str = golden(world)
+        .header("Content-Disposition")
+        .expect("gitweb declares a Content-Disposition");
+    assert_eq!(world.patches_disposition.as_deref(), Some(theirs));
 }
 
 #[tokio::main]

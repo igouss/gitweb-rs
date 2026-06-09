@@ -1,0 +1,67 @@
+Expires: Wed, 10 Jun 2026 04:12:09 GMT
+Date: Tue, 09 Jun 2026 04:12:09 GMT
+Content-disposition: inline; filename="repo.git-2bd4a3eade1b6c427b0388b57f4c8e31039a8daf.patch"
+Content-Type: text/plain; charset=utf-8
+
+From 2722937f191f5aa0ddd5eaacf4d388cdfbe5402c Mon Sep 17 00:00:00 2001
+From: Ada Lovelace <ada@example.com>
+Date: Tue, 14 Nov 2023 22:13:20 +0000
+Subject: [PATCH 1/2] Add greeting and program
+
+The first text-only commit.
+---
+ greeting.txt | 2 ++
+ prog.py      | 1 +
+ 2 files changed, 3 insertions(+)
+ create mode 100644 greeting.txt
+ create mode 100644 prog.py
+
+diff --git a/greeting.txt b/greeting.txt
+new file mode 100644
+index 0000000..94954ab
+--- /dev/null
++++ b/greeting.txt
+@@ -0,0 +1,2 @@
++hello
++world
+diff --git a/prog.py b/prog.py
+new file mode 100644
+index 0000000..9f1b437
+--- /dev/null
++++ b/prog.py
+@@ -0,0 +1 @@
++print('hi')
+-- 
+2.54.0
+
+
+From 2bd4a3eade1b6c427b0388b57f4c8e31039a8daf Mon Sep 17 00:00:00 2001
+From: Ada Lovelace <ada@example.com>
+Date: Tue, 14 Nov 2023 22:13:20 +0000
+Subject: [PATCH 2/2] Revise greeting and add notes
+
+The second text-only commit.
+---
+ greeting.txt | 2 +-
+ notes.md     | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+ create mode 100644 notes.md
+
+diff --git a/greeting.txt b/greeting.txt
+index 94954ab..04db865 100644
+--- a/greeting.txt
++++ b/greeting.txt
+@@ -1,2 +1,2 @@
+ hello
+-world
++bright world
+diff --git a/notes.md b/notes.md
+new file mode 100644
+index 0000000..17e0f0d
+--- /dev/null
++++ b/notes.md
+@@ -0,0 +1 @@
++# Notes
+-- 
+2.54.0
+

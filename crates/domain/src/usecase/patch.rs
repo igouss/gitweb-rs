@@ -30,7 +30,7 @@ use crate::model::object_id::ObjectId;
 use crate::model::object_kind::ObjectKind;
 use crate::model::patch::{FilePatch, Patch};
 use crate::model::timestamp::Timestamp;
-use crate::port::repository::{RenameDetection, Repository};
+use crate::port::repository::{Page, RenameDetection, Repository};
 
 /// gitweb's site-default rename detection (`@diff_opts = ('-M')`), the same git
 /// format-patch runs.
@@ -66,6 +66,56 @@ pub fn assemble_patch(
     // The single form is unnumbered (`[PATCH]`), one mail.
     let entry: PatchEntry = build_entry(repo, &oid, &commit, None)?;
     Ok(FormatPatch::new(vec![entry], version))
+}
+
+/// Resolves `revision` (defaulting to `HEAD`) to a commit and assembles the
+/// `patches` mailbox stream: the most recent `patch_max` commits reachable from
+/// it, oldest-first, each `Subject` numbered `[PATCH i/N]` where `N` is the count
+/// emitted — gitweb's `git_patches`, `git format-patch -n -<patch_max> --root
+/// <hash>`. `version` is the git version stamped on every mail's signature.
+///
+/// Each commit's mail diffs it against its own first parent (the empty tree for
+/// the root, a `--root` create), so a window that stops short of the root still
+/// diffs its oldest commit against the parent just outside it — the same patch
+/// `git format-patch` writes. A merge in the range reduces to its first parent;
+/// the combined `--cc` rendering is unified separately (see the merge-fidelity
+/// bead), and the parity corpus is kept linear.
+///
+/// # Errors
+///
+/// Returns [`DomainError::Forbidden`] (gitweb's 403 "Patch view not allowed")
+/// when the `patches` feature is off, [`DomainError::NotFound`] (gitweb's 404
+/// "Unknown commit object") when the revision is not a commit, and propagates the
+/// repository's own failures.
+pub fn assemble_patches(
+    repo: &dyn Repository,
+    revision: Option<&str>,
+    patch_max: usize,
+    version: &str,
+) -> Result<FormatPatch, DomainError> {
+    if patch_max == 0 {
+        return Err(DomainError::Forbidden("Patch view not allowed".to_owned()));
+    }
+
+    let oid: ObjectId = repo.resolve(revision.unwrap_or("HEAD"))?;
+    if repo.object_kind(&oid)? != ObjectKind::Commit {
+        return Err(DomainError::NotFound("Unknown commit object".to_owned()));
+    }
+
+    // The most recent `patch_max` commits reachable from the tip, newest-first
+    // (git rev-list order). `git format-patch` caps the range the same way (`-N`).
+    let commits: Vec<Commit> = repo.history(&oid, None, Page::new(0, patch_max))?;
+    let total: usize = commits.len();
+
+    // format-patch emits oldest-first, numbered `[PATCH i/N]`; reverse the
+    // newest-first walk and count off the index against the emitted total.
+    let mut entries: Vec<PatchEntry> = Vec::with_capacity(total);
+    for (offset, commit) in commits.iter().rev().enumerate() {
+        let number: Option<(usize, usize)> = Some((offset + 1, total));
+        let entry: PatchEntry = build_entry(repo, commit.id(), commit, number)?;
+        entries.push(entry);
+    }
+    Ok(FormatPatch::new(entries, version))
 }
 
 /// Builds one commit's `PatchEntry`: the mailbox header fields, the diffstat over

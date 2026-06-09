@@ -60,7 +60,7 @@ use gitweb_domain::usecase::history::{HistoryRow, HistoryView, assemble_history}
 use gitweb_domain::usecase::log::{LogRow, LogView, assemble_log};
 use gitweb_domain::usecase::object::{ObjectRedirect, assemble_object_redirect};
 use gitweb_domain::usecase::opml::{Opml, OpmlProject, assemble_opml};
-use gitweb_domain::usecase::patch::assemble_patch;
+use gitweb_domain::usecase::patch::{assemble_patch, assemble_patches};
 use gitweb_domain::usecase::project_index::{
     ProjectIndex, ProjectIndexRow, assemble_project_index,
 };
@@ -199,6 +199,10 @@ struct UsecaseWorld {
     commitdiff_result: Option<Result<String, DomainError>>,
     commitdiff_plain_result: Option<Result<CommitdiffPlain, DomainError>>,
     patch_result: Option<Result<FormatPatch, DomainError>>,
+    /// The `patches` range fixture (its commits, oldest-first) and the result of
+    /// assembling the numbered stream over it.
+    patch_series: Option<FakePatchSeries>,
+    patches_result: Option<Result<FormatPatch, DomainError>>,
     /// The file patches accumulated by the blobdiff_plain scenarios; the When
     /// folds them into the fixture's whole-tree patch before assembling.
     blobdiff_files: Vec<FilePatch>,
@@ -371,6 +375,7 @@ struct FakeRepository {
     blob_files: Vec<FakeBlobFile>,
     commit_fixture: Option<FakeCommitFixture>,
     snapshot: Option<FakeSnapshot>,
+    patch_series: Option<FakePatchSeries>,
 }
 
 /// The object a `snapshot` request resolves and archives: the revision name it
@@ -408,6 +413,44 @@ struct FakeCommitFixture {
     /// The `name-rev --tags` name of this commit, when tag-named; drives the
     /// commitdiff_plain `X-Git-Tag` line through [`Repository::rev_name_tag`].
     rev_name_tag: Option<String>,
+}
+
+/// The `patches` range fixture: the commits of the series, declared oldest-first
+/// (the natural reading order), and whether the tip resolves to a commit (so a
+/// non-commit tip drives the `Unknown commit object` 404). [`Repository::history`]
+/// returns the series newest-first, the way `git rev-list` does, and the use case
+/// reverses it back to oldest-first for the `[PATCH i/N]` stream.
+#[derive(Debug, Clone)]
+struct FakePatchSeries {
+    author: Signature,
+    commits: Vec<FakePatchCommit>,
+    tip_is_commit: bool,
+}
+
+/// One commit in a [`FakePatchSeries`]: its id, its first parent (the diff base —
+/// the previous, older commit, or `None` for the root), the subject its `Subject:`
+/// line carries, and the patch its mail's body renders.
+#[derive(Debug, Clone)]
+struct FakePatchCommit {
+    id: ObjectId,
+    parent: Option<ObjectId>,
+    subject: String,
+    patch: Patch,
+}
+
+impl FakePatchSeries {
+    /// The tip (newest) commit of the series, the one `HEAD` resolves to.
+    fn tip(&self) -> Option<&FakePatchCommit> {
+        self.commits.last()
+    }
+
+    /// The series commit whose id is `oid`, if any (the `patch` lookup keys on the
+    /// diff's to-side, which is each commit's own id).
+    fn commit(&self, oid: &ObjectId) -> Option<&FakePatchCommit> {
+        self.commits
+            .iter()
+            .find(|commit: &&FakePatchCommit| &commit.id == oid)
+    }
 }
 
 impl FakeRepository {
@@ -641,6 +684,11 @@ impl Repository for FakeRepository {
         if let Some(fixture) = self.commit_fixture.as_ref().filter(|f| f.rev == rev) {
             return Ok(fixture.id.clone());
         }
+        if rev == "HEAD"
+            && let Some(tip) = self.patch_series.as_ref().and_then(FakePatchSeries::tip)
+        {
+            return Ok(tip.id.clone());
+        }
         if rev == "HEAD" && self.has_tree() {
             return Ok(tree_head_oid());
         }
@@ -678,6 +726,15 @@ impl Repository for FakeRepository {
         }
         if let Some(fixture) = self.commit_fixture.as_ref().filter(|f| &f.id == oid) {
             return Ok(fixture.kind);
+        }
+        if let Some(series) = self.patch_series.as_ref()
+            && series.tip().map(|tip: &FakePatchCommit| &tip.id) == Some(oid)
+        {
+            return Ok(if series.tip_is_commit {
+                ObjectKind::Commit
+            } else {
+                ObjectKind::Blob
+            });
         }
         if self.has_tree() && oid == &tree_head_oid() {
             return Ok(ObjectKind::Commit);
@@ -799,6 +856,28 @@ impl Repository for FakeRepository {
         path: Option<&str>,
         page: Page,
     ) -> Result<Vec<Commit>, DomainError> {
+        if let Some(series) = self.patch_series.as_ref() {
+            // git rev-list order is newest-first, the reverse of the declared
+            // (oldest-first) series; the `patches` use case reverses it back.
+            let commits: Vec<Commit> = series
+                .commits
+                .iter()
+                .rev()
+                .skip(page.skip)
+                .take(page.limit)
+                .map(|commit: &FakePatchCommit| {
+                    Commit::new(
+                        commit.id.clone(),
+                        fake_oid(&format!("patches-tree-{}", commit.subject)),
+                        commit.parent.iter().cloned().collect(),
+                        series.author.clone(),
+                        series.author.clone(),
+                        format!("{}\n", commit.subject),
+                    )
+                })
+                .collect();
+            return Ok(commits);
+        }
         let commits: Vec<Commit> = self
             .commits
             .iter()
@@ -923,6 +1002,13 @@ impl Repository for FakeRepository {
     ) -> Result<Patch, DomainError> {
         if let Some(fixture) = self.commit_fixture.as_ref().filter(|f| &f.id == to) {
             return Ok(fixture.patch.clone());
+        }
+        if let Some(commit) = self
+            .patch_series
+            .as_ref()
+            .and_then(|series: &FakePatchSeries| series.commit(to))
+        {
+            return Ok(commit.patch.clone());
         }
         unimplemented!("only the commitdiff use case's fixture builds a patch")
     }
@@ -1892,6 +1978,7 @@ fn fake_repo(world: &UsecaseWorld) -> FakeRepository {
         blob_files: world.blob_files.clone(),
         commit_fixture: world.commit_fixture.clone(),
         snapshot: world.snapshot.clone(),
+        patch_series: world.patch_series.clone(),
     }
 }
 
@@ -3350,20 +3437,27 @@ fn assemble_commit_view(world: &mut UsecaseWorld, rev: String) {
     world.commit_result = Some(assemble_commit(&repo, Some(&rev)));
 }
 
-#[given(regex = r#"^the commit diff creates "([^"]*)"$"#)]
-fn given_commitdiff_creates(world: &mut UsecaseWorld, path: String) {
+/// A single-file create patch for `path`: the `FilePatch` a `--root` (or
+/// new-file) diff carries, an absent from-side and a `100644` to-side. The
+/// content is empty text — the diff header (`diff --git …`) renders regardless,
+/// which is all the structural patch/patches scenarios assert.
+fn created_file(path: &str) -> FilePatch {
     let to_oid: ObjectId = fake_oid(&format!("to-{path}"));
-    let file: FilePatch = FilePatch::new(
+    FilePatch::new(
         ChangeStatus::added(),
         FileMode::from_octal("000000").expect("a valid absent mode"),
         FileMode::from_octal("100644").expect("a valid file mode"),
         to_oid.null_like(),
         to_oid,
-        path.clone(),
-        path,
+        path.to_owned(),
+        path.to_owned(),
         FileContent::Text(Vec::new()),
-    );
-    commit_fixture_mut(world).patch = Patch::new(vec![file]);
+    )
+}
+
+#[given(regex = r#"^the commit diff creates "([^"]*)"$"#)]
+fn given_commitdiff_creates(world: &mut UsecaseWorld, path: String) {
+    commit_fixture_mut(world).patch = Patch::new(vec![created_file(&path)]);
 }
 
 #[when(regex = r#"^I assemble the commitdiff text for "([^"]*)"$"#)]
@@ -3545,6 +3639,107 @@ fn then_patch_fails(world: &mut UsecaseWorld, expected: String) {
         .patch_result
         .as_ref()
         .expect("assemble the patch first")
+    {
+        Ok(stream) => panic!("expected a failure, got stream:\n{}", stream.render()),
+        Err(error) => assert_eq!(error.message(), expected),
+    }
+}
+
+// --- patches (format-patch range) --------------------------------------------
+
+/// The patch series fixture, asserting one was declared.
+fn patch_series_mut(world: &mut UsecaseWorld) -> &mut FakePatchSeries {
+    world
+        .patch_series
+        .as_mut()
+        .expect("declare a patch series first")
+}
+
+#[given(regex = r#"^a patch series authored by "([^"]*)"$"#)]
+fn given_patch_series(world: &mut UsecaseWorld, ident: String) {
+    let author: Signature = Signature::parse(&ident).expect("a valid author ident");
+    world.patch_series = Some(FakePatchSeries {
+        author,
+        commits: Vec::new(),
+        tip_is_commit: true,
+    });
+}
+
+#[given(regex = r#"^a patch commit "([^"]*)" with subject "([^"]*)" creating "([^"]*)"$"#)]
+fn given_patch_commit(world: &mut UsecaseWorld, label: String, subject: String, path: String) {
+    let series: &mut FakePatchSeries = patch_series_mut(world);
+    // The parent (diff base) is the previous, older commit — the series is
+    // declared oldest-first, so it is whatever was pushed last.
+    let parent: Option<ObjectId> = series
+        .commits
+        .last()
+        .map(|c: &FakePatchCommit| c.id.clone());
+    series.commits.push(FakePatchCommit {
+        id: fake_oid(&format!("patches-{label}")),
+        parent,
+        subject,
+        patch: Patch::new(vec![created_file(&path)]),
+    });
+}
+
+#[given("the patch series tip is not a commit")]
+fn given_patch_series_non_commit(world: &mut UsecaseWorld) {
+    patch_series_mut(world).tip_is_commit = false;
+}
+
+#[when(regex = r#"^I assemble the patches for "([^"]*)" with limit (\d+) and version "([^"]*)"$"#)]
+fn assemble_patches_step(world: &mut UsecaseWorld, rev: String, limit: usize, version: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.patches_result = Some(assemble_patches(&repo, Some(&rev), limit, &version));
+}
+
+/// Renders the assembled patches stream (asserting the use case succeeded).
+fn patches_stream(world: &UsecaseWorld) -> String {
+    match world
+        .patches_result
+        .as_ref()
+        .expect("assemble the patches first")
+    {
+        Ok(stream) => stream.render(),
+        Err(error) => panic!("expected a patches stream, got error: {error:?}"),
+    }
+}
+
+#[then(regex = r#"^the patches stream has a line "(.*)"$"#)]
+fn then_patches_has_line(world: &mut UsecaseWorld, expected: String) {
+    let stream: String = patches_stream(world);
+    assert!(
+        stream.lines().any(|line: &str| line == expected),
+        "expected patches stream to have the exact line {expected:?}, got:\n{stream}"
+    );
+}
+
+#[then(regex = r#"^the patches stream does not contain "(.*)"$"#)]
+fn then_patches_not_contains(world: &mut UsecaseWorld, unexpected: String) {
+    let stream: String = patches_stream(world);
+    assert!(
+        !stream.contains(&unexpected),
+        "expected patches stream not to contain {unexpected:?}, got:\n{stream}"
+    );
+}
+
+#[then(regex = r#"^"(.*)" comes before "(.*)" in the patches stream$"#)]
+fn then_patches_order(world: &mut UsecaseWorld, first: String, second: String) {
+    let stream: String = patches_stream(world);
+    let at_first: Option<usize> = stream.find(&first);
+    let at_second: Option<usize> = stream.find(&second);
+    assert!(
+        matches!((at_first, at_second), (Some(a), Some(b)) if a < b),
+        "expected {first:?} before {second:?} in patches stream, got:\n{stream}"
+    );
+}
+
+#[then(regex = r#"^assembling the patches fails with "(.*)"$"#)]
+fn then_patches_fails(world: &mut UsecaseWorld, expected: String) {
+    match world
+        .patches_result
+        .as_ref()
+        .expect("assemble the patches first")
     {
         Ok(stream) => panic!("expected a failure, got stream:\n{}", stream.render()),
         Err(error) => assert_eq!(error.message(), expected),
