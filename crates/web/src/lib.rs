@@ -23,13 +23,13 @@ pub mod response;
 pub mod server;
 pub mod url;
 
-pub use dispatch::{Dispatcher, Handler};
+pub use dispatch::{Dispatcher, Handler, ObjectKindResolver};
 pub use handlers::{
     BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
-    CommitdiffHandler, CommitdiffPlainHandler, FeedHandler, HeadsHandler, HistoryHandler,
-    LogHandler, ObjectHandler, OpmlHandler, PatchHandler, PatchesHandler, ProjectIndexHandler,
-    ProjectListHandler, RemotesHandler, ShortlogHandler, SnapshotHandler, SummaryHandler,
-    TagHandler, TagsHandler, TreeHandler,
+    CommitdiffHandler, CommitdiffPlainHandler, DefaultObjectResolver, FeedHandler, HeadsHandler,
+    HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, PatchHandler, PatchesHandler,
+    ProjectIndexHandler, ProjectListHandler, RemotesHandler, ShortlogHandler, SnapshotHandler,
+    SummaryHandler, TagHandler, TagsHandler, TreeHandler,
 };
 pub use response::View;
 pub use server::router;

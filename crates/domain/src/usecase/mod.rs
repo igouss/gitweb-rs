@@ -21,6 +21,7 @@ pub mod history;
 pub mod log;
 pub mod log_generic;
 pub mod object;
+pub mod object_dispatch;
 pub mod opml;
 pub mod patch;
 pub mod project_index;

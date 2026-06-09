@@ -34,6 +34,7 @@ use gitweb_domain::model::forks::{ProjectGroup, partition_forks};
 use gitweb_domain::model::format_patch::{FormatPatch, PatchEntry};
 use gitweb_domain::model::grep::{GrepMatch, file_matches};
 use gitweb_domain::model::message_body::{LogLine, log_lines};
+use gitweb_domain::model::object_dispatch::{DispatchLookup, dispatch_lookup};
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::object_redirect::{Resolution, resolution, target_action};
@@ -194,6 +195,7 @@ struct DomainWorld {
     obj_base: Option<String>,
     obj_file: Option<String>,
     obj_lookup: Option<Result<Resolution, DomainError>>,
+    dispatch_lookup: Option<Option<DispatchLookup>>,
     obj_kind_in: Option<ObjectKind>,
     obj_action_out: Option<Action>,
     snapshot_format: Option<ArchiveFormat>,
@@ -3220,6 +3222,50 @@ fn then_redirect_action_is(world: &mut DomainWorld, expected: String) {
     let action: Action = world.obj_action_out.expect("map the object kind first");
     let want: Action = Action::parse(&expected).expect("a valid action name");
     assert_eq!(action, want);
+}
+
+// --- no-action default object lookup (dispatch git_get_type) ------------------
+
+#[when("I classify the dispatch request")]
+fn when_classify_dispatch_request(world: &mut DomainWorld) {
+    world.dispatch_lookup = Some(dispatch_lookup(
+        world.obj_hash.as_deref(),
+        world.obj_base.as_deref(),
+        world.obj_file.as_deref(),
+    ));
+}
+
+#[then(regex = r#"^the dispatch lookup is by id "([^"]*)"$"#)]
+fn then_dispatch_lookup_by_id(world: &mut DomainWorld, expected: String) {
+    let lookup: Option<DispatchLookup> = world
+        .dispatch_lookup
+        .clone()
+        .expect("classify the dispatch request first");
+    assert_eq!(lookup, Some(DispatchLookup::ByHash { hash: expected }));
+}
+
+#[then(regex = r#"^the dispatch lookup is by base "([^"]*)" and file "([^"]*)"$"#)]
+fn then_dispatch_lookup_by_base_and_file(world: &mut DomainWorld, base: String, file: String) {
+    let lookup: Option<DispatchLookup> = world
+        .dispatch_lookup
+        .clone()
+        .expect("classify the dispatch request first");
+    assert_eq!(
+        lookup,
+        Some(DispatchLookup::ByBasePath {
+            base,
+            file_name: file,
+        })
+    );
+}
+
+#[then("the dispatch request names no object")]
+fn then_dispatch_names_no_object(world: &mut DomainWorld) {
+    let lookup: Option<DispatchLookup> = world
+        .dispatch_lookup
+        .clone()
+        .expect("classify the dispatch request first");
+    assert_eq!(lookup, None);
 }
 
 // --- section: the summary-section cap rule -----------------------------------

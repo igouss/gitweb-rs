@@ -26,10 +26,11 @@ use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_git::GixProjectStore;
 use gitweb_web::{
     BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
-    CommitdiffHandler, CommitdiffPlainHandler, Dispatcher, FeedHandler, Handler, HeadsHandler,
-    HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, PatchHandler, PatchesHandler,
-    ProjectIndexHandler, ProjectListHandler, RemotesHandler, ShortlogHandler, SnapshotHandler,
-    SummaryHandler, TagHandler, TagsHandler, TreeHandler, router,
+    CommitdiffHandler, CommitdiffPlainHandler, DefaultObjectResolver, Dispatcher, FeedHandler,
+    Handler, HeadsHandler, HistoryHandler, LogHandler, ObjectHandler, ObjectKindResolver,
+    OpmlHandler, PatchHandler, PatchesHandler, ProjectIndexHandler, ProjectListHandler,
+    RemotesHandler, ShortlogHandler, SnapshotHandler, SummaryHandler, TagHandler, TagsHandler,
+    TreeHandler, router,
 };
 use tower_http::services::ServeDir;
 
@@ -192,6 +193,14 @@ fn build_dispatcher(
     // against the same site URL.
     let object: Arc<dyn Handler> = Arc::new(ObjectHandler::new(Arc::clone(&store), base.clone()));
     dispatcher.register(Action::Object, object);
+
+    // gitweb's dispatch sub, when NO action is named but a hash (or a base ref
+    // and a file) is, resolves the object's kind and serves the matching view
+    // inline — not a redirect. This resolver does the repository half; the
+    // dispatcher then invokes the resolved action's handler above.
+    let object_resolver: Arc<dyn ObjectKindResolver> =
+        Arc::new(DefaultObjectResolver::new(Arc::clone(&store)));
+    dispatcher.set_object_resolver(object_resolver);
 
     let rss: Arc<dyn Handler> = Arc::new(FeedHandler::new(
         Arc::clone(&store),

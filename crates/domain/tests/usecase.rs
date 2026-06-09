@@ -60,6 +60,7 @@ use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
 use gitweb_domain::usecase::history::{HistoryRow, HistoryView, assemble_history};
 use gitweb_domain::usecase::log::{LogRow, LogView, assemble_log};
 use gitweb_domain::usecase::object::{ObjectRedirect, assemble_object_redirect};
+use gitweb_domain::usecase::object_dispatch::resolve_dispatch_action;
 use gitweb_domain::usecase::opml::{Opml, OpmlProject, assemble_opml};
 use gitweb_domain::usecase::patch::{assemble_patch, assemble_patches};
 use gitweb_domain::usecase::project_index::{
@@ -210,6 +211,7 @@ struct UsecaseWorld {
     blobdiff_plain_result: Option<Result<BlobdiffPlain, DomainError>>,
     blobdiff_result: Option<Result<BlobdiffView, DomainError>>,
     object_result: Option<Result<ObjectRedirect, DomainError>>,
+    dispatch_action_result: Option<Result<Action, DomainError>>,
     snapshot: Option<FakeSnapshot>,
     snapshot_project: String,
     snapshot_configured: Vec<String>,
@@ -3223,6 +3225,54 @@ fn redirect_has_no_file(world: &mut UsecaseWorld) {
 #[then(regex = r#"^assembling the object fails with "([^"]*)"$"#)]
 fn assembling_object_fails_with(world: &mut UsecaseWorld, message: String) {
     assert_eq!(object_error(world).message(), message);
+}
+
+// --- object: the no-action default inline dispatch (dispatch git_get_type) ----
+
+/// The resolved dispatch failure, or a panic if the scenario produced a success.
+fn dispatch_action_error(world: &UsecaseWorld) -> &DomainError {
+    match world
+        .dispatch_action_result
+        .as_ref()
+        .expect("resolve the dispatch action first")
+    {
+        Ok(_) => panic!("expected resolving the dispatch action to fail"),
+        Err(failure) => failure,
+    }
+}
+
+#[when(regex = r#"^I resolve the dispatch action for hash "([^"]*)"$"#)]
+fn resolve_dispatch_for_hash(world: &mut UsecaseWorld, hash: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.dispatch_action_result = Some(resolve_dispatch_action(&repo, Some(&hash), None, None));
+}
+
+#[when(regex = r#"^I resolve the dispatch action for base "([^"]*)" and file "([^"]*)"$"#)]
+fn resolve_dispatch_for_base_path(world: &mut UsecaseWorld, base: String, file: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.dispatch_action_result = Some(resolve_dispatch_action(
+        &repo,
+        None,
+        Some(&base),
+        Some(&file),
+    ));
+}
+
+#[then(regex = r#"^the dispatch action is "([^"]*)"$"#)]
+fn dispatch_action_is(world: &mut UsecaseWorld, expected: String) {
+    let want: Action = Action::parse(&expected).expect("a valid action name");
+    let got: Action = *world
+        .dispatch_action_result
+        .as_ref()
+        .expect("resolve the dispatch action first")
+        .as_ref()
+        .expect("resolution succeeded");
+    assert_eq!(got, want);
+}
+
+#[then(regex = r#"^resolving the dispatch action fails with "([^"]*)"$"#)]
+fn resolving_dispatch_fails_with(world: &mut UsecaseWorld, message: String) {
+    assert_eq!(dispatch_action_error(world).message(), message);
 }
 
 // --- feed: Whens -------------------------------------------------------------

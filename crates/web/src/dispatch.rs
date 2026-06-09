@@ -32,10 +32,32 @@ pub trait Handler: Send + Sync {
     fn handle(&self, request: &Request) -> Result<View, DomainError>;
 }
 
-/// gitweb's `%actions` dispatch table: the registered handler for each action.
+/// gitweb's no-action default object resolution (the `dispatch` sub's
+/// `git_get_type` branch). When a request names no action but carries a hash —
+/// or a base ref and a file — gitweb resolves the referenced object's kind and
+/// serves the matching view *inline* (not a redirect). That lookup needs the
+/// repository, so it cannot be the pure [`route`] rule's job; this resolver does
+/// the repository half — returning the action whose handler the dispatcher then
+/// invokes with the request unchanged. The composition root wires the concrete
+/// implementation (over the project store), mirroring how each [`Handler`] is.
+pub trait ObjectKindResolver: Send + Sync {
+    /// Resolves the no-action default to the action whose view serves the
+    /// referenced object — gitweb's `dispatch` `$action = git_get_type(...)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`DomainError`] whose status the boundary maps to gitweb's
+    /// `die_error` page — gitweb's `dispatch` 404s ("Object does not exist",
+    /// "File or directory does not exist") for a lookup miss.
+    fn resolve(&self, request: &Request) -> Result<Action, DomainError>;
+}
+
+/// gitweb's `%actions` dispatch table: the registered handler for each action,
+/// plus the resolver for the no-action object-kind default.
 #[derive(Default, Clone)]
 pub struct Dispatcher {
     handlers: HashMap<Action, Arc<dyn Handler>>,
+    object_resolver: Option<Arc<dyn ObjectKindResolver>>,
 }
 
 impl Dispatcher {
@@ -52,22 +74,44 @@ impl Dispatcher {
         self
     }
 
+    /// Wires the resolver for gitweb's no-action object-kind default, replacing
+    /// any previous one. Without it, a no-action request carrying a hash (or a
+    /// base ref and a file) takes the `Unknown action` path.
+    pub fn set_object_resolver(&mut self, resolver: Arc<dyn ObjectKindResolver>) -> &mut Self {
+        self.object_resolver = Some(resolver);
+        self
+    }
+
     /// Routes and serves a validated request: apply the domain routing rule
     /// (default the action, gate on the project), then invoke the registered
-    /// handler. A request that defaults to object-kind resolution, or names an
-    /// action with no registered handler, takes gitweb's
-    /// `die_error(400, "Unknown action")` path until its capability lands.
+    /// handler. A request that names no action but carries a hash (or a base ref
+    /// and a file) has its object kind resolved (gitweb's `dispatch`
+    /// `git_get_type`) and the matching view served inline. An action with no
+    /// registered handler — or object resolution with no wired resolver — takes
+    /// gitweb's `die_error(400, "Unknown action")` path.
     ///
     /// # Errors
     ///
     /// Returns the routing rule's [`DomainError`] (e.g. `Project needed`), the
-    /// `Unknown action` error for an unserved action, or whatever the invoked
-    /// handler fails with.
+    /// resolver's 404 for an object that does not exist, the `Unknown action`
+    /// error for an unserved action, or whatever the invoked handler fails with.
     pub fn dispatch(&self, request: &Request) -> Result<View, DomainError> {
         match route(request)? {
             Dispatch::Action(action) => self.invoke(action, request),
-            Dispatch::ResolveObjectKind => Err(unknown_action()),
+            Dispatch::ResolveObjectKind => self.resolve_object_kind(request),
         }
+    }
+
+    /// gitweb's `dispatch` no-action default: resolve the referenced object's
+    /// kind, then serve the matching view inline by invoking its registered
+    /// handler with the request unchanged. With no resolver wired, this is the
+    /// `Unknown action` path.
+    fn resolve_object_kind(&self, request: &Request) -> Result<View, DomainError> {
+        let action: Action = match &self.object_resolver {
+            Some(resolver) => resolver.resolve(request)?,
+            None => return Err(unknown_action()),
+        };
+        self.invoke(action, request)
     }
 
     /// Invokes the handler registered for `action`, or the unknown-action error
@@ -86,6 +130,7 @@ impl fmt::Debug for Dispatcher {
         actions.sort_by_key(|action: &Action| action.as_str());
         f.debug_struct("Dispatcher")
             .field("registered", &actions)
+            .field("object_resolver", &self.object_resolver.is_some())
             .finish()
     }
 }

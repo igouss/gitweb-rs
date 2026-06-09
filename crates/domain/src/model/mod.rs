@@ -29,6 +29,7 @@ pub mod forks;
 pub mod format_patch;
 pub mod grep;
 pub mod message_body;
+pub mod object_dispatch;
 pub mod object_id;
 pub mod object_kind;
 pub mod object_redirect;

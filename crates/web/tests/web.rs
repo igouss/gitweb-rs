@@ -29,15 +29,15 @@ use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
     BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
-    CommitdiffHandler, CommitdiffPlainHandler, FeedHandler, HeadsHandler, HistoryHandler,
-    LogHandler, ObjectHandler, OpmlHandler, PatchHandler, PatchesHandler, ProjectIndexHandler,
-    ProjectListHandler, RemotesHandler, ShortlogHandler, SnapshotHandler, SummaryHandler,
-    TagHandler, TagsHandler, TreeHandler,
+    CommitdiffHandler, CommitdiffPlainHandler, DefaultObjectResolver, FeedHandler, HeadsHandler,
+    HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, PatchHandler, PatchesHandler,
+    ProjectIndexHandler, ProjectListHandler, RemotesHandler, ShortlogHandler, SnapshotHandler,
+    SummaryHandler, TagHandler, TagsHandler, TreeHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
 use gitweb_web::url::{href_full, self_url};
-use gitweb_web::{Dispatcher, Handler, router};
+use gitweb_web::{Dispatcher, Handler, ObjectKindResolver, router};
 
 #[derive(Debug, Default, World)]
 struct WebWorld {
@@ -564,6 +564,15 @@ fn given_object_served(world: &mut WebWorld) {
     let handler: Arc<dyn Handler> =
         Arc::new(ObjectHandler::new(store, "http://localhost".to_owned()));
     world.dispatcher.register(Action::Object, handler);
+}
+
+#[given("the no-action object dispatch is enabled")]
+fn given_object_dispatch_enabled(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let resolver: Arc<dyn ObjectKindResolver> = Arc::new(DefaultObjectResolver::new(store));
+    world.dispatcher.set_object_resolver(resolver);
 }
 
 #[given("the commitdiff_plain action is served")]
