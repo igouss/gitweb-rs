@@ -8,6 +8,7 @@ use cucumber::{World, given, then, when};
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::age::{Age, AgeClass};
 use gitweb_domain::model::message_body::LogLine;
+use gitweb_domain::model::search_help::SearchHelpTopic;
 use gitweb_domain::model::tag_age::TagAge;
 use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_render::age::age_class_name;
@@ -39,6 +40,7 @@ use gitweb_render::project_list::{
 };
 use gitweb_render::refs::RefMarkerView;
 use gitweb_render::remotes::{RemoteBlockView, RemoteUrlLine, RemotesPage, remotes_body};
+use gitweb_render::search_help::{SearchHelpPage, search_help_body};
 use gitweb_render::shortlog::{ShortlogEntryView, ShortlogTable, shortlog_table};
 use gitweb_render::summary::{
     HeadsSection, ShortlogSection, SummaryMetadata, SummaryPage, TagsSection, summary_body,
@@ -1132,6 +1134,43 @@ fn when_render_tags_table(world: &mut RenderWorld) {
         more: world.tags_more.take(),
     };
     world.output = Some(tags_table(&table).into_string());
+}
+
+/// Renders a search-help page documenting `topics`, with no project chrome so the
+/// assertions see only the help body.
+fn render_search_help(world: &mut RenderWorld, topics: Vec<SearchHelpTopic>) {
+    let page: SearchHelpPage = SearchHelpPage {
+        crumbs: Vec::new(),
+        nav: Vec::new(),
+        topics,
+    };
+    world.output = Some(search_help_body(&page).into_string());
+}
+
+#[when("I render the search help page documenting every type")]
+fn when_render_search_help_all(world: &mut RenderWorld) {
+    render_search_help(
+        world,
+        vec![
+            SearchHelpTopic::Commit,
+            SearchHelpTopic::Grep,
+            SearchHelpTopic::Author,
+            SearchHelpTopic::Committer,
+            SearchHelpTopic::Pickaxe,
+        ],
+    );
+}
+
+#[when("I render the search help page documenting only the always-available types")]
+fn when_render_search_help_minimal(world: &mut RenderWorld) {
+    render_search_help(
+        world,
+        vec![
+            SearchHelpTopic::Commit,
+            SearchHelpTopic::Author,
+            SearchHelpTopic::Committer,
+        ],
+    );
 }
 
 #[when("I render the tags page with no tags")]

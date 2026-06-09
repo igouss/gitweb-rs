@@ -46,6 +46,7 @@ pub mod remote;
 pub mod request;
 pub mod routing;
 pub mod safety;
+pub mod search_help;
 pub mod section;
 pub mod settings;
 pub mod signature;

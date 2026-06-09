@@ -31,8 +31,8 @@ use gitweb_web::handlers::{
     BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
     CommitdiffHandler, CommitdiffPlainHandler, DefaultObjectResolver, FeedHandler, HeadsHandler,
     HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, PatchHandler, PatchesHandler,
-    ProjectIndexHandler, ProjectListHandler, RemotesHandler, ShortlogHandler, SnapshotHandler,
-    SummaryHandler, TagHandler, TagsHandler, TreeHandler,
+    ProjectIndexHandler, ProjectListHandler, RemotesHandler, SearchHelpHandler, ShortlogHandler,
+    SnapshotHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -761,6 +761,50 @@ fn register_remotes(world: &mut WebWorld, enabled: bool) {
     let settings: Arc<Settings> = Arc::new(remote_heads_settings(enabled));
     let handler: Arc<dyn Handler> = Arc::new(RemotesHandler::new(store, settings));
     world.dispatcher.register(Action::Remotes, handler);
+}
+
+/// Settings that turn the `grep` and `pickaxe` features off, so the search-help
+/// page documents only the always-available types.
+fn grep_pickaxe_off_settings() -> Settings {
+    let mut features: BTreeMap<FeatureName, FeatureLayer> = BTreeMap::new();
+    features.insert(
+        FeatureName::Grep,
+        FeatureLayer {
+            default: Some(vec!["0".to_owned()]),
+            overridable: None,
+        },
+    );
+    features.insert(
+        FeatureName::Pickaxe,
+        FeatureLayer {
+            default: Some(vec!["0".to_owned()]),
+            overridable: None,
+        },
+    );
+    let layer: SettingsLayer = SettingsLayer {
+        features,
+        ..SettingsLayer::default()
+    };
+    Settings::resolve(&[layer])
+}
+
+#[given("the search_help action is served")]
+fn given_search_help_served(world: &mut WebWorld) {
+    register_search_help(world, Settings::builtin());
+}
+
+#[given("the search_help action is served with grep and pickaxe disabled")]
+fn given_search_help_served_disabled(world: &mut WebWorld) {
+    register_search_help(world, grep_pickaxe_off_settings());
+}
+
+/// Registers the search-help handler over the given settings.
+fn register_search_help(world: &mut WebWorld, settings: Settings) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let handler: Arc<dyn Handler> = Arc::new(SearchHelpHandler::new(store, Arc::new(settings)));
+    world.dispatcher.register(Action::SearchHelp, handler);
 }
 
 // --- snapshot: the served handler with site-configured formats ---------------

@@ -39,6 +39,7 @@ use gitweb_domain::model::ref_marker::{MarkerView, RefMarker};
 use gitweb_domain::model::ref_name::RefName;
 use gitweb_domain::model::reference::{DereferencedRef, Reference};
 use gitweb_domain::model::remote::{Remote, RemoteUrl};
+use gitweb_domain::model::search_help::SearchHelpTopic;
 use gitweb_domain::model::settings::{FeatureLayer, FeatureName, Settings, SettingsLayer};
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::tag::Tag;
@@ -71,6 +72,7 @@ use gitweb_domain::usecase::project_list::{
 };
 use gitweb_domain::usecase::ref_markers::{RefMarkerIndex, assemble_ref_markers};
 use gitweb_domain::usecase::remotes::{RemoteBlock, RemotesView, assemble_remotes};
+use gitweb_domain::usecase::search_help::{SearchHelpView, assemble_search_help};
 use gitweb_domain::usecase::shortlog::{ShortlogRow, ShortlogView, assemble_shortlog};
 use gitweb_domain::usecase::snapshot::{SnapshotView, assemble_snapshot};
 use gitweb_domain::usecase::summary::{SummaryView, assemble_summary};
@@ -216,6 +218,9 @@ struct UsecaseWorld {
     snapshot_project: String,
     snapshot_configured: Vec<String>,
     snapshot_result: Option<Result<SnapshotView, DomainError>>,
+    search_help_grep_disabled: bool,
+    search_help_pickaxe_disabled: bool,
+    search_help_view: Option<SearchHelpView>,
 }
 
 /// One directory in the fake repository's tree, listed by the `tree` use case.
@@ -2349,6 +2354,62 @@ fn remote_heads_enabled(world: &mut UsecaseWorld) {
 #[given("the remote_heads feature is disabled")]
 fn remote_heads_disabled(world: &mut UsecaseWorld) {
     world.remote_heads_enabled = false;
+}
+
+// --- search_help -------------------------------------------------------------
+
+/// A feature layer that turns a feature off (gitweb's `gitweb.<name> = 0`).
+fn feature_off() -> FeatureLayer {
+    FeatureLayer {
+        default: Some(vec!["0".to_owned()]),
+        overridable: None,
+    }
+}
+
+/// The settings the search-help use case reads: the `grep` and `pickaxe` gates,
+/// each left at its enabled-by-default builtin unless the scenario disabled it.
+fn search_help_settings(world: &UsecaseWorld) -> Settings {
+    let mut features: BTreeMap<FeatureName, FeatureLayer> = BTreeMap::new();
+    if world.search_help_grep_disabled {
+        features.insert(FeatureName::Grep, feature_off());
+    }
+    if world.search_help_pickaxe_disabled {
+        features.insert(FeatureName::Pickaxe, feature_off());
+    }
+    let layer: SettingsLayer = SettingsLayer {
+        features,
+        ..SettingsLayer::default()
+    };
+    Settings::resolve(&[layer])
+}
+
+#[given("the grep feature is disabled")]
+fn search_help_grep_disabled(world: &mut UsecaseWorld) {
+    world.search_help_grep_disabled = true;
+}
+
+#[given("the pickaxe feature is disabled")]
+fn search_help_pickaxe_disabled(world: &mut UsecaseWorld) {
+    world.search_help_pickaxe_disabled = true;
+}
+
+#[when("I assemble the search help")]
+fn assemble_search_help_when(world: &mut UsecaseWorld) {
+    let settings: Settings = search_help_settings(world);
+    world.search_help_view = Some(assemble_search_help(&settings));
+}
+
+#[then(regex = r#"^the documented topics are "(.*)"$"#)]
+fn documented_topics_are(world: &mut UsecaseWorld, expected: String) {
+    let names: Vec<&str> = world
+        .search_help_view
+        .as_ref()
+        .expect("assemble the search help first")
+        .topics()
+        .iter()
+        .map(|topic: &SearchHelpTopic| topic.name())
+        .collect();
+    assert_eq!(names.join(", "), expected);
 }
 
 #[given(regex = r#"^a remote "([^"]*)" fetching from "([^"]*)" pushing to "([^"]*)"$"#)]

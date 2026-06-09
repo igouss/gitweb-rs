@@ -50,6 +50,7 @@ use gitweb_domain::model::remote::{Remote, RemoteUrl};
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::routing::{Dispatch, route};
 use gitweb_domain::model::safety::{SafePath, SafeRef};
+use gitweb_domain::model::search_help::{SearchHelpTopic, help_topics};
 use gitweb_domain::model::section::Section;
 use gitweb_domain::model::settings::{FeatureName, Settings, SettingsLayer};
 use gitweb_domain::model::signature::Signature;
@@ -73,6 +74,7 @@ struct DomainWorld {
     signature: Option<Signature>,
     chop_text: String,
     chopped: Option<String>,
+    search_help_topics: Option<Vec<SearchHelpTopic>>,
     ref_name: Option<RefName>,
     short_ref: Option<String>,
     deref_refs: Vec<DereferencedRef>,
@@ -625,6 +627,23 @@ fn center_chop(world: &mut DomainWorld, len: usize, add_len: usize) {
 #[then(regex = r#"^the chopped text is "(.*)"$"#)]
 fn chopped_text_is(world: &mut DomainWorld, expected: String) {
     assert_eq!(world.chopped.as_deref(), Some(expected.as_str()));
+}
+
+#[when(regex = r"^the search help topics are listed with grep (on|off) and pickaxe (on|off)$")]
+fn list_search_help_topics(world: &mut DomainWorld, grep: String, pickaxe: String) {
+    world.search_help_topics = Some(help_topics(grep == "on", pickaxe == "on"));
+}
+
+#[then(regex = r#"^the topics are "(.*)"$"#)]
+fn topics_are(world: &mut DomainWorld, expected: String) {
+    let names: Vec<&str> = world
+        .search_help_topics
+        .as_ref()
+        .expect("list the topics first")
+        .iter()
+        .map(|topic: &SearchHelpTopic| topic.name())
+        .collect();
+    assert_eq!(names.join(", "), expected);
 }
 
 #[given(regex = r#"^the full ref "(.*)"$"#)]

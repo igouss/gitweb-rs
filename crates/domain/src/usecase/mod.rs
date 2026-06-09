@@ -28,6 +28,7 @@ pub mod project_index;
 pub mod project_list;
 pub mod ref_markers;
 pub mod remotes;
+pub mod search_help;
 pub mod shortlog;
 pub mod snapshot;
 pub mod summary;
