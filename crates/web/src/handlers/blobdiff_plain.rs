@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::blobdiff_plain::BlobdiffPlain;
+use gitweb_domain::model::expiry::Expiry;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::port::project_store::ProjectStore;
@@ -84,7 +85,14 @@ impl Handler for BlobdiffPlainHandler {
             assemble_blobdiff_plain(repository.as_ref(), hash_base, hash_parent_base, file_name)?;
         let body: String = plain.render(&self.self_link(project, request));
         let disposition: String = format!("inline; filename=\"{file_name}.patch\"");
-        Ok(View::plain_attachment(disposition, body))
+        // gitweb's git_blobdiff('plain') shares the html path's dual-oid Expires
+        // gate: a one-day window only when both bases are literal object ids.
+        Ok(
+            View::plain_attachment(disposition, body).with_expiry(Expiry::for_hashes(&[
+                Some(hash_base),
+                Some(hash_parent_base),
+            ])),
+        )
     }
 }
 

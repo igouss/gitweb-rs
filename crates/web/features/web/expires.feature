@@ -49,3 +49,37 @@ Feature: By-oid cache freshness on served responses (Expires +1d)
     When I GET "/?p=t.git&a=blob&hb=HEAD&f=readme.txt"
     Then the response status is 200
     And the response has no expires header
+
+  # git_blobdiff (html and plain alike) gates Expires on its DUAL-oid rule: both
+  # the base and the parent base must be literal object ids. The host page and
+  # the raw single-file patch share that gate.
+
+  Scenario: a single-file diff between two full object ids is cacheable for a day
+    Given a project root containing a commit repository "c.git"
+    And the blobdiff action is served
+    When I GET the blobdiff of "README" in "c.git"
+    Then the response status is 200
+    And the response content type is "text/html; charset=utf-8"
+    And the response has an expires header
+
+  Scenario: a single-file diff whose base is a ref is not cached
+    Given a project root containing a commit repository "c.git"
+    And the blobdiff action is served
+    When I GET the blobdiff of "README" in "c.git" with a ref base
+    Then the response status is 200
+    And the response has no expires header
+
+  Scenario: a raw single-file diff between two full object ids is cacheable for a day
+    Given a project root containing a commit repository "c.git"
+    And the blobdiff_plain action is served
+    When I GET the blobdiff_plain of "README" in "c.git"
+    Then the response status is 200
+    And the response content type is "text/plain; charset=utf-8"
+    And the response has an expires header
+
+  Scenario: a raw single-file diff whose base is a ref is not cached
+    Given a project root containing a commit repository "c.git"
+    And the blobdiff_plain action is served
+    When I GET the blobdiff_plain of "README" in "c.git" with a ref base
+    Then the response status is 200
+    And the response has no expires header

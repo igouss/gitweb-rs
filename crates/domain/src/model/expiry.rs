@@ -41,6 +41,23 @@ impl Expiry {
         }
     }
 
+    /// gitweb's `git_blobdiff` dual-oid rule: the freshness a single-file diff
+    /// carries given the two bases it is addressed by (`$hash_base` and
+    /// `$hash_parent_base`). gitweb stamps `"+1d"` only when BOTH sides are
+    /// literal object ids — `$hash_base =~ /^$oid_regex$/ && $hash_parent_base
+    /// =~ /^$oid_regex$/` — because a single-file diff is immutable only when
+    /// both endpoints are pinned to an oid. If any slot is a ref name, an
+    /// abbreviation, or absent, the diff can move under the same URL and earns
+    /// no window. An empty set of bases is no pin at all, so no window either.
+    #[must_use]
+    pub fn for_hashes(hashes: &[Option<&str>]) -> Self {
+        let all_oids: bool = !hashes.is_empty()
+            && hashes
+                .iter()
+                .all(|slot: &Option<&str>| Self::for_hash(*slot) == Self::OneDay);
+        if all_oids { Self::OneDay } else { Self::None }
+    }
+
     /// The freshness window in seconds — one day for [`Expiry::OneDay`], `None`
     /// when no `Expires` is carried.
     #[must_use]

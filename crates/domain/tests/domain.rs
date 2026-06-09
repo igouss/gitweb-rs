@@ -213,6 +213,8 @@ struct DomainWorld {
     accept_feed_type: String,
     accept_result: Option<bool>,
     expiry_hash: Option<String>,
+    expiry_base: Option<String>,
+    expiry_parent_base: Option<String>,
     expiry_result: Option<Expiry>,
 }
 
@@ -3626,6 +3628,26 @@ fn given_view_no_hash(world: &mut DomainWorld) {
 #[when("I evaluate its cache freshness")]
 fn evaluate_expiry(world: &mut DomainWorld) {
     world.expiry_result = Some(Expiry::for_hash(world.expiry_hash.as_deref()));
+}
+
+#[given(regex = r#"^a single-file diff with base "(.*)" and parent base "(.*)"$"#)]
+fn given_blobdiff_bases(world: &mut DomainWorld, base: String, parent_base: String) {
+    world.expiry_base = Some(base);
+    world.expiry_parent_base = Some(parent_base);
+}
+
+#[given(regex = r#"^a single-file diff with base "(.*)" and no parent base$"#)]
+fn given_blobdiff_base_only(world: &mut DomainWorld, base: String) {
+    world.expiry_base = Some(base);
+    world.expiry_parent_base = None;
+}
+
+#[when("I evaluate the single-file diff cache freshness")]
+fn evaluate_blobdiff_expiry(world: &mut DomainWorld) {
+    world.expiry_result = Some(Expiry::for_hashes(&[
+        world.expiry_base.as_deref(),
+        world.expiry_parent_base.as_deref(),
+    ]));
 }
 
 #[then("the freshness window is one day")]

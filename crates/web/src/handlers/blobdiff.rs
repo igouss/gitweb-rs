@@ -24,6 +24,7 @@
 use std::sync::Arc;
 
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::expiry::Expiry;
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::settings::Settings;
@@ -90,13 +91,19 @@ impl Handler for BlobdiffHandler {
             file_name,
             hash,
         )?;
+        // gitweb's git_blobdiff dual-oid gate: a one-day window only when both
+        // the base and the parent base are literal object ids.
         Ok(View::html(render_page(
             &self.settings,
             project,
             hash_base,
             hash_parent_base,
             &view,
-        )))
+        ))
+        .with_expiry(Expiry::for_hashes(&[
+            Some(hash_base),
+            Some(hash_parent_base),
+        ])))
     }
 }
 

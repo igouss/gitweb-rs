@@ -975,6 +975,25 @@ async fn when_get_blobdiff(world: &mut WebWorld, file: String, project: String) 
     dispatch_capture(world, uri).await;
 }
 
+/// A blobdiff whose base is the symbolic `HEAD` ref (the parent base stays a
+/// literal oid) — so gitweb's dual-oid Expires gate is NOT met and no freshness
+/// window is stamped.
+#[when(regex = r#"^I GET the blobdiff of "([^"]*)" in "([^"]*)" with a ref base$"#)]
+async fn when_get_blobdiff_ref_base(world: &mut WebWorld, file: String, project: String) {
+    let (_head, parent): (String, String) = head_and_parent(world, &project);
+    let uri: String = format!("/?p={project}&a=blobdiff&hb=HEAD&hpb={parent}&f={file}");
+    dispatch_capture(world, uri).await;
+}
+
+/// The raw single-file diff with the symbolic `HEAD` ref as its base — the same
+/// dual-oid Expires miss as the host page's ref-base case.
+#[when(regex = r#"^I GET the blobdiff_plain of "([^"]*)" in "([^"]*)" with a ref base$"#)]
+async fn when_get_blobdiff_plain_ref_base(world: &mut WebWorld, file: String, project: String) {
+    let (_head, parent): (String, String) = head_and_parent(world, &project);
+    let uri: String = format!("/?p={project}&a=blobdiff_plain&hb=HEAD&hpb={parent}&f={file}");
+    dispatch_capture(world, uri).await;
+}
+
 /// Resolves a blobdiff request's bases as TREE ids rather than commit ids: the
 /// HEAD commit's tree and its first parent's tree. A tree is tree-ish, so the
 /// single-file diff between them is the same — but a tree is not a commit, the

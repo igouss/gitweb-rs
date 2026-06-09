@@ -43,3 +43,30 @@ Feature: By-oid cache freshness (Expires +1d)
     Given a view addressed by no hash
     When I evaluate its cache freshness
     Then there is no freshness window
+
+  # gitweb's git_blobdiff (html and plain alike) gates Expires on a DUAL-oid rule:
+  # "if ($hash_base =~ /^$oid_regex$/ && $hash_parent_base =~ /^$oid_regex$/)".
+  # BOTH the base and the parent base must be literal object ids before a
+  # single-file diff is cacheable; if either side is a ref name or absent, no
+  # window — that content can move under the same URL.
+
+  Scenario: a single-file diff between two full object ids earns a one-day window
+    Given a single-file diff with base "1c002dd4b536e7479fe34593e72e6c6c1819e53b" and parent base "8f94139338f9404f26296befa88755fc2598c289"
+    When I evaluate the single-file diff cache freshness
+    Then the freshness window is one day
+    And the freshness window is 86400 seconds
+
+  Scenario: a single-file diff whose base is a ref earns no window
+    Given a single-file diff with base "HEAD" and parent base "8f94139338f9404f26296befa88755fc2598c289"
+    When I evaluate the single-file diff cache freshness
+    Then there is no freshness window
+
+  Scenario: a single-file diff whose parent base is a ref earns no window
+    Given a single-file diff with base "1c002dd4b536e7479fe34593e72e6c6c1819e53b" and parent base "master"
+    When I evaluate the single-file diff cache freshness
+    Then there is no freshness window
+
+  Scenario: a single-file diff missing its parent base earns no window
+    Given a single-file diff with base "1c002dd4b536e7479fe34593e72e6c6c1819e53b" and no parent base
+    When I evaluate the single-file diff cache freshness
+    Then there is no freshness window
