@@ -41,6 +41,7 @@ use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::object_redirect::{Resolution, resolution, target_action};
 use gitweb_domain::model::patch::{FileContent, FilePatch, FileSelection, Hunk, HunkLine, Patch};
 use gitweb_domain::model::path_info::PathInfo;
+use gitweb_domain::model::pickaxe_pattern::PickaxePattern;
 use gitweb_domain::model::project_info::{CategoryGroup, ProjectInfo, group_by_category};
 use gitweb_domain::model::project_order::ProjectOrder;
 use gitweb_domain::model::projects_list::{ProjectListEntry, parse_project_line};
@@ -172,6 +173,7 @@ struct DomainWorld {
     grep_content: Vec<u8>,
     grep_results: Option<Vec<GrepMatch>>,
     grep_pattern: Option<Result<GrepPattern, DomainError>>,
+    pickaxe_pattern: Option<Result<PickaxePattern, DomainError>>,
     untabified: Option<String>,
     cfg_common_env: Option<String>,
     cfg_common_default: Option<String>,
@@ -2966,6 +2968,70 @@ fn grep_pattern_build_fails(world: &mut DomainWorld) {
 fn grep_pattern_build_succeeds(world: &mut DomainWorld) {
     let result: &Result<GrepPattern, DomainError> =
         world.grep_pattern.as_ref().expect("attempt a build first");
+    assert!(result.is_ok());
+}
+
+// --- the pickaxe matcher (PickaxePattern) ------------------------------------
+
+fn built_pickaxe_pattern(world: &DomainWorld) -> &PickaxePattern {
+    world
+        .pickaxe_pattern
+        .as_ref()
+        .expect("build a pickaxe pattern first")
+        .as_ref()
+        .expect("the pickaxe pattern built")
+}
+
+#[given(regex = r#"^a fixed pickaxe pattern "(.*)"$"#)]
+fn given_fixed_pickaxe_pattern(world: &mut DomainWorld, pattern: String) {
+    world.pickaxe_pattern = Some(PickaxePattern::new(&pattern, false));
+}
+
+#[given(regex = r#"^a regexp pickaxe pattern "(.*)"$"#)]
+fn given_regexp_pickaxe_pattern(world: &mut DomainWorld, pattern: String) {
+    world.pickaxe_pattern = Some(PickaxePattern::new(&pattern, true));
+}
+
+#[given(regex = r#"^the pickaxe pattern build for regexp "(.*)" is attempted$"#)]
+fn attempt_regexp_pickaxe_pattern(world: &mut DomainWorld, pattern: String) {
+    world.pickaxe_pattern = Some(PickaxePattern::new(&pattern, true));
+}
+
+#[then(regex = r#"^the pickaxe pattern counts (\d+) in "(.*)"$"#)]
+fn pickaxe_pattern_counts(world: &mut DomainWorld, count: usize, haystack: String) {
+    let bytes: Vec<u8> = expand_escapes(&haystack).into_bytes();
+    assert_eq!(built_pickaxe_pattern(world).count(&bytes), count);
+}
+
+#[then(regex = r#"^the pickaxe pattern reports a change from "(.*)" to "(.*)"$"#)]
+fn pickaxe_pattern_changed(world: &mut DomainWorld, before: String, after: String) {
+    let before_bytes: Vec<u8> = expand_escapes(&before).into_bytes();
+    let after_bytes: Vec<u8> = expand_escapes(&after).into_bytes();
+    assert!(built_pickaxe_pattern(world).changed(&before_bytes, &after_bytes));
+}
+
+#[then(regex = r#"^the pickaxe pattern reports no change from "(.*)" to "(.*)"$"#)]
+fn pickaxe_pattern_unchanged(world: &mut DomainWorld, before: String, after: String) {
+    let before_bytes: Vec<u8> = expand_escapes(&before).into_bytes();
+    let after_bytes: Vec<u8> = expand_escapes(&after).into_bytes();
+    assert!(!built_pickaxe_pattern(world).changed(&before_bytes, &after_bytes));
+}
+
+#[then("building the pickaxe pattern fails")]
+fn pickaxe_pattern_build_fails(world: &mut DomainWorld) {
+    let result: &Result<PickaxePattern, DomainError> = world
+        .pickaxe_pattern
+        .as_ref()
+        .expect("attempt a build first");
+    assert!(matches!(result, Err(DomainError::Invalid(_))));
+}
+
+#[then("building the pickaxe pattern succeeds")]
+fn pickaxe_pattern_build_succeeds(world: &mut DomainWorld) {
+    let result: &Result<PickaxePattern, DomainError> = world
+        .pickaxe_pattern
+        .as_ref()
+        .expect("attempt a build first");
     assert!(result.is_ok());
 }
 

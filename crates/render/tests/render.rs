@@ -35,6 +35,7 @@ use gitweb_render::history::{HistoryEntryView, HistoryTable, history_table};
 use gitweb_render::log::{LogEntryView, log_entries};
 use gitweb_render::markup::{Markup, html, raw};
 use gitweb_render::opml::{OpmlRowView, OpmlView, opml};
+use gitweb_render::pickaxe::{PickaxeEntryView, PickaxeFileLink, PickaxePage, pickaxe_body};
 use gitweb_render::project_index::{ProjectIndexEntry, ProjectIndexView, project_index};
 use gitweb_render::project_list::{
     ProjectLinks, ProjectList, ProjectRow, SortHeader, project_list,
@@ -73,6 +74,7 @@ struct RenderWorld {
     grep_files: Vec<GrepFileBlock>,
     grep_no_match: bool,
     grep_trimmed: bool,
+    pickaxe_rows: Vec<PickaxeEntryView>,
     history_entries: Vec<HistoryEntryView>,
     history_object_label: Option<String>,
     history_more: Option<MoreLink>,
@@ -911,6 +913,84 @@ fn when_render_grep(world: &mut RenderWorld) {
         trimmed: world.grep_trimmed,
     };
     world.output = Some(grep_body(&page).into_string());
+}
+
+// ---- pickaxe results ---------------------------------------------------------
+
+#[given(regex = r#"^a pickaxe commit "([^"]*)" by "([^"]*)" at commit "([^"]*)" tree "([^"]*)"$"#)]
+fn given_pickaxe_commit(
+    world: &mut RenderWorld,
+    title: String,
+    author: String,
+    commit_href: String,
+    tree_href: String,
+) {
+    world.pickaxe_rows.push(PickaxeEntryView {
+        date_displayed: "2026-01-01".to_owned(),
+        date_tooltip: "1 day ago".to_owned(),
+        author: author.clone(),
+        author_short: author,
+        title: title.clone(),
+        title_short: title,
+        commit_href,
+        tree_href,
+        files: Vec::new(),
+    });
+}
+
+#[given(
+    regex = r#"^a pickaxe commit "([^"]*)" by "([^"]*)" short "([^"]*)" at commit "([^"]*)" tree "([^"]*)"$"#
+)]
+fn given_pickaxe_commit_short_author(
+    world: &mut RenderWorld,
+    title: String,
+    author: String,
+    author_short: String,
+    commit_href: String,
+    tree_href: String,
+) {
+    world.pickaxe_rows.push(PickaxeEntryView {
+        date_displayed: "2026-01-01".to_owned(),
+        date_tooltip: "1 day ago".to_owned(),
+        author,
+        author_short,
+        title: title.clone(),
+        title_short: title,
+        commit_href,
+        tree_href,
+        files: Vec::new(),
+    });
+}
+
+#[given(regex = r#"^the pickaxe commit changed file "([^"]*)" at "([^"]*)"$"#)]
+fn given_pickaxe_changed_file(world: &mut RenderWorld, path: String, blob_href: String) {
+    world
+        .pickaxe_rows
+        .last_mut()
+        .expect("declare a pickaxe commit first")
+        .files
+        .push(PickaxeFileLink { path, blob_href });
+}
+
+#[given(regex = r#"^the pickaxe commit is dated "([^"]*)" tooltip "([^"]*)"$"#)]
+fn given_pickaxe_commit_dated(world: &mut RenderWorld, displayed: String, tooltip: String) {
+    let row: &mut PickaxeEntryView = world
+        .pickaxe_rows
+        .last_mut()
+        .expect("declare a pickaxe commit first");
+    row.date_displayed = displayed;
+    row.date_tooltip = tooltip;
+}
+
+#[when("I render the pickaxe page")]
+fn when_render_pickaxe(world: &mut RenderWorld) {
+    let page: PickaxePage = PickaxePage {
+        crumbs: Vec::new(),
+        nav: Vec::new(),
+        header_title: "pickaxe base".to_owned(),
+        rows: std::mem::take(&mut world.pickaxe_rows),
+    };
+    world.output = Some(pickaxe_body(&page).into_string());
 }
 
 // ---- history table ----------------------------------------------------------

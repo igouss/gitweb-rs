@@ -24,6 +24,8 @@ use gitweb_domain::model::grep_pattern::GrepPattern;
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::patch::{FilePatch, Patch};
+use gitweb_domain::model::pickaxe::{PickaxeChange, PickaxeMatch};
+use gitweb_domain::model::pickaxe_pattern::PickaxePattern;
 use gitweb_domain::model::ref_name::RefName;
 use gitweb_domain::model::reference::{DereferencedRef, Reference};
 use gitweb_domain::model::remote::Remote;
@@ -212,23 +214,30 @@ impl GixRepository {
         Ok(out)
     }
 
-    /// Whether `commit` changes the number of occurrences of `pattern` in some
-    /// file against its first parent — git's pickaxe (`-S`) over the rename-aware
-    /// diff (`-M`). A root commit is diffed against the empty tree, so a pattern
-    /// in its tree counts as added. The match is byte-exact and case-sensitive,
-    /// unlike the message/author/committer searches.
-    fn pickaxe_matches(&self, commit: &Commit, pattern: &str) -> Result<bool, DomainError> {
-        let needle: &[u8] = pattern.as_bytes();
+    /// The files whose occurrence count of `pattern` `commit` changed against its
+    /// first parent — git's pickaxe (`-S`) over the rename-aware diff (`-M`),
+    /// without `--pickaxe-all` so only the paths that touch the pattern appear. A
+    /// root commit is diffed against the empty tree, so a pattern in its tree
+    /// counts as added. The count is case-sensitive in both modes, unlike the
+    /// message/author/committer searches. The result is empty exactly when the
+    /// commit is not a pickaxe hit; a deletion that changed the count is kept (git
+    /// lists it in `--raw`), to be skipped only when the page is laid out.
+    fn pickaxe_changes(
+        &self,
+        commit: &Commit,
+        pattern: &PickaxePattern,
+    ) -> Result<Vec<PickaxeChange>, DomainError> {
         let from: Option<&ObjectId> = commit.parents().first();
         let diff: Diff = self.diff(from, commit.id(), RenameDetection::RenamesOnly)?;
+        let mut changes: Vec<PickaxeChange> = Vec::new();
         for entry in diff.entries() {
             let before: Vec<u8> = self.side_content(entry.from_oid(), entry.from_mode())?;
             let after: Vec<u8> = self.side_content(entry.to_oid(), entry.to_mode())?;
-            if count_occurrences(&before, needle) != count_occurrences(&after, needle) {
-                return Ok(true);
+            if pattern.changed(&before, &after) {
+                changes.push(pickaxe_change(entry));
             }
         }
-        Ok(false)
+        Ok(changes)
     }
 
     /// The leaf changes between two trees under the given gix rewrite options,
@@ -834,8 +843,6 @@ impl Repository for GixRepository {
         // default). Message/author/committer apply the validated SearchPattern —
         // a case-insensitive fixed string or regular expression, gitweb's
         // `--regexp-ignore-case` with `--fixed-strings` / `--extended-regexp`.
-        // Pickaxe is git's `-S`, a case-sensitive change in the pattern's literal
-        // occurrence count, so it reads the raw bytes rather than the matcher.
         let pattern: &SearchPattern = &query.pattern;
         match query.kind {
             SearchKind::Commit => self.walk_matching(base, page, |commit: &Commit| {
@@ -847,10 +854,39 @@ impl Repository for GixRepository {
             SearchKind::Committer => self.walk_matching(base, page, |commit: &Commit| {
                 Ok(pattern.is_match(&ident_string(commit.committer())))
             }),
-            SearchKind::Pickaxe => self.walk_matching(base, page, |commit: &Commit| {
-                self.pickaxe_matches(commit, pattern.raw())
-            }),
         }
+    }
+
+    fn pickaxe(
+        &self,
+        base: &ObjectId,
+        pattern: &PickaxePattern,
+    ) -> Result<Vec<PickaxeMatch>, DomainError> {
+        // gitweb's `git log -S<text> --raw`: walk newest-first from `base` (the
+        // resolved `$hash`, HEAD by default) over the whole reachable history —
+        // `-S` carries no count limit, so pickaxe is unpaged — keeping every
+        // commit whose pickaxe diff against its first parent changed the count in
+        // some file, with exactly those count-changing files.
+        let start_oid: gix::ObjectId = to_gix_oid(base)?;
+        let order: Sorting = Sorting::ByCommitTime(CommitTimeOrder::NewestFirst);
+        let walk: gix::revision::Walk<'_> = self
+            .repo
+            .rev_walk([start_oid])
+            .sorting(order)
+            .all()
+            .map_err(backend)?;
+
+        let mut out: Vec<PickaxeMatch> = Vec::new();
+        for step in walk {
+            let info: gix::revision::walk::Info<'_> = step.map_err(backend)?;
+            let commit: gix::Commit<'_> = self.commit_at(info.id)?;
+            let domain: Commit = read_commit(&commit)?;
+            let changes: Vec<PickaxeChange> = self.pickaxe_changes(&domain, pattern)?;
+            if !changes.is_empty() {
+                out.push(PickaxeMatch::new(domain, changes));
+            }
+        }
+        Ok(out)
     }
 
     fn grep(&self, revision: &ObjectId, pattern: &GrepPattern) -> Result<GrepResults, DomainError> {
@@ -982,22 +1018,14 @@ fn ident_string(signature: &Signature) -> String {
     }
 }
 
-/// The number of non-overlapping occurrences of `needle` in `haystack` — the
-/// count git's pickaxe compares between a change's two sides. An empty needle
-/// never occurs, so it never reports a change.
-fn count_occurrences(haystack: &[u8], needle: &[u8]) -> usize {
-    if needle.is_empty() {
-        return 0;
+/// Maps one count-changing diff entry to a [`PickaxeChange`]: the file's path and
+/// its post-change blob, or a deletion (no blob to link) — gitweb's `to_file` /
+/// `to_id` with `is_deleted` flagged. The path is the to-side, which gix also
+/// fills with the deleted path on a deletion.
+fn pickaxe_change(entry: &DiffEntry) -> PickaxeChange {
+    if entry.status().kind() == ChangeKind::Deleted {
+        PickaxeChange::deleted(entry.to_path().to_owned())
+    } else {
+        PickaxeChange::changed(entry.to_path().to_owned(), entry.to_oid().clone())
     }
-    let mut count: usize = 0;
-    let mut index: usize = 0;
-    while index + needle.len() <= haystack.len() {
-        if &haystack[index..index + needle.len()] == needle {
-            count += 1;
-            index += needle.len();
-        } else {
-            index += 1;
-        }
-    }
-    count
 }

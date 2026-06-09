@@ -28,6 +28,7 @@ pub mod log;
 pub mod markup;
 pub mod message;
 pub mod opml;
+pub mod pickaxe;
 pub mod project_index;
 pub mod project_list;
 pub mod refs;

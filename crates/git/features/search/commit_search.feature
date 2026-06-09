@@ -1,19 +1,18 @@
 Feature: Searching commit history through the gix adapter
-  gitweb's search splits into facets that each list matching commits. Message,
-  author, and committer search are `git log --grep= / --author= / --committer=`
-  with `--regexp-ignore-case --fixed-strings`: a case-insensitive substring over
-  the commit message or the matched identity. Pickaxe search is `git log -M -S`:
-  the commits where the number of occurrences of the pattern changed in some
-  file — a case-sensitive, count-aware match, not mere presence. The pattern is
-  fixed-string by default but a (case-insensitive) POSIX extended regular
-  expression when gitweb's `search_use_regexp` is set, and the walk roots at a
-  base revision the caller supplies — gitweb's `$hash`, the current view, HEAD by
-  default. This is the gix adapter honouring the Repository port's `search`
-  operation over deterministic gix-built fixtures whose ids, identities, and
-  commit times are pinned.
+  gitweb's `git_search_message` lists commits by a case-insensitive match over the
+  message or an identity: message, author, and committer search are
+  `git log --grep= / --author= / --committer=` with
+  `--regexp-ignore-case --fixed-strings`, a case-insensitive substring (or a
+  case-insensitive POSIX extended regular expression when gitweb's
+  `search_use_regexp` is set). The walk roots at a base revision the caller
+  supplies — gitweb's `$hash`, the current view, HEAD by default. This is the gix
+  adapter honouring the Repository port's `search` operation over deterministic
+  gix-built fixtures whose ids, identities, and commit times are pinned.
 
-  (The `grep` facet — `git grep` listing file/line hits at one revision — returns
-  lines, not commits, so it is a separate capability and not part of this port.)
+  (gitweb's other two facets return a different shape and so are their own
+  capabilities, each with its own conformance: `grep` (`git grep`) lists file/line
+  hits at one revision, and `pickaxe` (`git log -S`) lists commits with their
+  changed files.)
 
   The "searchable history" fixture is a five-commit chain c1..c5 off a root,
   HEAD at c5, commit times increasing by 100s so newest-first order is fixed:
@@ -113,31 +112,6 @@ Feature: Searching commit history through the gix adapter
   Scenario: that same identity yields nothing as a committer
     Given a searchable history
     When I search committers for "linus"
-    Then 0 commits are found
-
-  # --- pickaxe: commits where the pattern's occurrence count changed ---
-
-  Scenario: pickaxe lists the commits that added or removed the pattern
-    Given a searchable history
-    When I pickaxe-search for "banana"
-    Then 2 commits are found
-    And found commit 0 is "c4"
-    And found commit 1 is "c2"
-
-  Scenario: pickaxe ignores a commit that touches the file without changing the count
-    Given a searchable history
-    When I pickaxe-search for "alpha"
-    Then 1 commit is found
-    And found commit 0 is "c1"
-
-  Scenario: pickaxe is case-sensitive, unlike message search
-    Given a searchable history
-    When I pickaxe-search for "BANANA"
-    Then 0 commits are found
-
-  Scenario: pickaxe finds nothing for a pattern that never appears
-    Given a searchable history
-    When I pickaxe-search for "zucchini"
     Then 0 commits are found
 
   # --- pagination boundaries over a multi-match result ---

@@ -25,6 +25,7 @@ pub mod object;
 pub mod object_dispatch;
 pub mod opml;
 pub mod patch;
+pub mod pickaxe;
 pub mod project_index;
 pub mod project_list;
 pub mod ref_markers;

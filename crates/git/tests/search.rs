@@ -274,18 +274,6 @@ fn search_committers(world: &mut SearchWorld, pattern: String) {
     );
 }
 
-#[when(regex = r#"^I pickaxe-search for "([^"]*)"$"#)]
-fn search_pickaxe(world: &mut SearchWorld, pattern: String) {
-    run_search(
-        world,
-        SearchKind::Pickaxe,
-        &pattern,
-        false,
-        None,
-        Page::new(0, 100),
-    );
-}
-
 #[when(regex = r#"^I search messages for "([^"]*)" on page (\d+) of size (\d+)$"#)]
 fn search_messages_paged(world: &mut SearchWorld, pattern: String, page: usize, size: usize) {
     run_search(

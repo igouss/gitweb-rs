@@ -822,6 +822,11 @@ fn given_search_served_grep_disabled(world: &mut WebWorld) {
     register_search(world, grep_pickaxe_off_settings());
 }
 
+#[given("the search action is served with pickaxe disabled")]
+fn given_search_served_pickaxe_disabled(world: &mut WebWorld) {
+    register_search(world, pickaxe_off_settings());
+}
+
 /// Registers the search handler over the given settings.
 fn register_search(world: &mut WebWorld, settings: Settings) {
     ensure_root(world);
@@ -837,6 +842,24 @@ fn search_off_settings() -> Settings {
     let mut features: BTreeMap<FeatureName, FeatureLayer> = BTreeMap::new();
     features.insert(
         FeatureName::Search,
+        FeatureLayer {
+            default: Some(vec!["0".to_owned()]),
+            overridable: None,
+        },
+    );
+    let layer: SettingsLayer = SettingsLayer {
+        features,
+        ..SettingsLayer::default()
+    };
+    Settings::resolve(&[layer])
+}
+
+/// Settings whose `pickaxe` feature is turned off, search left on — so a pickaxe
+/// request is gitweb's 403 "Pickaxe search is disabled" from the second gate.
+fn pickaxe_off_settings() -> Settings {
+    let mut features: BTreeMap<FeatureName, FeatureLayer> = BTreeMap::new();
+    features.insert(
+        FeatureName::Pickaxe,
         FeatureLayer {
             default: Some(vec!["0".to_owned()]),
             overridable: None,

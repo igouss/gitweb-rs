@@ -36,6 +36,8 @@ pub mod object_kind;
 pub mod object_redirect;
 pub mod patch;
 pub mod path_info;
+pub mod pickaxe;
+pub mod pickaxe_pattern;
 pub mod project;
 pub mod project_info;
 pub mod project_order;

@@ -11,11 +11,13 @@
 //! navigation replays the search parameters across pages. The clock lives here,
 //! at the boundary, so the date cells are computed against a real `now`.
 //!
-//! The `grep` search type is routed — as in gitweb's `git_search` — to its own
-//! `git_search_files` path ([`SearchHandler::handle_grep`]), a per-file table
-//! rather than a commit list. The `pickaxe` type (`git_search_changes`,
-//! gitweb_in_rust-mjr.4) is not served here yet, so it remains a 400 the way
-//! gitweb's `else` branch is "Unknown search type".
+//! The `grep` and `pickaxe` search types are each routed — as in gitweb's
+//! `git_search` — to their own path before the message facets, because each
+//! returns a different result shape: `grep` (`git_search_files`,
+//! [`SearchHandler::handle_grep`]) is a per-file line table, and `pickaxe`
+//! (`git_search_changes`, [`SearchHandler::handle_pickaxe`]) is a commit list with
+//! each commit's count-changing files. Any other search type is gitweb's 400
+//! "Unknown search type" else branch.
 
 use std::sync::Arc;
 
@@ -27,10 +29,12 @@ use gitweb_domain::model::settings::{FeatureName, Settings};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::{Page, Repository, SearchKind};
 use gitweb_domain::usecase::grep::{GrepFileView, GrepLine, GrepRow, GrepView, assemble_grep};
+use gitweb_domain::usecase::pickaxe::{PickaxeFile, PickaxeRow, PickaxeView, assemble_pickaxe};
 use gitweb_domain::usecase::search::{SearchCriteria, SearchRow, SearchView, assemble_search};
 use gitweb_render::chrome::{Crumb, DocumentHead, NavItem, document};
 use gitweb_render::grep::{GrepFileBlock, GrepLineView, GrepPage, GrepRowView, grep_body};
 use gitweb_render::markup::Markup;
+use gitweb_render::pickaxe::{PickaxeEntryView, PickaxeFileLink, PickaxePage, pickaxe_body};
 use gitweb_render::search::{SearchEntryView, SearchPage, SearchPaging, SnippetView, search_body};
 
 use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
@@ -47,6 +51,9 @@ const DEFAULT_SEARCHTYPE: &str = "commit";
 
 /// The grep facet's search type (`$searchtype eq 'grep'`).
 const GREP_SEARCHTYPE: &str = "grep";
+
+/// The pickaxe facet's search type (`$searchtype eq 'pickaxe'`).
+const PICKAXE_SEARCHTYPE: &str = "pickaxe";
 
 /// Serves the commit/author/committer search page over a wired project store and
 /// the resolved settings (which carry the `search` feature gate).
@@ -91,6 +98,38 @@ impl SearchHandler {
             &view,
         )))
     }
+
+    /// Serves the pickaxe facet (gitweb's `git_search_changes`): gate search then
+    /// pickaxe, run `git log -S` from the base revision, and render the commit
+    /// table with each match's count-changing files. Each row roots its own blob
+    /// and tree links at its commit id (gitweb's `hash_base => $co{'id'}`), so the
+    /// base id is needed only for the page navigation.
+    fn handle_pickaxe(
+        &self,
+        project: &str,
+        repository: &dyn Repository,
+        rev: Option<&str>,
+        text: &str,
+        use_regexp: bool,
+    ) -> Result<View, DomainError> {
+        let search_enabled: bool = self.settings.feature(FeatureName::Search).enabled();
+        let pickaxe_enabled: bool = self.settings.feature(FeatureName::Pickaxe).enabled();
+        let view: PickaxeView = assemble_pickaxe(
+            repository,
+            search_enabled,
+            pickaxe_enabled,
+            rev,
+            text,
+            use_regexp,
+            now_epoch(),
+        )?;
+        Ok(View::html(render_pickaxe_page(
+            &self.settings,
+            project,
+            rev,
+            &view,
+        )))
+    }
 }
 
 impl Handler for SearchHandler {
@@ -108,11 +147,15 @@ impl Handler for SearchHandler {
         let use_regexp: bool = request.search_use_regexp;
         let rev: Option<&str> = request.hash.as_ref().map(SafeRef::as_str);
 
-        // gitweb's git_search dispatches the `grep` facet to git_search_files — a
-        // different result shape (a per-file table, not a commit list) — so it has
-        // its own assembly and render rather than a SearchKind.
+        // gitweb's git_search dispatches `grep` and `pickaxe` to their own subs —
+        // each a different result shape (a per-file line table; a commit list with
+        // changed files), not a commit-message SearchKind — so each routes before
+        // the message facets.
         if searchtype == GREP_SEARCHTYPE {
             return self.handle_grep(project, repository.as_ref(), rev, text, use_regexp);
+        }
+        if searchtype == PICKAXE_SEARCHTYPE {
+            return self.handle_pickaxe(project, repository.as_ref(), rev, text, use_regexp);
         }
 
         let kind: SearchKind = search_kind(searchtype)?;
@@ -385,5 +428,74 @@ fn grep_line(line: &GrepLine) -> GrepLineView {
             trail: snippet.trail().to_owned(),
         },
         GrepLine::Plain(whole) => GrepLineView::Plain(whole.clone()),
+    }
+}
+
+/// Maps the pickaxe use-case view to the render view-model and wraps the body in
+/// the document chrome. An empty result is gitweb's empty pickaxe table — no note.
+fn render_pickaxe_page(
+    settings: &Settings,
+    project: &str,
+    rev: Option<&str>,
+    view: &PickaxeView,
+) -> Markup {
+    let page: PickaxePage = PickaxePage {
+        crumbs: crumbs(settings.site_name(), project),
+        nav: nav(project, rev),
+        header_title: view.title().to_owned(),
+        rows: view
+            .rows()
+            .iter()
+            .map(|row: &PickaxeRow| pickaxe_entry(project, row))
+            .collect(),
+    };
+    let head: DocumentHead = DocumentHead {
+        title: format!("{project} / search"),
+        stylesheet_href: STYLESHEET_PATH.to_owned(),
+        favicon_href: Some(FAVICON_PATH.to_owned()),
+        feeds: Vec::new(),
+    };
+    document(&head, pickaxe_body(&page))
+}
+
+/// Maps one use-case match to a render row: the commit and tree links rooted at
+/// the commit (gitweb's `hash=>$co{'tree'}, hash_base=>$co{'id'}` for the tree),
+/// and each changed file linking to its blob at that commit.
+fn pickaxe_entry(project: &str, row: &PickaxeRow) -> PickaxeEntryView {
+    let id: &str = row.id();
+    PickaxeEntryView {
+        date_displayed: row.date().displayed().to_owned(),
+        date_tooltip: row.date().tooltip().to_owned(),
+        author: row.author().to_owned(),
+        author_short: row.author_short().to_owned(),
+        title: row.title().to_owned(),
+        title_short: row.title_short().to_owned(),
+        commit_href: href(&[("p", project), ("a", "commit"), ("h", id)]),
+        tree_href: href(&[
+            ("p", project),
+            ("a", "tree"),
+            ("h", row.tree_id()),
+            ("hb", id),
+        ]),
+        files: row
+            .files()
+            .iter()
+            .map(|file: &PickaxeFile| pickaxe_file(project, id, file))
+            .collect(),
+    }
+}
+
+/// Maps one changed file to its render link: the blob at the commit (gitweb's
+/// `href(action=>"blob", hash_base=>$co{'id'}, hash=>$set{'to_id'}, file_name=>…)`).
+fn pickaxe_file(project: &str, commit_id: &str, file: &PickaxeFile) -> PickaxeFileLink {
+    PickaxeFileLink {
+        path: file.path().to_owned(),
+        blob_href: href(&[
+            ("p", project),
+            ("a", "blob"),
+            ("hb", commit_id),
+            ("h", file.blob()),
+            ("f", file.path()),
+        ]),
     }
 }

@@ -107,6 +107,12 @@ harness = false
 name = "grep"
 harness = false
 
+# Conformance for the `pickaxe` operation: git log -S — the commits that change
+# the occurrence count of a string in some file, with their changed files.
+[[test]]
+name = "pickaxe"
+harness = false
+
 # Conformance for the `archive` operation: snapshot bytes per format (tgz/tbz2/
 # txz/zip), reproducibility, and entry representation (exec/symlink/gitlink).
 [[test]]

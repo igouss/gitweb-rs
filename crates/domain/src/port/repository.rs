@@ -20,6 +20,8 @@ use crate::model::grep_pattern::GrepPattern;
 use crate::model::object_id::ObjectId;
 use crate::model::object_kind::ObjectKind;
 use crate::model::patch::Patch;
+use crate::model::pickaxe::PickaxeMatch;
+use crate::model::pickaxe_pattern::PickaxePattern;
 use crate::model::reference::{DereferencedRef, Reference};
 use crate::model::remote::Remote;
 use crate::model::search_pattern::SearchPattern;
@@ -60,13 +62,16 @@ impl Page {
     }
 }
 
-/// How a commit search interprets its pattern, matching gitweb's `searchtype`.
+/// How a commit-message search interprets its pattern, matching gitweb's
+/// `searchtype`.
 ///
-/// These are the facets that *list commits*: gitweb's `commit` / `author` /
-/// `committer` (`git log --grep= / --author= / --committer=`) and `pickaxe`
-/// (`git log -S`). gitweb's fifth facet, `grep`, is `git grep` listing
-/// file/line hits at a single revision — it returns lines, not commits, so it is
-/// a separate capability with its own port shape, not a variant here.
+/// These are the facets `git_search_message` serves: gitweb's `commit` /
+/// `author` / `committer` (`git log --grep= / --author= / --committer=`), all of
+/// which list commits by a case-insensitive match over the message or an
+/// identity. gitweb's two other facets each return a *different* shape and so are
+/// their own capabilities, not variants here: `grep` (`git grep`) lists file/line
+/// hits at one revision ([`Repository::grep`]), and `pickaxe` (`git log -S`) lists
+/// commits *with their changed files* ([`Repository::pickaxe`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchKind {
     /// Match the commit message (`commit`).
@@ -75,9 +80,6 @@ pub enum SearchKind {
     Author,
     /// Match the committer identity (`committer`).
     Committer,
-    /// Match commits that change the number of occurrences of the pattern in
-    /// some file (`pickaxe`).
-    Pickaxe,
 }
 
 /// How aggressively a two-tree diff detects moved and copied content, matching
@@ -122,11 +124,10 @@ impl RenameDetection {
     }
 }
 
-/// A commit search request: which facet to search and the pattern to match it
-/// with. The pattern is the already-validated [`SearchPattern`], so the
+/// A commit-message search request: which facet to search and the pattern to
+/// match it with. The pattern is the already-validated [`SearchPattern`], so the
 /// fixed-vs-regexp / case rules (gitweb's `search_use_regexp`) live in one place
-/// and the adapter just applies it; pickaxe, which feeds git its raw bytes, reads
-/// [`SearchPattern::raw`].
+/// and the adapter just applies it.
 #[derive(Debug, Clone)]
 pub struct SearchQuery {
     /// Which facet of history to search.
@@ -271,16 +272,33 @@ pub trait Repository {
     ) -> Result<Vec<u8>, DomainError>;
 
     /// Commits matching `query`, reachable from `base` and windowed by `page`
-    /// (message / author / committer / pickaxe search). gitweb roots its search
-    /// at the current view's revision (`$hash`); resolving that — defaulting to
-    /// `HEAD` when no revision is selected — is the caller's policy, so the base
-    /// arrives already resolved rather than being baked into the adapter.
+    /// (message / author / committer search). gitweb roots its search at the
+    /// current view's revision (`$hash`); resolving that — defaulting to `HEAD`
+    /// when no revision is selected — is the caller's policy, so the base arrives
+    /// already resolved rather than being baked into the adapter.
     fn search(
         &self,
         base: &ObjectId,
         query: &SearchQuery,
         page: Page,
     ) -> Result<Vec<Commit>, DomainError>;
+
+    /// The pickaxe matches reachable from `base`: every commit that changes the
+    /// number of occurrences of `pattern` in some file, each paired with the
+    /// files whose count it changed — gitweb's `git_search_changes`
+    /// (`git log -S<text> --raw`, plus `--pickaxe-regex` in regexp mode). The
+    /// commits come out newest-first, the way `git log` walks; unlike the message
+    /// search, gitweb does not page pickaxe (`git log -S` has no count limit), so
+    /// every match reachable from `base` is returned. Without `--pickaxe-all` git
+    /// lists, per commit, only the paths that *touch* the pattern, so a match's
+    /// [`changes`](crate::model::pickaxe::PickaxeMatch::changes) are exactly the
+    /// count-changing files — including deletions, which the caller skips when it
+    /// lays out the page (gitweb's `next if is_deleted`).
+    fn pickaxe(
+        &self,
+        base: &ObjectId,
+        pattern: &PickaxePattern,
+    ) -> Result<Vec<PickaxeMatch>, DomainError>;
 
     /// Content matches for `pattern` over the regular files of `revision`'s tree,
     /// mirroring gitweb's `git_search_files` (`git grep -n -z <pattern> <tree>`):

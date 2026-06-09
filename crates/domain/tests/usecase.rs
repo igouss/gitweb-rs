@@ -34,6 +34,8 @@ use gitweb_domain::model::message_body::LogLine;
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::patch::{FileContent, FilePatch, Patch};
+use gitweb_domain::model::pickaxe::{PickaxeChange, PickaxeMatch};
+use gitweb_domain::model::pickaxe_pattern::PickaxePattern;
 use gitweb_domain::model::project::Project;
 use gitweb_domain::model::project_info::ProjectInfo;
 use gitweb_domain::model::ref_marker::{MarkerView, RefMarker};
@@ -66,6 +68,7 @@ use gitweb_domain::usecase::object::{ObjectRedirect, assemble_object_redirect};
 use gitweb_domain::usecase::object_dispatch::resolve_dispatch_action;
 use gitweb_domain::usecase::opml::{Opml, OpmlProject, assemble_opml};
 use gitweb_domain::usecase::patch::{assemble_patch, assemble_patches};
+use gitweb_domain::usecase::pickaxe::{PickaxeRow, PickaxeView, assemble_pickaxe};
 use gitweb_domain::usecase::project_index::{
     ProjectIndex, ProjectIndexRow, assemble_project_index,
 };
@@ -179,6 +182,8 @@ struct UsecaseWorld {
     grep_matches: Vec<GrepMatch>,
     grep_trimmed: bool,
     grep_result: Option<Result<GrepView, DomainError>>,
+    pickaxe_hits: Vec<FakePickaxeMatch>,
+    pickaxe_result: Option<Result<PickaxeView, DomainError>>,
     head_commit: Option<ObjectId>,
     shortlog_result: Option<Result<ShortlogView, DomainError>>,
     marker_index: Option<Result<RefMarkerIndex, DomainError>>,
@@ -360,6 +365,24 @@ struct FakePathEntry {
     kind: ObjectKind,
 }
 
+/// A pickaxe hit the fake returns: the matching commit and the files whose
+/// occurrence count it changed, declared by a scenario. The matching itself is the
+/// adapter's conformance, so the fake just replays this.
+#[derive(Debug, Clone)]
+struct FakePickaxeMatch {
+    commit: FakeCommit,
+    changes: Vec<FakePickaxeChange>,
+}
+
+/// One count-changing file in a [`FakePickaxeMatch`]: its path and the seed of its
+/// post-change blob id, or `None` for a deletion (gitweb's `to_id` is null, the row
+/// the page skips).
+#[derive(Debug, Clone)]
+struct FakePickaxeChange {
+    path: String,
+    blob_seed: Option<String>,
+}
+
 /// A deterministic 40-hex object id derived from `seed`, so distinct branch
 /// names get distinct tips while a test can still alias two branches onto one
 /// commit by deriving both from the same seed.
@@ -412,6 +435,10 @@ struct FakeRepository {
     /// fake just hands back what the scenario configured.
     grep_matches: Vec<GrepMatch>,
     grep_trimmed: bool,
+    /// The matches `pickaxe` returns, each a commit with its count-changing files
+    /// (deletions included, as git's `--raw` lists them) — the adapter's
+    /// conformance, so the fake just hands back what the scenario configured.
+    pickaxe_hits: Vec<FakePickaxeMatch>,
     remotes: Vec<Remote>,
     remote_branches: Vec<FakeRemoteBranch>,
     tree_commit_title: Option<String>,
@@ -1132,6 +1159,33 @@ impl Repository for FakeRepository {
             self.grep_matches.clone(),
             self.grep_trimmed,
         ))
+    }
+
+    fn pickaxe(
+        &self,
+        _base: &ObjectId,
+        _pattern: &PickaxePattern,
+    ) -> Result<Vec<PickaxeMatch>, DomainError> {
+        // The counting, rooting, and per-commit file set are the adapter's
+        // conformance; this fake returns the scenario's configured matches so the
+        // use case's own logic (gating, base resolution, deletion skip, row
+        // assembly) is exercised.
+        let matches: Vec<PickaxeMatch> = self
+            .pickaxe_hits
+            .iter()
+            .map(|hit: &FakePickaxeMatch| {
+                let changes: Vec<PickaxeChange> = hit
+                    .changes
+                    .iter()
+                    .map(|change: &FakePickaxeChange| match &change.blob_seed {
+                        Some(seed) => PickaxeChange::changed(change.path.clone(), fake_oid(seed)),
+                        None => PickaxeChange::deleted(change.path.clone()),
+                    })
+                    .collect();
+                PickaxeMatch::new(commit_from_fake(&hit.commit), changes)
+            })
+            .collect();
+        Ok(matches)
     }
 }
 
@@ -2266,6 +2320,207 @@ fn assert_plain(row: &GrepRow, line: usize, text: &str) {
     assert_eq!(whole, text);
 }
 
+// --- pickaxe: accessors ------------------------------------------------------
+
+fn pickaxe_view(world: &UsecaseWorld) -> &PickaxeView {
+    world
+        .pickaxe_result
+        .as_ref()
+        .expect("assemble a pickaxe first")
+        .as_ref()
+        .expect("the pickaxe succeeded")
+}
+
+fn pickaxe_error(world: &UsecaseWorld) -> &DomainError {
+    world
+        .pickaxe_result
+        .as_ref()
+        .expect("assemble a pickaxe first")
+        .as_ref()
+        .expect_err("the pickaxe failed")
+}
+
+/// The assembled row for the named commit (its id is `fake_oid(name)`).
+fn pickaxe_row<'a>(world: &'a UsecaseWorld, name: &str) -> &'a PickaxeRow {
+    let target: String = fake_oid(name).as_str().to_owned();
+    pickaxe_view(world)
+        .rows()
+        .iter()
+        .find(|row: &&PickaxeRow| row.id() == target)
+        .unwrap_or_else(|| panic!("no assembled pickaxe row for {name}"))
+}
+
+/// The declared hit for the named commit, so a following step can attach its
+/// count-changing files.
+fn pickaxe_hit_mut<'a>(world: &'a mut UsecaseWorld, name: &str) -> &'a mut FakePickaxeMatch {
+    let target: ObjectId = fake_oid(name);
+    world
+        .pickaxe_hits
+        .iter_mut()
+        .find(|hit: &&mut FakePickaxeMatch| hit.commit.id == target)
+        .unwrap_or_else(|| panic!("declare pickaxe hit {name} first"))
+}
+
+fn run_assemble_pickaxe(
+    world: &mut UsecaseWorld,
+    search_enabled: bool,
+    pickaxe_enabled: bool,
+    base: Option<&str>,
+    text: &str,
+    use_regexp: bool,
+) {
+    let repo: FakeRepository = fake_repo(world);
+    world.pickaxe_result = Some(assemble_pickaxe(
+        &repo,
+        search_enabled,
+        pickaxe_enabled,
+        base,
+        text,
+        use_regexp,
+        world.now,
+    ));
+}
+
+// --- pickaxe: Givens ---------------------------------------------------------
+
+#[given(regex = r#"^a pickaxe hit "([^"]*)" at epoch (\d+) by "([^"]*)" titled "(.*)"$"#)]
+fn repo_has_pickaxe_hit(
+    world: &mut UsecaseWorld,
+    name: String,
+    epoch: i64,
+    author: String,
+    title: String,
+) {
+    world.pickaxe_hits.push(FakePickaxeMatch {
+        commit: FakeCommit {
+            id: fake_oid(&name),
+            epoch,
+            author,
+            title,
+            touches: Vec::new(),
+            present: Vec::new(),
+        },
+        changes: Vec::new(),
+    });
+}
+
+#[given(regex = r#"^the pickaxe hit "([^"]*)" changed file "([^"]*)" at blob "([^"]*)"$"#)]
+fn pickaxe_hit_changed_file(world: &mut UsecaseWorld, name: String, path: String, blob: String) {
+    pickaxe_hit_mut(world, &name)
+        .changes
+        .push(FakePickaxeChange {
+            path,
+            blob_seed: Some(blob),
+        });
+}
+
+#[given(regex = r#"^the pickaxe hit "([^"]*)" deleted file "([^"]*)"$"#)]
+fn pickaxe_hit_deleted_file(world: &mut UsecaseWorld, name: String, path: String) {
+    pickaxe_hit_mut(world, &name)
+        .changes
+        .push(FakePickaxeChange {
+            path,
+            blob_seed: None,
+        });
+}
+
+// --- pickaxe: Whens ----------------------------------------------------------
+
+#[when(regex = r#"^I assemble a pickaxe for "([^"]*)"$"#)]
+fn assemble_pickaxe_when(world: &mut UsecaseWorld, text: String) {
+    run_assemble_pickaxe(world, true, true, None, &text, false);
+}
+
+#[when(regex = r#"^I assemble a search-disabled pickaxe for "([^"]*)"$"#)]
+fn assemble_search_disabled_pickaxe(world: &mut UsecaseWorld, text: String) {
+    run_assemble_pickaxe(world, false, true, None, &text, false);
+}
+
+#[when(regex = r#"^I assemble a pickaxe-disabled pickaxe for "([^"]*)"$"#)]
+fn assemble_pickaxe_disabled_pickaxe(world: &mut UsecaseWorld, text: String) {
+    run_assemble_pickaxe(world, true, false, None, &text, false);
+}
+
+#[when(regex = r#"^I assemble a regexp pickaxe for "([^"]*)"$"#)]
+fn assemble_regexp_pickaxe(world: &mut UsecaseWorld, text: String) {
+    run_assemble_pickaxe(world, true, true, None, &text, true);
+}
+
+#[when(regex = r#"^I assemble a pickaxe for "([^"]*)" rooted at "([^"]*)"$"#)]
+fn assemble_pickaxe_rooted(world: &mut UsecaseWorld, text: String, base: String) {
+    run_assemble_pickaxe(world, true, true, Some(&base), &text, false);
+}
+
+// --- pickaxe: Thens ----------------------------------------------------------
+
+#[then(regex = r#"^the pickaxe is forbidden as "([^"]*)"$"#)]
+fn pickaxe_is_forbidden(world: &mut UsecaseWorld, message: String) {
+    assert!(matches!(pickaxe_error(world), DomainError::Forbidden(m) if m == &message));
+}
+
+#[then("the pickaxe is invalid")]
+fn pickaxe_is_invalid(world: &mut UsecaseWorld) {
+    assert!(matches!(pickaxe_error(world), DomainError::Invalid(_)));
+}
+
+#[then("the pickaxe reports an unknown commit object")]
+fn pickaxe_unknown_commit(world: &mut UsecaseWorld) {
+    assert!(
+        matches!(pickaxe_error(world), DomainError::NotFound(m) if m == "Unknown commit object")
+    );
+}
+
+#[then(regex = r#"^the pickaxe header title is "([^"]*)"$"#)]
+fn pickaxe_header_title(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(pickaxe_view(world).title(), expected);
+}
+
+#[then(regex = r#"^the pickaxe roots at "([^"]*)"$"#)]
+fn pickaxe_roots_at(world: &mut UsecaseWorld, name: String) {
+    assert_eq!(pickaxe_view(world).base_id(), fake_oid(&name).as_str());
+}
+
+#[then(regex = r"^the pickaxe lists (\d+) commits?$")]
+fn pickaxe_lists_commits(world: &mut UsecaseWorld, count: usize) {
+    assert_eq!(pickaxe_view(world).rows().len(), count);
+}
+
+#[then(regex = r#"^pickaxe commit (\d+) is "([^"]*)"$"#)]
+fn pickaxe_commit_is(world: &mut UsecaseWorld, index: usize, name: String) {
+    assert_eq!(
+        pickaxe_view(world).rows()[index].id(),
+        fake_oid(&name).as_str()
+    );
+}
+
+#[then(regex = r#"^pickaxe commit "([^"]*)" lists (\d+) files?$"#)]
+fn pickaxe_commit_lists_files(world: &mut UsecaseWorld, name: String, count: usize) {
+    assert_eq!(pickaxe_row(world, &name).files().len(), count);
+}
+
+#[then(regex = r#"^pickaxe commit "([^"]*)" file (\d+) is "([^"]*)" linking blob "([^"]*)"$"#)]
+fn pickaxe_commit_file_is(
+    world: &mut UsecaseWorld,
+    name: String,
+    index: usize,
+    path: String,
+    blob: String,
+) {
+    let file = &pickaxe_row(world, &name).files()[index];
+    assert_eq!(file.path(), path);
+    assert_eq!(file.blob(), fake_oid(&blob).as_str());
+}
+
+#[then(regex = r#"^pickaxe commit "([^"]*)" author shortens to "(.*)"$"#)]
+fn pickaxe_commit_author_short(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(pickaxe_row(world, &name).author_short(), expected);
+}
+
+#[then(regex = r#"^pickaxe commit "([^"]*)" full author is "([^"]*)"$"#)]
+fn pickaxe_commit_full_author(world: &mut UsecaseWorld, name: String, expected: String) {
+    assert_eq!(pickaxe_row(world, &name).author(), expected);
+}
+
 // --- ref markers: accessors --------------------------------------------------
 
 /// Renders a marker list as `kind[*]:name` items (the `*` flags an indirect,
@@ -2404,6 +2659,7 @@ fn fake_repo(world: &UsecaseWorld) -> FakeRepository {
         search_hits: world.search_hits.clone(),
         grep_matches: world.grep_matches.clone(),
         grep_trimmed: world.grep_trimmed,
+        pickaxe_hits: world.pickaxe_hits.clone(),
         remotes: world.remotes.clone(),
         remote_branches: world.remote_branches.clone(),
         tree_commit_title: world.tree_commit_title.clone(),
