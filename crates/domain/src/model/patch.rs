@@ -178,10 +178,11 @@ pub enum FileContent {
     /// The blob is binary; git prints a one-line `Binary files … differ` notice
     /// instead of hunks. This is git's `--no-binary` rendering and what bare `git
     /// diff-tree -p` (the plain endpoints) emits. `git format-patch`'s *default*
-    /// embeds the blob as a base85 `GIT binary patch` of git's own zlib output;
-    /// the gix-only, no-unsafe port deliberately does not reproduce that body and
-    /// emits the notice everywhere — a documented divergence on the `patch` /
-    /// `patches` endpoints (see [`crate::usecase::patch`]).
+    /// embeds the blob as a base85 `GIT binary patch` (a deflated literal or a
+    /// deflated git binary delta, whichever is shorter); the port emits the notice
+    /// everywhere for now — a *tracked* divergence on the `patch` / `patches`
+    /// endpoints, removable once git's binary delta encoder is ported
+    /// (gitweb_in_rust-ygu / -af6). See [`crate::usecase::patch`].
     Binary,
     /// The blob is text; these are its hunks.
     Text(Vec<Hunk>),
