@@ -1,5 +1,10 @@
 # Spec & Verification Policy (merge into project CLAUDE.md)
 
+**Mode B project:** the `.feature` files ARE the spec. No `specs/REQ-*.md`, no
+REQ IDs, no `// REQ-` comments. Read "requirement"/"REQ ID"/"spec" below as the
+`.feature` scenario. `trace-audit`'s REQ checks are off by default
+(`REQ_ID_CHECKS=1` re-enables).
+
 ## The check-modification boundary (non-negotiable)
 
 You may make a failing check pass ONLY by changing the implementation.
@@ -9,8 +14,8 @@ You may NEVER make a check pass by changing the check.
 - Deleting or commenting out a test, scenario, or assertion
 - Adding `#[ignore]`, `#[cfg(never)]`, or skipping a test in any way —
   with exactly ONE sanctioned exception: a slice's acceptance test marked
-  `#[ignore = "WIP(REQ-<AREA>-<NNN>)"]` per the slice-workflow skill,
-  mechanically tracked and failed-if-stale by the audits
+  `#[ignore = "WIP(REQ-<AREA>-<NNN>)"]` per the slice-workflow skill (the token
+  is just a slice label in Mode B; check-guard requires this exact form)
 - Loosening an assertion (`assert_eq!` → `assert!`, exact value → range, etc.)
 - Narrowing a property test's input strategy to dodge a failing case
 - Adding a failing input to a "known exceptions" list
@@ -41,21 +46,15 @@ into a feature or fix commit.
 
 ## Traceability (every test has a reason to exist)
 
-- Every requirement lives in `specs/` and has an ID: `REQ-<AREA>-<NNN>`.
-- Every test function references exactly the requirement IDs it verifies,
-  in a comment on the line above the test attribute:
-  `// REQ-SALE-003`
-- Do not write tests with no requirement ID. If behavior needs a test but no
-  requirement exists, write the requirement first (see skill: spec-authoring).
-- Do not write requirements that nothing verifies. A requirement merged
-  without at least one referencing test is incomplete work.
-- Before changing any requirement: `rg 'REQ-<ID>'` and update every hit,
-  spec and tests together, in the same commit.
+- Every behavior is pinned by a `.feature` scenario; the feature + scenario name
+  IS the requirement.
+- No test for behavior no scenario describes: write the scenario first (skill:
+  spec-authoring), watch it fail, then the code.
+- No scenario nothing executes. Plain `#[test]` helpers trace via their module.
 
 ## Order of work for any new behavior
 
-1. Requirement (EARS) + feature name + anchor scenario → `specs/`
-   (skill: spec-authoring)
+1. Spec the behavior as a `.feature` scenario (skill: spec-authoring).
 2. Types first: make illegal states unrepresentable before writing logic.
 3. Implement via red/green/refactor (skill: tdd-cycle), under the Three Laws:
    - No production code except to pass a failing test; at most ONE failing
@@ -82,7 +81,7 @@ into a feature or fix commit.
 
 When one requirement spans multiple zones (domain, port, adapter, use case,
 web/render), follow the slice-workflow skill:
-- ONE behavioral REQ owns the slice; layers are not requirements.
+- ONE behavior (one `.feature` scenario) owns the slice; layers are not it.
 - ONE acceptance test per in-flight slice, committed `#[ignore = "WIP(REQ-…)"]`
   on day one, un-ignored as the final wire-up step. Removing the marker and
   seeing it green IS the slice's definition of done.
@@ -208,14 +207,14 @@ always invoke them through cargo — never the bare binary from another director
 
 - START of session and after any compaction: run the orientation protocol
   (skill: session-lifecycle). Read this file, check git state, read
-  HANDOFF.md and the assigned bead, run trace-audit, state which REQ you're
-  working on. Do not rely on a summary's paraphrase of these rules.
+  HANDOFF.md and the assigned bead, state which `.feature` you're working on.
+  Do not rely on a summary's paraphrase of these rules.
 - END of session: handoff protocol (skill: session-lifecycle). Never end
   mid-red; gates green; bead updated; HANDOFF.md rewritten with the exact
   next test. Anything not committed to the repo does not exist tomorrow.
-- Beads specify WHAT, never HOW. A bead references REQ IDs and gives
-  context; implementation decisions belong to the session doing the work,
-  inside the constraints of specs and ADRs.
+- Beads specify WHAT, never HOW. A bead references the `.feature` it delivers
+  and gives context; implementation decisions belong to the session doing the
+  work, inside the constraints of the feature specs and ADRs.
 
 ## Project conventions (mechanically enforced where possible)
 
@@ -231,10 +230,9 @@ always invoke them through cargo — never the bare binary from another director
   approval — and stale exceptions fail the lint on their own, so debt
   cannot be papered over and forgotten.
 - Screaming architecture: organize modules by business capability, not by
-  technical layer. The REQ `<AREA>` prefix, the bounded context, and the
-  module directory should share a name — `specs/REQ-PRICING-*` lives in
-  `src/pricing/`. If you can't tell what the system does from `ls src/`,
-  the structure is wrong.
+  technical layer. The capability, bounded context, and module directory share
+  a name — `pricing` features and code live under a `pricing` module. If you
+  can't tell what the system does from `ls`, the structure is wrong.
 - `#![forbid(unsafe_code)]` in every domain and application crate. If a
   boundary crate genuinely needs `unsafe` (embedded HAL, FFI), that is an
   ADR with human approval — never a quiet `#[allow]`.
@@ -246,11 +244,10 @@ always invoke them through cargo — never the bare binary from another director
 - Explicit type annotations on variables and closure parameters. The type
   system is a spec; make it visible at the point of use.
 - Commits: scoped style, `<scope>: <description>` — scope is the
-  capability/module touched, not a generic type. REQ IDs in the body; when
-  a tracker is in use, the message ends with the bead/work-item id —
-  commit ↔ bead ↔ REQ is the traceability triangle. `check-change:` is the
-  reserved scope for human-approved check modifications (check-guard
-  enforces it).
+  capability/module touched, not a generic type. When a tracker is in use, the
+  message ends with the bead/work-item id — commit ↔ bead ↔ `.feature` is the
+  traceability triangle. `check-change:` is the reserved scope for
+  human-approved check modifications (check-guard enforces it).
 
 ## Structural improvements (the senior-dev override, bounded)
 
@@ -272,7 +269,7 @@ patterns, you do not ignore it and you do not silently fix it. The rule:
 ## Mutation testing outcomes (the only allowed responses)
 
 For each surviving mutant, exactly one of:
-- **Strengthen**: add/extend a test (with a REQ ID) that kills it.
+- **Strengthen**: add/extend a test that kills it.
 - **Report**: tell the human "this mutant survives because the spec does not
   constrain this behavior — should it?" and wait.
 Never: exclude the file, lower the threshold, or declare it unimportant
