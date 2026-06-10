@@ -70,7 +70,7 @@ impl Handler for HistoryHandler {
         let page: Page = Page::from_page(page_num, PAGE_SIZE);
         let view: HistoryView =
             assemble_history(repository.as_ref(), rev, path, now_epoch(), page)?;
-        let chrome: PageChrome = page_chrome(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(self.store.as_ref(), &self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,

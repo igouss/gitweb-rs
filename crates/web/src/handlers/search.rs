@@ -150,7 +150,7 @@ impl Handler for SearchHandler {
         let searchtype: &str = request.search_type.as_deref().unwrap_or(DEFAULT_SEARCHTYPE);
         let use_regexp: bool = request.search_use_regexp;
         let rev: Option<&str> = request.hash.as_ref().map(SafeRef::as_str);
-        let chrome: PageChrome = page_chrome(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(self.store.as_ref(), &self.settings, request)?;
 
         // gitweb's git_search dispatches `grep` and `pickaxe` to their own subs —
         // each a different result shape (a per-file line table; a commit list with

@@ -53,7 +53,7 @@ impl Handler for TreeHandler {
         let path: Option<&str> = request.file_name.as_ref().map(SafePath::as_str);
         let show_sizes: bool = self.settings.feature(FeatureName::ShowSizes).enabled();
         let view: TreeView = assemble_tree(repository.as_ref(), rev, path, show_sizes)?;
-        let chrome: PageChrome = page_chrome(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(self.store.as_ref(), &self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,

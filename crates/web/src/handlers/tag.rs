@@ -49,7 +49,7 @@ impl Handler for TagHandler {
             .ok_or_else(|| DomainError::Invalid("Project needed".to_owned()))?;
         let repository: Box<dyn Repository> = self.store.open(project)?;
         let view: TagView = show_tag(repository.as_ref(), requested_hash(request))?;
-        let chrome: PageChrome = page_chrome(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(self.store.as_ref(), &self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,

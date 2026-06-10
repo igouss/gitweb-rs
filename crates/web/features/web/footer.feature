@@ -15,6 +15,22 @@ Feature: The page footer links a project's feeds and the projects list's index (
     And the response body contains "<a class="feed" href="/?p=repo.git&amp;a=rss" title="log RSS feed">RSS</a>"
     And the response body contains "<a class="feed" href="/?p=repo.git&amp;a=atom" title="log Atom feed">Atom</a>"
 
+  Scenario: a project page footer shows the project description above its feeds
+    Given a project root containing repository "repo.git"
+    And "repo.git" has the description file "A described repo & co"
+    And the summary action is served
+    When I GET "/?p=repo.git&a=summary"
+    Then the response status is 200
+    And the response body contains "<p class="footer-desc">A described repo &amp; co</p>"
+
+  Scenario: a project page footer omits the description when none is defined
+    Given a project root containing repository "repo.git"
+    And "repo.git" has no description file
+    And the summary action is served
+    When I GET "/?p=repo.git&a=summary"
+    Then the response status is 200
+    And the response body does not contain "footer-desc"
+
   Scenario: a branch-scoped project page footer names the branch in the feed title
     Given a project root containing repository "repo.git"
     And the summary action is served

@@ -64,7 +64,7 @@ impl Handler for BlobHandler {
         // gitweb's `$hash =~ /^$oid_regex$/`: a blob addressed by a literal oid is
         // immutable and cacheable for a day; one resolved through a file name is
         // not (`$hash` is then undefined when the expires check runs).
-        let chrome: PageChrome = page_chrome(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(self.store.as_ref(), &self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,

@@ -94,7 +94,7 @@ impl Handler for BlobdiffHandler {
         )?;
         // gitweb's git_blobdiff dual-oid gate: a one-day window only when both
         // the base and the parent base are literal object ids.
-        let chrome: PageChrome = page_chrome(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(self.store.as_ref(), &self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,

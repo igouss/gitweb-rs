@@ -20,6 +20,7 @@ use gitweb_domain::model::feed_meta::{FeedInfo, feed_info};
 use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::settings::{FeatureName, Settings};
+use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_render::chrome::{
     DocumentHead, FeedHrefs, FeedLink, FooterFeedHrefs, PageFooter, project_feed_links,
     project_footer_links, project_list_feed_links, project_list_footer_links,
@@ -51,10 +52,18 @@ pub struct PageChrome {
 /// [`DomainError::Backend`] when a malformed `extra-branch-refs` entry fails
 /// validation (gitweb's `die_error(500, ...)`), surfaced as it is at the other
 /// [`get_branch_refs`] consumers.
-pub fn page_chrome(settings: &Settings, request: &Request) -> Result<PageChrome, DomainError> {
+///
+/// The footer reads the project description from `store` (gitweb's
+/// `git_get_project_description`); the head feeds need no store, so only the
+/// footer half consults it.
+pub fn page_chrome(
+    store: &dyn ProjectStore,
+    settings: &Settings,
+    request: &Request,
+) -> Result<PageChrome, DomainError> {
     Ok(PageChrome {
         feeds: page_feeds(settings, request)?,
-        foot: page_footer(settings, request)?,
+        foot: page_footer(store, settings, request)?,
     })
 }
 
@@ -76,22 +85,28 @@ pub fn document_head(title: String, feeds: Vec<FeedLink>) -> DocumentHead {
 /// every HTML handler builds this from the request and hands it to
 /// [`document`](gitweb_render::chrome::document) alongside the head.
 ///
-/// In project context it links the page's RSS and Atom feeds (the same feed the
-/// head advertises, classified by [`project_feed_info`], but as visible anchors
-/// titled `"<feed title> <FORMAT> feed"` and without the head's `--no-merges`
-/// variants); on the projects list it links the OPML feed and the plain-text
-/// index. The project description gitweb shows above the project-context links
-/// is a separate `git_get_project_description` read, not yet wired.
+/// In project context it shows the project description (gitweb's
+/// `git_get_project_description`, read from `store`, only when defined) above
+/// the page's RSS and Atom feeds (the same feed the head advertises, classified
+/// by [`project_feed_info`], but as visible anchors titled `"<feed title>
+/// <FORMAT> feed"` and without the head's `--no-merges` variants); on the
+/// projects list it links the OPML feed and the plain-text index and shows no
+/// description (gitweb has no project to describe there).
 ///
 /// # Errors
 /// [`DomainError::Backend`] when a malformed `extra-branch-refs` entry fails
 /// validation (gitweb's `die_error(500, ...)`), the same failure [`page_feeds`]
-/// surfaces.
-pub fn page_footer(settings: &Settings, request: &Request) -> Result<PageFooter, DomainError> {
+/// surfaces; or any error [`ProjectStore::description`] surfaces.
+pub fn page_footer(
+    store: &dyn ProjectStore,
+    settings: &Settings,
+    request: &Request,
+) -> Result<PageFooter, DomainError> {
     let Some(project) = request.project.as_deref() else {
         // gitweb's projects-list branch: the OPML feed and the plain-text index.
         // Like the head feeds (page_feeds), these are not scoped to the
-        // project_filter — head and footer stay in step.
+        // project_filter — head and footer stay in step. No project, no
+        // description.
         return Ok(PageFooter {
             description: None,
             links: project_list_footer_links(
@@ -106,7 +121,7 @@ pub fn page_footer(settings: &Settings, request: &Request) -> Result<PageFooter,
         atom: feed_href(project, "atom", &info, false),
     };
     Ok(PageFooter {
-        description: None,
+        description: store.description(project)?,
         links: project_footer_links(info.title(), &hrefs),
     })
 }

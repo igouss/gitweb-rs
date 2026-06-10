@@ -1121,6 +1121,14 @@ fn given_summary_description(world: &mut WebWorld, name: String, text: String) {
     root(world).set_description(&name, &text);
 }
 
+#[given(regex = r#"^"([^"]*)" has no description file$"#)]
+fn given_no_description(world: &mut WebWorld, name: String) {
+    // `add_repo` lays down git's default `description` placeholder; removing it
+    // is the only way a repository genuinely has no description (gitweb's
+    // `git_get_project_description` returning undef).
+    root(world).remove_description(&name);
+}
+
 #[given(regex = r#"^"([^"]*)" has a README of "(.*)"$"#)]
 fn given_summary_readme(world: &mut WebWorld, name: String, contents: String) {
     root(world).set_readme_html(&name, &contents);

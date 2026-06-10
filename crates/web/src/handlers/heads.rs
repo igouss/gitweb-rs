@@ -60,7 +60,7 @@ impl Handler for HeadsHandler {
         let branch_refs: Vec<String> = get_branch_refs(extra_branch_refs)?;
         let branch_refs: Vec<&str> = branch_refs.iter().map(String::as_str).collect();
         let view: HeadsView = assemble_heads(repository.as_ref(), now_epoch(), &branch_refs)?;
-        let chrome: PageChrome = page_chrome(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(self.store.as_ref(), &self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,

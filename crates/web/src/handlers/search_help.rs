@@ -58,7 +58,7 @@ impl Handler for SearchHelpHandler {
         let _repository: Box<dyn Repository> = self.store.open(project)?;
         let view: SearchHelpView = assemble_search_help(&self.settings);
         let rev: Option<&str> = request.hash.as_ref().map(SafeRef::as_str);
-        let chrome: PageChrome = page_chrome(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(self.store.as_ref(), &self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,

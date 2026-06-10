@@ -68,7 +68,7 @@ impl Handler for SummaryHandler {
             &self.settings,
             now_epoch(),
         )?;
-        let chrome: PageChrome = page_chrome(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(self.store.as_ref(), &self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,

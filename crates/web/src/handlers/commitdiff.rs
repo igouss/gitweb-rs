@@ -77,7 +77,7 @@ impl Handler for CommitdiffHandler {
         let blame_on: bool = self.settings.feature(FeatureName::Blame).enabled();
         // gitweb's `$hash =~ /^$oid_regex$/` (after `$hash ||= $hash_base || "HEAD"`):
         // a commitdiff addressed by a literal oid is immutable and cacheable for a day.
-        let chrome: PageChrome = page_chrome(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(self.store.as_ref(), &self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,
