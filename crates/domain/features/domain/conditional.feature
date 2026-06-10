@@ -45,3 +45,29 @@ Feature: Conditional-GET freshness (If-Modified-Since)
     Given a resource last modified at epoch 1700086400
     When I evaluate freshness against "yesterday afternoon"
     Then the resource is modified
+
+  # The parser that backs freshness normalises every zone it accepts to a single
+  # UTC epoch. GMT/UTC are zero; a numeric +HHMM/-HHMM is its signed offset, east
+  # positive; an unrecognised or malformed zone is read as UTC. Each label below
+  # is the SAME instant as the reference "Wed, 15 Nov 2023 22:13:20 +0000" — epoch
+  # 1700086400 — so a correct parse lands them all on that number.
+
+  Scenario: a western numeric offset normalises to UTC
+    When I parse the HTTP date "Wed, 15 Nov 2023 17:13:20 -0500"
+    Then the parsed epoch is 1700086400
+
+  Scenario: a non-zero-minute eastern offset normalises to UTC
+    When I parse the HTTP date "Thu, 16 Nov 2023 10:58:20 +1245"
+    Then the parsed epoch is 1700086400
+
+  Scenario: a zone token of the wrong length is read as UTC
+    When I parse the HTTP date "Wed, 15 Nov 2023 22:13:20 +05"
+    Then the parsed epoch is 1700086400
+
+  Scenario: a zone token with non-digits is read as UTC
+    When I parse the HTTP date "Wed, 15 Nov 2023 22:13:20 +12ab"
+    Then the parsed epoch is 1700086400
+
+  Scenario: an out-of-range day of month is unparseable
+    When I parse the HTTP date "Wed, 32 Nov 2023 22:13:20 GMT"
+    Then the date is unparseable

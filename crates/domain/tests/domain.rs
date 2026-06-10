@@ -21,7 +21,7 @@ use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::commit_date::CommitDate;
 use gitweb_domain::model::commitdiff::{ChangedFilesBase, DiffBase, changed_files_base, diff_base};
 use gitweb_domain::model::commitdiff_plain::CommitdiffPlain;
-use gitweb_domain::model::conditional::{Freshness, freshness};
+use gitweb_domain::model::conditional::{Freshness, freshness, parse_http_date};
 use gitweb_domain::model::config_chain::{ConfigChain, ConfigSlot};
 use gitweb_domain::model::content_type::PlainHeaders;
 use gitweb_domain::model::diff::{CombinedDiffEntry, CombinedParent};
@@ -236,6 +236,7 @@ struct DomainWorld {
     tag_age_result: Option<TagAge>,
     cond_epoch: i64,
     cond_result: Option<Freshness>,
+    parsed_date: Option<i64>,
     accept_feed_type: String,
     accept_result: Option<bool>,
     expiry_hash: Option<String>,
@@ -4121,6 +4122,21 @@ fn then_not_modified(world: &mut DomainWorld) {
 #[then("the resource is modified")]
 fn then_modified(world: &mut DomainWorld) {
     assert_eq!(world.cond_result, Some(Freshness::Modified));
+}
+
+#[when(regex = r#"^I parse the HTTP date "(.*)"$"#)]
+fn when_parse_http_date(world: &mut DomainWorld, header: String) {
+    world.parsed_date = parse_http_date(&header);
+}
+
+#[then(regex = r#"^the parsed epoch is (\d+)$"#)]
+fn then_parsed_epoch(world: &mut DomainWorld, epoch: i64) {
+    assert_eq!(world.parsed_date, Some(epoch));
+}
+
+#[then("the date is unparseable")]
+fn then_date_unparseable(world: &mut DomainWorld) {
+    assert_eq!(world.parsed_date, None);
 }
 
 // --- by-oid cache freshness: Expires +1d -------------------------------------
