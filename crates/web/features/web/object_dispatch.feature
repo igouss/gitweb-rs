@@ -50,3 +50,14 @@ Feature: The no-action default object view (gitweb's dispatch git_get_type)
     When I GET "/?p=t.git&hb=main&f=does-not-exist.txt"
     Then the response status is 404
     And the response body contains "File or directory does not exist"
+
+  # Unlike the object action, dispatch resolves the kind with git_get_type
+  # (cat-file -t), which reads the recorded object. A gitlink's commit is absent
+  # here, so it 404s rather than serving the commit view — the deliberate
+  # asymmetry between dispatch and the object action.
+  Scenario: A submodule under a base is the file-not-found error, its commit absent
+    Given a repository "t.git" with a tree
+    And the no-action object dispatch is enabled
+    When I GET "/?p=t.git&hb=main&f=vendor"
+    Then the response status is 404
+    And the response body contains "File or directory does not exist"

@@ -36,6 +36,18 @@ Feature: Dispatching the object action (git_object)
     And the response location contains "hb=main"
     And the response location contains "f=src"
 
+  # A submodule entry's type comes from ls-tree's mode column ("commit"), so the
+  # object action redirects to the commit view even though the recorded commit
+  # lives in the submodule and is absent from this repository.
+  Scenario: A submodule under a base redirects to the commit view
+    Given a repository "t.git" with a tree
+    And the object action is served
+    When I GET "/?p=t.git&a=object&hb=main&f=vendor"
+    Then the response status is 302
+    And the response location contains "a=commit"
+    And the response location contains "hb=main"
+    And the response location contains "f=vendor"
+
   # --- the 400: not enough information ---
 
   Scenario: Naming neither a hash nor a base is a bad request
