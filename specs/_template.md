@@ -30,7 +30,7 @@ Feature: <FDD feature name>
     Then <...>
 ```
 
-<!-- 1–3 scenarios max. Tabular behavior → one Scenario Outline + Examples table. -->
+<!-- Scenarios. Tabular behavior → one Scenario Outline + Examples table. -->
 
 ## Candidate laws
 
