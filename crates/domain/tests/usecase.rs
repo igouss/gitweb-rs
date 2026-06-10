@@ -3064,10 +3064,19 @@ fn assemble_the_summary(world: &mut UsecaseWorld) {
     for url in &world.summary_clone_urls {
         info = info.with_clone_url(url.clone());
     }
+    let mut features: BTreeMap<FeatureName, FeatureLayer> = BTreeMap::new();
+    features.insert(
+        FeatureName::ExtraBranchRefs,
+        FeatureLayer {
+            default: Some(world.extra_branch_refs.clone()),
+            overridable: None,
+        },
+    );
     let layer: SettingsLayer = SettingsLayer {
         omit_owner: Some(world.summary_omit_owner),
         prevent_xss: Some(world.summary_prevent_xss),
         git_base_url_list: Some(world.summary_base_urls.clone()),
+        features,
         ..SettingsLayer::default()
     };
     let settings: Settings = Settings::resolve(&[layer]);

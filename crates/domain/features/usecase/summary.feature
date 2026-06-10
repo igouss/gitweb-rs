@@ -111,6 +111,14 @@ Feature: Assembling the summary page (summary action)
     Then the summary lists heads "main, topic"
     And the summary heads section is not truncated
 
+  Scenario: the heads section covers extra branch directories
+    Given the repository HEAD is branch "main"
+    And the "extra-branch-refs" feature lists "sandbox"
+    And the repository has branch "main" committed at 800000
+    And the repository has a ref "wip" under "sandbox" committed at 900000
+    When I assemble the summary
+    Then the summary lists heads "wip (sandbox), main"
+
   Scenario: an unborn repository has an empty shortlog and does not fail
     Given the repository HEAD is the unborn branch "main"
     When I assemble the summary

@@ -22,10 +22,11 @@
 //! shortlog, and is never an error.
 
 use crate::error::DomainError;
+use crate::model::branch_refs::get_branch_refs;
 use crate::model::commit::Commit;
 use crate::model::project_info::ProjectInfo;
 use crate::model::section::Section;
-use crate::model::settings::Settings;
+use crate::model::settings::{FeatureName, Settings};
 use crate::model::timestamp::Timestamp;
 use crate::port::repository::{Page, Repository};
 use crate::usecase::heads::{HeadRow, assemble_heads};
@@ -131,10 +132,17 @@ pub fn assemble_summary(
     let shortlog: ShortlogView = assemble_shortlog(repo, None, now, Page::new(0, SUMMARY_LIMIT))?;
     let tags: Section<TagRow> =
         Section::limited(assemble_tags(repo, now)?.rows().to_vec(), SUMMARY_LIMIT);
-    // TODO(d7s): thread the resolved get_branch_refs through here so the summary
-    // heads section honours extra-branch-refs; heads-only until that commit.
+    // gitweb's git_summary calls git_get_heads_list with no classes, so the
+    // section spans every get_branch_refs directory (heads plus the validated
+    // extra-branch-refs feature). A malformed entry is gitweb's die_error(500).
+    let branch_refs: Vec<String> = get_branch_refs(
+        settings
+            .feature(FeatureName::ExtraBranchRefs)
+            .default_options(),
+    )?;
+    let branch_refs: Vec<&str> = branch_refs.iter().map(String::as_str).collect();
     let heads: Section<HeadRow> = Section::limited(
-        assemble_heads(repo, now, &["heads"])?.rows().to_vec(),
+        assemble_heads(repo, now, &branch_refs)?.rows().to_vec(),
         SUMMARY_LIMIT,
     );
     Ok(SummaryView {
