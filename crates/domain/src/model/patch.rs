@@ -241,15 +241,6 @@ impl FilePatch {
         }
     }
 
-    /// Renders this file patch as git's unified-diff text, each line newline
-    /// terminated, with full 40/64-hex `index` ids (`--full-index`).
-    #[must_use]
-    pub fn render(&self) -> String {
-        let mut out: String = String::new();
-        self.write_to(&mut out, None, BinaryMode::Notice);
-        out
-    }
-
     /// The old-side path (gitweb's `from_file`): the path a rename or copy moved
     /// from, equal to [`to_path`](Self::to_path) for every other status.
     #[must_use]
