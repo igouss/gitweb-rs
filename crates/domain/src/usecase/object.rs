@@ -14,8 +14,9 @@
 //!   reads its kind; either miss is the `404` "Object does not exist".
 //! - a base+path (gitweb's `cat-file -e $hash_base` then `ls-tree`) resolves the
 //!   base (`404` "Base object does not exist"), looks the path up under it
-//!   (`404` "File or directory for given base does not exist"), and reads the
-//!   found object's kind.
+//!   (`404` "File or directory for given base does not exist"), and takes the
+//!   entry's kind from its mode — `ls-tree`'s type column — so a gitlink reads as
+//!   a commit without its commit object existing here.
 //!
 //! The redirect carries the request's original hash / base / file through
 //! unchanged, except the base+path form replaces the hash with the object id the
@@ -27,6 +28,7 @@ use crate::model::action::Action;
 use crate::model::object_id::ObjectId;
 use crate::model::object_kind::ObjectKind;
 use crate::model::object_redirect::{Resolution, resolution, target_action};
+use crate::model::tree::TreeEntry;
 use crate::port::repository::Repository;
 
 /// Where the `object` action redirects: the destination action and the
@@ -90,23 +92,30 @@ fn redirect_by_id(
 }
 
 /// gitweb's `cat-file -e $hash_base` + `ls-tree` branch: resolve the base, look
-/// the path up under it, and read the found object's kind. The redirect carries
-/// the resolved object id as its hash (gitweb's `$hash = $3`), with the base and
-/// the (slash-stripped) file unchanged. The base miss, the path miss, and a
-/// kind read that fails are gitweb's three distinct `404`s.
+/// the path up under it, and take the entry's kind from its mode — `ls-tree`'s
+/// type column, which git derives from the mode, so a gitlink reads as a commit
+/// without its commit object existing here. The redirect carries the resolved
+/// object id as its hash (gitweb's `$hash = $3`), with the base and the
+/// (slash-stripped) file unchanged. The base miss and the path miss are the two
+/// distinct `404`s; the kind never fails, since it is read from the mode rather
+/// than the (possibly-absent) object.
 fn redirect_by_base_path(
     repo: &dyn Repository,
     base: &str,
     file_name: &str,
 ) -> Result<ObjectRedirect, DomainError> {
     let base_oid: ObjectId = repo.resolve(base).map_err(|_| base_missing())?;
-    let object_oid: ObjectId = repo
-        .path_id(&base_oid, file_name)?
+    let entry: TreeEntry = repo
+        .path_entry(&base_oid, file_name)?
         .ok_or_else(path_missing)?;
-    let kind: ObjectKind = repo.object_kind(&object_oid).map_err(|_| path_missing())?;
+    // gitweb classifies the path by `ls-tree`'s mode-derived type column, not by
+    // `cat-file`-ing the object: a gitlink (mode 160000) names a commit that
+    // lives in the submodule and is absent here, yet still redirects to the
+    // commit view. Reading the recorded id would 404 instead.
+    let kind: ObjectKind = entry.mode().object_kind();
     Ok(ObjectRedirect {
         action: target_action(kind),
-        hash: Some(object_oid.as_str().to_owned()),
+        hash: Some(entry.oid().as_str().to_owned()),
         hash_base: Some(base.to_owned()),
         file_name: Some(file_name.to_owned()),
     })

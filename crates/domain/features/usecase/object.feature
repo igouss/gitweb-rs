@@ -53,6 +53,18 @@ Feature: Resolving the object action over the repository (git_object)
     Then the redirect action is "tree"
     And the redirect file is "src"
 
+  # A submodule entry (mode 160000) is classified by its mode — gitweb's ls-tree
+  # type column reads "commit" — so it redirects to the commit view even though
+  # the recorded commit lives in the submodule and is absent from this repository.
+  Scenario: A submodule under a base redirects to the commit view, its commit absent
+    Given the tree base is commit "root"
+    And the tree has submodule "vendor"
+    When I assemble the object redirect for base "HEAD" and file "vendor"
+    Then the redirect action is "commit"
+    And the redirect base is "HEAD"
+    And the redirect file is "vendor"
+    And the redirect has a hash
+
   # --- misses: gitweb's three distinct 404s and the 400 ---
 
   Scenario: Naming neither a hash nor a base is not enough information

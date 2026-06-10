@@ -26,7 +26,7 @@ use gitweb_domain::model::diff::{
 };
 use gitweb_domain::model::encoding::FallbackEncoding;
 use gitweb_domain::model::feed::{Feed, FeedEntry, FeedFile};
-use gitweb_domain::model::file_mode::FileMode;
+use gitweb_domain::model::file_mode::{FileKind, FileMode};
 use gitweb_domain::model::format_patch::FormatPatch;
 use gitweb_domain::model::grep::{GrepMatch, GrepResults};
 use gitweb_domain::model::grep_pattern::GrepPattern;
@@ -859,6 +859,13 @@ impl Repository for FakeRepository {
         }
         if let Some(entry) = self.tree_entry_by_oid(oid) {
             let mode: FileMode = FileMode::from_octal(&entry.mode).expect("a valid octal mode");
+            // A gitlink records a commit that lives in the submodule, not here, so
+            // `cat-file -t` on it misses — exactly as the gix adapter 404s. The
+            // entry's mode still classifies it (via `path_entry`); reading the
+            // recorded id does not.
+            if mode.kind() == FileKind::Submodule {
+                return Err(DomainError::NotFound(oid.as_str().to_owned()));
+            }
             return Ok(mode.object_kind());
         }
         if let Some(tag) = self
@@ -1012,12 +1019,26 @@ impl Repository for FakeRepository {
     }
 
     fn path_id(&self, at: &ObjectId, path: &str) -> Result<Option<ObjectId>, DomainError> {
+        // The id alone of the `ls-tree` row `path_entry` resolves.
+        Ok(self
+            .path_entry(at, path)?
+            .map(|entry: TreeEntry| entry.oid().clone()))
+    }
+
+    fn path_entry(&self, at: &ObjectId, path: &str) -> Result<Option<TreeEntry>, DomainError> {
+        let name: String = path.rsplit('/').next().unwrap_or(path).to_owned();
         if self.has_blob_base() && at == &blob_base_oid() {
-            let found: Option<ObjectId> = self
+            let found: Option<TreeEntry> = self
                 .blob_files
                 .iter()
                 .find(|file: &&FakeBlobFile| file.path.as_deref() == Some(path))
-                .map(|file: &FakeBlobFile| blob_file_oid(&file.label));
+                .map(|file: &FakeBlobFile| {
+                    TreeEntry::new(
+                        regular_file_mode(),
+                        name.clone(),
+                        blob_file_oid(&file.label),
+                    )
+                });
             return Ok(found);
         }
         if self.has_tree() && at == &tree_head_oid() {
@@ -1026,9 +1047,10 @@ impl Repository for FakeRepository {
                 .iter()
                 .find(|node: &&FakeTreeNode| node.path.as_deref() == Some(path))
             {
-                return Ok(Some(tree_node_oid(&node.label)));
+                let mode: FileMode = FileMode::from_octal("040000").expect("a valid tree mode");
+                return Ok(Some(TreeEntry::new(mode, name, tree_node_oid(&node.label))));
             }
-            let root_entry: Option<ObjectId> = self
+            let root_entry: Option<TreeEntry> = self
                 .tree_nodes
                 .iter()
                 .find(|node: &&FakeTreeNode| node.label == "root")
@@ -1036,11 +1058,19 @@ impl Repository for FakeRepository {
                     root.entries
                         .iter()
                         .find(|entry: &&FakeTreeEntry| entry.name == path)
-                        .map(|entry: &FakeTreeEntry| tree_entry_oid("root", &entry.name))
+                        .map(|entry: &FakeTreeEntry| {
+                            let mode: FileMode =
+                                FileMode::from_octal(&entry.mode).expect("a valid octal mode");
+                            TreeEntry::new(
+                                mode,
+                                entry.name.clone(),
+                                tree_entry_oid("root", &entry.name),
+                            )
+                        })
                 });
             return Ok(root_entry);
         }
-        let entry: Option<ObjectId> = self
+        let entry: Option<TreeEntry> = self
             .commits
             .iter()
             .find(|commit: &&FakeCommit| &commit.id == at)
@@ -1049,14 +1079,11 @@ impl Repository for FakeRepository {
                     .present
                     .iter()
                     .find(|entry: &&FakePathEntry| entry.path == path)
-                    .map(|entry: &FakePathEntry| entry.oid.clone())
+                    .map(|entry: &FakePathEntry| {
+                        TreeEntry::new(mode_for_kind(entry.kind), name.clone(), entry.oid.clone())
+                    })
             });
         Ok(entry)
-    }
-
-    fn path_entry(&self, _at: &ObjectId, _path: &str) -> Result<Option<TreeEntry>, DomainError> {
-        // RED stub: filled in alongside the gitlink-classification fix.
-        Ok(None)
     }
 
     fn diff(
@@ -4228,6 +4255,20 @@ fn object_kind_of(word: &str) -> ObjectKind {
 /// A `100644` regular-file mode for the commit fixture's diff entries.
 fn regular_file_mode() -> FileMode {
     FileMode::from_octal("100644").expect("100644 is a valid mode")
+}
+
+/// A representative tree-entry mode for `kind`, so the per-path history walk's
+/// `path_entry` row carries a mode consistent with the object it resolved (a
+/// tree for a directory, a gitlink for a submodule commit, a regular file
+/// otherwise). Only the id is observed for these rows, so the exact file mode is
+/// a faithful-but-don't-care choice.
+fn mode_for_kind(kind: ObjectKind) -> FileMode {
+    let octal: &str = match kind {
+        ObjectKind::Tree => "040000",
+        ObjectKind::Commit => "160000",
+        ObjectKind::Blob | ObjectKind::Tag => "100644",
+    };
+    FileMode::from_octal(octal).expect("a valid octal mode")
 }
 
 /// The absent (`000000`) mode for a created or deleted side.
