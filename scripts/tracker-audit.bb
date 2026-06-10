@@ -61,13 +61,22 @@ example: tracker-audit.bb --json .beads/issues.jsonl")
 (def path (or (first positional) ".beads/issues.jsonl"))
 
 (when-not (fs/exists? path)
-  (die-usage! (str "no such file: " path
-                   " — pass the JSONL mirror path (bd/br emit it; check .beads/)")))
+  (die-usage! (str "no such file: " path " — no tracker mirror here.\n"
+                   "Pass the JSONL mirror path, or initialize a tracker first:\n"
+                   "  br init   (or bd init) — the mirror appears at .beads/issues.jsonl\n"
+                   "Then write beads per the tracker-discipline skill (bead anatomy,\n"
+                   "the READ-FIRST conventions bead, the deferral rule).")))
 
 (def issues
   (->> (str/split-lines (slurp path))
        (remove str/blank?)
        (map #(json/parse-string % true))))
+
+;; Vacuous-green guard: an empty mirror audits nothing.
+(when (empty? issues)
+  (die-usage! (str path " is empty — nothing to audit. Create the first beads "
+                   "per the tracker-discipline skill (start with the priority-0 "
+                   "READ-FIRST conventions bead).")))
 
 (def by-id (into {} (map (juxt :id identity)) issues))
 (def ids (set (keys by-id)))

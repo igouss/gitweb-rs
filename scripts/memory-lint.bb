@@ -13,7 +13,9 @@ Lint an agent memory corpus (memory-discipline skill).
 
 args:
   memory-dir   directory holding MEMORY.md + memory files
-               (default: $MEMORY_DIR, else \".\")
+               (default: $MEMORY_DIR, else auto-derived from the cwd:
+               ~/.claude/projects/<munged-cwd>/memory — the Claude Code
+               memory dir for the project you're standing in)
 flags:
   --json       machine-readable result on stdout:
                {\"ok\":bool,\"findings\":[{\"check\",\"detail\"}],\"warnings\":[...]}
@@ -56,11 +58,24 @@ example: memory-lint.bb --json ~/.claude/projects/<proj>/memory/")
 
 (def json? (boolean (some #{"--json"} *command-line-args*)))
 (def positional (remove #(str/starts-with? % "-") *command-line-args*))
-(def mem-dir (or (first positional) (System/getenv "MEMORY_DIR") "."))
 
-(when-not (fs/directory? mem-dir)
-  (die-usage! (str "no such directory: " mem-dir
-                   " — pass the memory dir as the first arg or set MEMORY_DIR")))
+(defn project-memory-dir []
+  ;; Claude Code's per-project dir: cwd munged with [/_.] -> "-"
+  (let [munged (str/replace (System/getProperty "user.dir") #"[/_.]" "-")
+        d (str (System/getProperty "user.home") "/.claude/projects/" munged "/memory")]
+    (when (fs/directory? d)
+      (binding [*out* *err*]
+        (println (str "note: auto-detected memory dir: " d)))
+      d)))
+
+(def mem-dir (or (first positional) (System/getenv "MEMORY_DIR") (project-memory-dir)))
+
+(when-not (and mem-dir (fs/directory? mem-dir))
+  (die-usage! (str "no memory directory found (no arg, no MEMORY_DIR, and no "
+                   "~/.claude/projects/<this-project>/memory exists).\n"
+                   "Memories are written by agent sessions — for what to save and in\n"
+                   "what shape (genres, frontmatter, MEMORY.md index) see the\n"
+                   "memory-discipline skill.")))
 
 ;; --- collect ------------------------------------------------------------------
 (def findings (atom []))
@@ -76,6 +91,12 @@ example: memory-lint.bb --json ~/.claude/projects/<proj>/memory/")
 (defn section! [title] (when-not json? (println (str "== " title " =="))))
 
 (def md-files (->> (fs/list-dir mem-dir "*.md") (map str) sort))
+
+;; Vacuous-green guard: an empty corpus audits nothing.
+(when (empty? md-files)
+  (die-usage! (str mem-dir " contains no .md files — nothing to lint.\n"
+                   "An agent memory corpus is MEMORY.md (index) plus one file per\n"
+                   "memory with name:/description: frontmatter — memory-discipline skill.")))
 (def memories (remove #(= "MEMORY.md" (fs/file-name %)) md-files))
 (def index-file (str (fs/path mem-dir "MEMORY.md")))
 (def index-text (if (fs/exists? index-file) (slurp index-file) ""))

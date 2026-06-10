@@ -77,8 +77,11 @@ example: crap-report.bb --coverage target/metrics/coverage.json --gate 30")
             (or (parse-long g) (die-usage! "--gate expects an integer"))))
 
 (when-not (fs/exists? cov-path)
-  (die-usage! (str "no coverage export at " cov-path " — produce it with: "
-                   "cargo llvm-cov nextest --workspace --json --output-path " cov-path)))
+  (die-usage! (str "no coverage export at " cov-path " — produce it with:\n"
+                   "  cargo llvm-cov nextest --workspace --json --output-path " cov-path "\n"
+                   "(plain `cargo llvm-cov --json` if the project has harness=false test\n"
+                   "binaries nextest can't enumerate). See the verification-ratchet\n"
+                   "skill, Layer 4, for where this gate sits.")))
 
 (def repo-root (str/trim (:out (sh "git" "rev-parse" "--show-toplevel"))))
 

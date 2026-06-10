@@ -16,7 +16,9 @@ Run from the repo root, after wiring a new endpoint or any re-capture.
 
 args:
   golden-dir   goldens directory, may be nested (e.g. crates/parity/goldens)
-               (default: $GOLDEN_DIR, else \"goldens\")
+               (default: $GOLDEN_DIR, else \"goldens\", else auto-discovered:
+               a unique git-tracked directory named goldens/ anywhere in the
+               tree is used and announced on stderr)
 flags:
   --json       machine-readable result on stdout:
                {\"ok\":bool,\"findings\":[{\"check\",\"detail\"}],\"warnings\":[...]}
@@ -62,11 +64,30 @@ example: GOLDEN_DIR=crates/parity/goldens golden-audit.bb --json")
 
 (def json? (boolean (some #{"--json"} *command-line-args*)))
 (def positional (remove #(str/starts-with? % "-") *command-line-args*))
-(def golden-dir (or (first positional) (System/getenv "GOLDEN_DIR") "goldens"))
 
-(when-not (fs/directory? golden-dir)
-  (die-usage! (str "no " golden-dir "/ directory — pass the goldens dir as the "
-                   "first arg or set GOLDEN_DIR (run from the repo root)")))
+(defn discover-golden-dir []
+  ;; a unique git-tracked directory named goldens/ anywhere in the tree
+  (let [cands (->> (str/split-lines (:out (sh "git" "ls-files")))
+                   (keep #(second (re-find #"^(.*goldens)/" %)))
+                   distinct sort)]
+    (when (= 1 (count cands))
+      (binding [*out* *err*]
+        (println (str "note: auto-detected goldens dir: " (first cands))))
+      (first cands))))
+
+(def golden-dir
+  (or (first positional)
+      (System/getenv "GOLDEN_DIR")
+      (when (fs/directory? "goldens") "goldens")
+      (discover-golden-dir)))
+
+(when-not (and golden-dir (fs/directory? golden-dir))
+  (die-usage! (str "no goldens directory found (looked for ./goldens and a unique "
+                   "tracked */goldens). Pass the dir as the first arg or set GOLDEN_DIR.\n"
+                   "No harness yet? Build one per the golden-parity skill: one\n"
+                   "deterministic corpus builder shared by capture and test, a capture\n"
+                   "script committing raw reference output under goldens/, and a\n"
+                   ".gitattributes 'goldens/** binary' rule.")))
 
 ;; --- collect ------------------------------------------------------------------
 (def findings (atom []))
@@ -89,6 +110,12 @@ example: GOLDEN_DIR=crates/parity/goldens golden-audit.bb --json")
        (filter fs/regular-file?)
        (map #(str (fs/relativize golden-dir %)))
        sort))
+
+;; Vacuous-green guard: an empty goldens dir audits nothing.
+(when (empty? goldens)
+  (die-usage! (str golden-dir "/ exists but contains no golden files — nothing to "
+                   "audit.\nCapture first (golden-parity skill): run the capture "
+                   "script over the deterministic corpus and commit the outputs.")))
 
 ;; every tracked source that could reference a golden
 (def source-text

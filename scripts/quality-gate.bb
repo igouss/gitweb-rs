@@ -44,6 +44,24 @@ example: CRAP_THRESHOLD=25 quality-gate.bb")
                       "' failed with exit " exit)))
       (System/exit exit))))
 
+;; Teach-on-missing: every prerequisite names how to create it and the
+;; skill that covers it (quality-gates skill: error messages that teach).
+(when-not (fs/which "hex-lint")
+  (binding [*out* *err*]
+    (println "error: hex-lint not installed. Install:")
+    (println "  cargo install --locked --git https://github.com/igouss/hex-lint hex-lint")
+    (println "Then tag every workspace crate's Cargo.toml:")
+    (println "  [package.metadata.hex-arch]")
+    (println "  role = \"domain\"   # zone<->role table: testing-strategy skill"))
+  (System/exit 2))
+(when-not (zero? (:exit (shell {:continue true :out :string :err :string}
+                               "cargo" "llvm-cov" "--version")))
+  (binding [*out* *err*]
+    (println "error: cargo-llvm-cov not installed. Install:")
+    (println "  cargo install cargo-llvm-cov")
+    (println "(verification-ratchet skill, Layer 4)"))
+  (System/exit 2))
+
 (println "== 0/3 architecture (hex-lint role matrix) ==")
 ;; Cheapest gate runs first: reads Cargo metadata only, no build, no tests.
 ;; Fails on any forbidden cross-role dependency edge and on stale entries in
