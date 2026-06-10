@@ -103,3 +103,29 @@ Feature: Assembling the projects-list page
     And the store has project "solo.git"
     When I assemble the project list
     Then the project "solo.git" reports 0 forks
+
+  # --- the empty-container state (gitweb's forks => [], the -d guard) ---
+  # gitweb sets a fork-capable project's `forks` field to [] when its container
+  # directory exists, before folding — distinct from a project that can never
+  # parent forks. Folding zero forks therefore has two outcomes, decided by the
+  # filesystem.
+
+  Scenario: a fork-capable project whose container directory exists is an empty container
+    Given the forks feature is enabled
+    And the store has project "repo.git"
+    And the store has the directory "repo"
+    When I assemble the project list
+    Then the project "repo.git" has an empty fork container
+
+  Scenario: a fork-capable project whose container directory is absent is not fork-capable
+    Given the forks feature is enabled
+    And the store has project "repo.git"
+    When I assemble the project list
+    Then the project "repo.git" is not fork-capable
+
+  Scenario: an actually-forked project does not need its container re-checked
+    Given the forks feature is enabled
+    And the store has project "repo.git"
+    And the store has project "repo/fork.git"
+    When I assemble the project list
+    Then the project "repo.git" is forked

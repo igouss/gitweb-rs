@@ -10,6 +10,8 @@
 //! Matching is by whole path component, so `foobar.git` is not a fork of
 //! `foo.git`.
 
+use std::num::NonZeroUsize;
+
 /// One project that survived fork-filtering, with any forks folded under it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectGroup {
@@ -58,6 +60,56 @@ pub fn fork_container(name: &str) -> Option<&str> {
         return None;
     }
     Some(stripped)
+}
+
+/// The leading fork-column state for one project on the listing — gitweb's
+/// `forks` field, whose three shapes drive three distinct renderings:
+///
+/// - [`NotForkable`](Self::NotForkable): gitweb's `forks` is undef. The project
+///   cannot parent forks, or its container directory does not exist on disk.
+/// - [`EmptyContainer`](Self::EmptyContainer): gitweb's `forks => []`. The
+///   container directory exists but holds zero forks.
+/// - [`Forked`](Self::Forked): gitweb's `forks => [N>0]`. Forks are folded
+///   under the project.
+///
+/// The empty-container state exists precisely because gitweb sets `forks => []`
+/// on any fork-capable project whose container directory exists, *before* it
+/// folds any forks in — so a project with a real but fork-less sibling directory
+/// is distinguishable from one that can never parent forks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForkState {
+    /// Not fork-capable: no `+` affordance, no `forks` quick link (gitweb's
+    /// undefined `forks`).
+    NotForkable,
+    /// A fork-capable container directory exists but folds zero forks: an
+    /// *unlinked* `+` titled "0 forks", plus the `forks` quick link (gitweb's
+    /// `forks => []`).
+    EmptyContainer,
+    /// Forks are folded under this project: a `+` *linked* to the forks view,
+    /// titled with the count, plus the `forks` quick link (gitweb's
+    /// `forks => [N>0]`).
+    Forked(NonZeroUsize),
+}
+
+impl ForkState {
+    /// The number of forks folded under the project (gitweb's
+    /// `scalar @{$pr->{forks}}`): the count for [`Forked`](Self::Forked), and `0`
+    /// for both fork-less states.
+    #[must_use]
+    pub fn fork_count(self) -> usize {
+        match self {
+            ForkState::Forked(forks) => forks.get(),
+            ForkState::NotForkable | ForkState::EmptyContainer => 0,
+        }
+    }
+
+    /// Whether the project shows any fork affordance — the `+` and the `forks`
+    /// quick link (gitweb's truthy `$pr->{forks}`): true for both the empty
+    /// container and a forked project, false only when not fork-capable.
+    #[must_use]
+    pub fn is_forkable(self) -> bool {
+        !matches!(self, ForkState::NotForkable)
+    }
 }
 
 /// Partitions `names` into top-level projects, folding each fork under the

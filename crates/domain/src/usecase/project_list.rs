@@ -10,10 +10,11 @@
 //! time dependency.
 
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 
 use crate::error::DomainError;
 use crate::model::age::Age;
-use crate::model::forks::{ProjectGroup, partition_forks};
+use crate::model::forks::{ForkState, ProjectGroup, fork_container, partition_forks};
 use crate::model::project::Project;
 use crate::model::project_filter::ProjectFilter;
 use crate::model::project_info::ProjectInfo;
@@ -30,7 +31,7 @@ pub struct ProjectListRow {
     description: Option<String>,
     owner: Option<String>,
     age: Option<Age>,
-    fork_count: usize,
+    fork_state: ForkState,
 }
 
 impl ProjectListRow {
@@ -60,12 +61,20 @@ impl ProjectListRow {
         self.age
     }
 
+    /// The project's leading fork-column state (gitweb's `forks` field): not
+    /// fork-capable, a fork-capable but empty container, or forked. This drives
+    /// the leading `+` affordance and the `forks` quick link.
+    #[must_use]
+    pub fn fork_state(&self) -> ForkState {
+        self.fork_state
+    }
+
     /// The number of forks folded under this project (gitweb's
-    /// `scalar @{$pr->{'forks'}}`). Always `0` when the forks feature is off; a
-    /// positive count drives the leading `+` link to the project's forks view.
+    /// `scalar @{$pr->{'forks'}}`) — `0` for both fork-less states, the count for
+    /// a forked project.
     #[must_use]
     pub fn fork_count(&self) -> usize {
-        self.fork_count
+        self.fork_state.fork_count()
     }
 }
 
@@ -160,9 +169,17 @@ pub(crate) fn assemble_listing(
         .map(|project: &Project| project.name().to_owned())
         .collect();
     let visible: Vec<(String, usize)> = fold_forks(&names, forks_enabled);
-    let fork_counts: HashMap<&str, usize> = visible
+    // gitweb resolves each surviving project's `forks` field (undef / [] / [N])
+    // here: a folded count, or — for a fork-less but fork-capable project — the
+    // filesystem `-d` test on its container directory (the empty-container state).
+    let fork_states: HashMap<&str, ForkState> = visible
         .iter()
-        .map(|(name, count): &(String, usize)| (name.as_str(), *count))
+        .map(|(name, count): &(String, usize)| {
+            (
+                name.as_str(),
+                fork_state(store, name, *count, forks_enabled),
+            )
+        })
         .collect();
 
     let mut infos: Vec<ProjectInfo> = visible
@@ -174,8 +191,11 @@ pub(crate) fn assemble_listing(
     let rows: Vec<ProjectListRow> = infos
         .iter()
         .map(|info: &ProjectInfo| {
-            let fork_count: usize = fork_counts.get(info.name()).copied().unwrap_or(0);
-            ProjectListRow::from_info(info, now, fork_count)
+            let state: ForkState = fork_states
+                .get(info.name())
+                .copied()
+                .unwrap_or(ForkState::NotForkable);
+            ProjectListRow::from_info(info, now, state)
         })
         .collect();
     Ok(ProjectListView {
@@ -202,6 +222,32 @@ fn fold_forks(names: &[String], forks_enabled: bool) -> Vec<(String, usize)> {
         .collect()
 }
 
+/// Resolves one project's [`ForkState`] (gitweb's `forks` field). With the forks
+/// feature off, no project is fork-capable. With it on, a folded `count` of forks
+/// is the [`Forked`](ForkState::Forked) state; a fork-less project is the
+/// [`EmptyContainer`](ForkState::EmptyContainer) state only when it is
+/// fork-capable by name *and* its container directory exists on disk (gitweb's
+/// `-d` test), otherwise it is [`NotForkable`](ForkState::NotForkable). A project
+/// that actually folds forks always has its container, so the `-d` test is only
+/// consulted for the fork-less case.
+fn fork_state(
+    store: &dyn ProjectStore,
+    name: &str,
+    count: usize,
+    forks_enabled: bool,
+) -> ForkState {
+    if !forks_enabled {
+        return ForkState::NotForkable;
+    }
+    match NonZeroUsize::new(count) {
+        Some(forks) => ForkState::Forked(forks),
+        None => match fork_container(name) {
+            Some(subdir) if store.container_exists(subdir) => ForkState::EmptyContainer,
+            _ => ForkState::NotForkable,
+        },
+    }
+}
+
 /// Resolves the effective sort order: the request's `order` is validated and any
 /// bad value rejected (gitweb's `die_error(400, "Unknown order parameter")`); an
 /// absent `order` falls back to the configured default. gitweb does not
@@ -219,8 +265,8 @@ fn resolve_order(order: Option<&str>, settings: &Settings) -> Result<ProjectOrde
 impl ProjectListRow {
     /// Builds a row from a project's metadata, turning its last-activity epoch
     /// into an age relative to `now` (gitweb computes `age = $now - $last`), and
-    /// carrying the number of forks folded under it.
-    fn from_info(info: &ProjectInfo, now: i64, fork_count: usize) -> Self {
+    /// carrying its resolved fork-column state.
+    fn from_info(info: &ProjectInfo, now: i64, fork_state: ForkState) -> Self {
         let age: Option<Age> = info
             .last_activity()
             .map(|epoch: i64| Age::from_seconds(now - epoch));
@@ -229,7 +275,7 @@ impl ProjectListRow {
             description: info.description().map(str::to_owned),
             owner: info.owner().map(str::to_owned),
             age,
-            fork_count,
+            fork_state,
         }
     }
 }

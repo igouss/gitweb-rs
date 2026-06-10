@@ -27,6 +27,7 @@ use gitweb_domain::model::diff::{
 use gitweb_domain::model::encoding::FallbackEncoding;
 use gitweb_domain::model::feed::{Feed, FeedEntry, FeedFile};
 use gitweb_domain::model::file_mode::{FileKind, FileMode};
+use gitweb_domain::model::forks::ForkState;
 use gitweb_domain::model::format_patch::FormatPatch;
 use gitweb_domain::model::grep::{GrepMatch, GrepResults};
 use gitweb_domain::model::grep_pattern::GrepPattern;
@@ -1305,6 +1306,11 @@ fn store_has_project(world: &mut UsecaseWorld, name: String) {
     world.projects.push(ProjectInfo::named(name));
 }
 
+#[given(regex = r#"^the store has the directory "([^"]*)"$"#)]
+fn store_has_directory(world: &mut UsecaseWorld, subdir: String) {
+    world.containers.push(subdir);
+}
+
 #[given(regex = r#"^the store has project "([^"]*)" last changed at (\d+)$"#)]
 fn store_has_aged_project(world: &mut UsecaseWorld, name: String, epoch: i64) {
     world
@@ -1454,6 +1460,24 @@ fn listing_has_no_fork_column(world: &mut UsecaseWorld) {
 #[then(regex = r#"^the project "([^"]*)" reports (\d+) forks?$"#)]
 fn project_reports_forks(world: &mut UsecaseWorld, name: String, count: usize) {
     assert_eq!(row(world, &name).fork_count(), count);
+}
+
+#[then(regex = r#"^the project "([^"]*)" has an empty fork container$"#)]
+fn project_has_empty_container(world: &mut UsecaseWorld, name: String) {
+    assert_eq!(row(world, &name).fork_state(), ForkState::EmptyContainer);
+}
+
+#[then(regex = r#"^the project "([^"]*)" is not fork-capable$"#)]
+fn project_is_not_forkable(world: &mut UsecaseWorld, name: String) {
+    assert_eq!(row(world, &name).fork_state(), ForkState::NotForkable);
+}
+
+#[then(regex = r#"^the project "([^"]*)" is forked$"#)]
+fn project_is_forked(world: &mut UsecaseWorld, name: String) {
+    assert!(matches!(
+        row(world, &name).fork_state(),
+        ForkState::Forked(_)
+    ));
 }
 
 #[then("assembling fails as invalid")]
