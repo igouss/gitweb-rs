@@ -389,9 +389,27 @@ fn given_stub_plain_handler(world: &mut WebWorld, action_name: String) {
 
 #[given("the project-list landing page is served")]
 fn given_project_list_served(world: &mut WebWorld) {
+    register_project_list(world, Vec::new());
+}
+
+#[given(regex = r#"^the project-list landing page is served with extra branch refs "([^"]*)"$"#)]
+fn given_project_list_served_with_extra_refs(world: &mut WebWorld, extra_refs: String) {
+    let extra: Vec<String> = extra_refs
+        .split(',')
+        .map(|token: &str| token.trim().to_owned())
+        .collect();
+    register_project_list(world, extra);
+}
+
+/// Wires the project-list handler over the root's store, injecting the
+/// extra-branch-refs options the composition root resolves from settings (so the
+/// "Last Change" age spans those branch directories).
+fn register_project_list(world: &mut WebWorld, extra_branch_refs: Vec<String>) {
     ensure_root(world);
-    let store: Arc<dyn ProjectStore + Send + Sync> =
-        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let store: Arc<dyn ProjectStore + Send + Sync> = Arc::new(
+        GixProjectStore::new(root(world).path().to_path_buf())
+            .with_extra_branch_refs(extra_branch_refs),
+    );
     let settings: Arc<Settings> = Arc::new(Settings::builtin());
     let handler: Arc<dyn Handler> = Arc::new(ProjectListHandler::new(store, settings));
     world.dispatcher.register(Action::ProjectList, handler);

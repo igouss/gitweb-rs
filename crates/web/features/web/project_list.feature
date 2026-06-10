@@ -23,6 +23,24 @@ Feature: Serving the projects-list landing page
     And the response body contains "beta.git"
     And the response body contains "Last Change"
 
+  Scenario: the landing page dates a project by its extra branch directory activity
+    Given a repository "extra.git" with an unborn HEAD
+    And the repository "extra.git" has a ref "refs/sandbox/wip" committed at 1700000000
+    And the project-list landing page is served with extra branch refs "sandbox"
+    When I GET "/"
+    Then the response status is 200
+    And the response body contains "extra.git"
+    And the response body does not contain "No commits"
+
+  Scenario: without the feature an extra-directory-only project shows no last change
+    Given a repository "extra.git" with an unborn HEAD
+    And the repository "extra.git" has a ref "refs/sandbox/wip" committed at 1700000000
+    And the project-list landing page is served
+    When I GET "/"
+    Then the response status is 200
+    And the response body contains "extra.git"
+    And the response body contains "No commits"
+
   Scenario: an unknown sort order is rejected
     Given a project root containing repository "alpha.git"
     And the project-list landing page is served
