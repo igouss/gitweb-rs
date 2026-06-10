@@ -24,6 +24,7 @@ use gitweb_domain::model::commitdiff_plain::CommitdiffPlain;
 use gitweb_domain::model::conditional::{Freshness, freshness, parse_http_date};
 use gitweb_domain::model::config_chain::{ConfigChain, ConfigSlot};
 use gitweb_domain::model::content_type::PlainHeaders;
+use gitweb_domain::model::delta::diff_delta;
 use gitweb_domain::model::diff::{CombinedDiffEntry, CombinedParent};
 use gitweb_domain::model::diffstat::{Diffstat, DiffstatEntry, StatChange};
 use gitweb_domain::model::email_privacy::redact;
@@ -98,6 +99,9 @@ struct DomainWorld {
     bytes: Vec<u8>,
     decoded: Option<String>,
     binary: Option<bool>,
+    delta_source: Vec<u8>,
+    delta_target: Vec<u8>,
+    delta_result: Option<Option<Vec<u8>>>,
     blob_display: Option<BlobDisplay>,
     plain_headers: Option<PlainHeaders>,
     commit: Option<Commit>,
@@ -4304,6 +4308,85 @@ fn then_feed_kept(world: &mut DomainWorld) {
 #[then("the feed type is downgraded to text/xml")]
 fn then_feed_downgraded(world: &mut DomainWorld) {
     assert_eq!(world.accept_result, Some(true));
+}
+
+// --- git binary delta encoding (model::delta) ---
+
+/// A deterministic byte ramp: byte `i` is `(i & 0xff)`. Mirrors the golden-capture
+/// script's `bytes(i & 0xff for i in range(n))`, so the Rust input fed to
+/// `diff_delta` is identical to the bytes git's `test-tool delta` saw.
+fn ramp_bytes(count: usize) -> Vec<u8> {
+    (0..count).map(|i: usize| (i & 0xff) as u8).collect()
+}
+
+#[given(regex = r"^a delta source of (\d+) bytes valued 0x([0-9a-fA-F]{2})$")]
+fn given_delta_source_valued(world: &mut DomainWorld, count: usize, byte_hex: String) {
+    let value: u8 = u8::from_str_radix(&byte_hex, 16).expect("valid hex byte");
+    world.delta_source = vec![value; count];
+}
+
+#[given(regex = r#"^a delta source of text "(.*)"$"#)]
+fn given_delta_source_text(world: &mut DomainWorld, text: String) {
+    world.delta_source = text.into_bytes();
+}
+
+#[given(regex = r#"^a delta target of text "(.*)"$"#)]
+fn given_delta_target_text(world: &mut DomainWorld, text: String) {
+    world.delta_target = text.into_bytes();
+}
+
+#[given(regex = r#"^a delta source of bytes "([0-9a-fA-F ]*)"$"#)]
+fn given_delta_source_bytes(world: &mut DomainWorld, hex: String) {
+    world.delta_source = parse_hex_bytes(&hex);
+}
+
+#[given(regex = r#"^a delta target of bytes "([0-9a-fA-F ]*)"$"#)]
+fn given_delta_target_bytes(world: &mut DomainWorld, hex: String) {
+    world.delta_target = parse_hex_bytes(&hex);
+}
+
+#[given(regex = r"^a delta source of (\d+) ramp bytes$")]
+fn given_delta_source_ramp(world: &mut DomainWorld, count: usize) {
+    world.delta_source = ramp_bytes(count);
+}
+
+#[given(regex = r"^a delta target of (\d+) ramp bytes$")]
+fn given_delta_target_ramp(world: &mut DomainWorld, count: usize) {
+    world.delta_target = ramp_bytes(count);
+}
+
+#[given(regex = r"^(\d+) ramp bytes are appended to the delta source$")]
+fn given_delta_source_append_ramp(world: &mut DomainWorld, count: usize) {
+    world.delta_source.extend(ramp_bytes(count));
+}
+
+#[given("the delta target equals the delta source")]
+fn given_delta_target_equals_source(world: &mut DomainWorld) {
+    world.delta_target = world.delta_source.clone();
+}
+
+#[when("I compute the binary delta")]
+fn compute_binary_delta(world: &mut DomainWorld) {
+    world.delta_result = Some(diff_delta(&world.delta_source, &world.delta_target));
+}
+
+#[then(regex = r#"^the delta is bytes "([0-9a-fA-F ]*)"$"#)]
+fn delta_is_bytes(world: &mut DomainWorld, hex: String) {
+    let expected: Vec<u8> = parse_hex_bytes(&hex);
+    let actual: &Option<Vec<u8>> = world
+        .delta_result
+        .as_ref()
+        .expect("compute the binary delta first");
+    assert_eq!(actual.as_deref(), Some(expected.as_slice()));
+}
+
+#[then("there is no delta")]
+fn there_is_no_delta(world: &mut DomainWorld) {
+    let actual: &Option<Vec<u8>> = world
+        .delta_result
+        .as_ref()
+        .expect("compute the binary delta first");
+    assert_eq!(actual.as_deref(), None);
 }
 
 #[tokio::main]

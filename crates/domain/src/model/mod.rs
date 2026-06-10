@@ -17,6 +17,7 @@ pub mod commitdiff_plain;
 pub mod conditional;
 pub mod config_chain;
 pub mod content_type;
+pub mod delta;
 pub mod diff;
 pub mod diffstat;
 pub mod email_privacy;
