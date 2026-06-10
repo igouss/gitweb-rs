@@ -10,6 +10,28 @@
 (require '[babashka.fs :as fs]
          '[babashka.process :refer [shell]])
 
+(def usage "usage: quality-gate.bb
+
+Coverage + CRAP gate orchestrator: hex-lint -> cargo llvm-cov ->
+crap-report.bb --gate. Run from the repo root after tests are green
+and the mutation pass is triaged. No flags besides -h/--help.
+
+env:
+  CRAP_THRESHOLD   CRAP gate threshold (default: 30)
+
+exit codes: 0 all gates pass | non-zero: the failing child's exit code
+            (hex-lint violation, coverage failure, or CRAP gate; the
+            failing step is named on stderr) | 2 usage error
+example: CRAP_THRESHOLD=25 quality-gate.bb")
+
+(when (some #{"-h" "--help"} *command-line-args*)
+  (println usage) (System/exit 0))
+(when (seq *command-line-args*)
+  (binding [*out* *err*]
+    (println (str "error: unexpected argument " (first *command-line-args*)))
+    (println) (println usage))
+  (System/exit 2))
+
 (def crap-threshold (or (System/getenv "CRAP_THRESHOLD") "30"))
 (def cov-json "target/metrics/coverage.json")
 (fs/create-dirs "target/metrics")

@@ -18,9 +18,34 @@
          '[cheshire.core :as json]
          '[clojure.string :as str])
 
+(def usage "usage: complexity-gate.bb [file.rs ...]
+
+Fast pre-commit complexity check. With no args, checks STAGED .rs files;
+with args, checks the named files (CI / testing).
+
+env:
+  CYC_MAX   cyclomatic threshold (default 15)
+  COG_MAX   cognitive threshold (default 25)
+  Override per-commit (state why in the commit body, not --no-verify):
+  CYC_MAX=999 COG_MAX=999 git commit ...
+
+exit codes: 0 clean (also: tool missing, nothing staged) | 1 violations |
+            2 usage error
+example: CYC_MAX=10 complexity-gate.bb src/lib.rs")
+
+(when (some #{"-h" "--help"} *command-line-args*)
+  (println usage) (System/exit 0))
+(doseq [a *command-line-args* :when (str/starts-with? a "-")]
+  (binding [*out* *err*]
+    (println (str "error: unknown flag " a " (files are positional)"))
+    (println) (println usage))
+  (System/exit 2))
+
 (def cyc-max (parse-long (or (System/getenv "CYC_MAX") "15")))
 (def cog-max (parse-long (or (System/getenv "COG_MAX") "25")))
 
+;; Missing-tool policy (quality-gates skill): skip silently — a contributor
+;; without the optional linter must still be able to commit.
 (when-not (fs/which "rust-code-analysis-cli")
   (System/exit 0))
 

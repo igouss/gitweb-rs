@@ -87,6 +87,34 @@
           :when (re-find infra-re file)]
       (str "W4-config] check infrastructure modified: " file)))))
 
+(def usage "usage: check-guard.bb [--staged | --range A..B]
+
+Mechanical detector for check-weakening in a diff (W1 ignore/skip added,
+W2 assert deleted, W3 regression seed deleted, W4 check infra touched,
+T1 unlabeled test deletion in range mode).
+
+modes:
+  (none)         working tree vs HEAD (strict)
+  --staged       staged changes (pre-commit hook, strict)
+  --range A..B   CI: per-commit; 'check-change:'-scoped commits are exempt
+flags:
+  -h, --help     this help
+
+Findings are HEURISTIC — mutation testing remains the proof.
+exit codes: 0 clean | 1 findings | 2 usage error
+example: check-guard.bb --range origin/main..HEAD")
+
+(when (some #{"-h" "--help"} *command-line-args*)
+  (println usage) (System/exit 0))
+(def known-modes #{"--staged" "--range"})
+(when-let [bad (first (remove (fn [a] (or (known-modes a)
+                                          (not (str/starts-with? a "-"))))
+                              *command-line-args*))]
+  (binding [*out* *err*]
+    (println (str "error: unknown flag " bad))
+    (println) (println usage))
+  (System/exit 2))
+
 (def args *command-line-args*)
 (def mode (or (first args) "--worktree"))
 (def range-spec (second args))
@@ -100,8 +128,10 @@
   "--range"
   (do
     (when-not range-spec
-      (binding [*out* *err*] (println "usage: check-guard.bb --range A..B"))
-      (System/exit 1))
+      (binding [*out* *err*]
+        (println "error: --range requires a commit range (e.g. origin/main..HEAD)")
+        (println) (println usage))
+      (System/exit 2))
     (doseq [c (->> (git "rev-list" range-spec) str/split-lines
                    (remove str/blank?))]
       (let [subj (str/trim (git "log" "-1" "--format=%s" c))

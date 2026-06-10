@@ -11,6 +11,21 @@
 (require '[cheshire.core :as json]
          '[clojure.string :as str])
 
+;; NOTE: exit codes here follow the Claude Code HOOK contract, not the kit's
+;; audit-script dictionary: 0 = allow the tool call, 2 = BLOCK it (stderr is
+;; fed back to the agent). Do not "normalize" these.
+(def usage "usage: protect-checks-hook.bb   (reads hook JSON on stdin)
+
+Claude Code PreToolUse hook (matcher: Edit|Write). Blocks edits to
+protected check infrastructure. Wire via .claude/settings.json — not
+normally invoked by hand.
+
+exit codes (Claude Code hook contract): 0 allow | 2 block
+example: echo '{\"tool_input\":{\"file_path\":\"mutants.toml\"}}' | protect-checks-hook.bb")
+
+(when (some #{"-h" "--help"} *command-line-args*)
+  (println usage) (System/exit 0))
+
 (def protected
   ["proptest-regressions/"     ; append-only known-failure seeds
    ".cargo/mutants.toml"

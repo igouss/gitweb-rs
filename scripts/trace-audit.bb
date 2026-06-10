@@ -8,12 +8,35 @@
 (require '[babashka.fs :as fs]
          '[clojure.string :as str])
 
+(def usage "usage: trace-audit.bb
+
+Bidirectional requirement<->test traceability audit. Run from the repo
+root. No flags besides -h/--help; configuration is by convention.
+
+env:
+  SPEC_DIR   spec directory (default: specs)
+
+checks: ORPHAN-REQ, DANGLING-REF, NO-REQ-ID, DANGLING-WIP, STALE-WIP,
+        IN-PROGRESS-NO-WIP (see the traceability + slice-workflow skills)
+exit codes: 0 clean | 1 findings | 2 usage/environment error
+example: SPEC_DIR=specs trace-audit.bb")
+
+(when (some #{"-h" "--help"} *command-line-args*)
+  (println usage) (System/exit 0))
+(when (seq *command-line-args*)
+  (binding [*out* *err*]
+    (println (str "error: unexpected argument " (first *command-line-args*)))
+    (println) (println usage))
+  (System/exit 2))
+
 (def spec-dir (or (System/getenv "SPEC_DIR") "specs"))
 (def test-paths ["src" "tests"])
 
 (when-not (fs/directory? spec-dir)
-  (println (str "no " spec-dir "/ directory"))
-  (System/exit 1))
+  (binding [*out* *err*]
+    (println (str "error: no " spec-dir "/ directory — run from the repo root "
+                  "or set SPEC_DIR")))
+  (System/exit 2))
 
 (def fail? (atom false))
 (defn flag! [& parts] (println (str "  " (str/join parts))) (reset! fail? true))

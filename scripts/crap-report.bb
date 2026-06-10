@@ -25,16 +25,60 @@
          '[cheshire.core :as json]
          '[clojure.string :as str])
 
-(def args (apply hash-map *command-line-args*))
+(def usage "usage: crap-report.bb [--coverage FILE] [--top N] [--gate N]
+
+Per-function CRAP from llvm-cov coverage × rust-code-analysis complexity,
+joined by file + line-range overlap (never by function name).
+
+flags:
+  --coverage FILE   llvm-cov JSON export
+                    (default: target/metrics/coverage.json; produce it with
+                    cargo llvm-cov nextest --workspace --json --output-path <FILE>)
+  --top N           rows in the report table (default: 20)
+  --gate N          exit 1 if any function's CRAP exceeds N (e.g. 30)
+  -h, --help        this help
+
+outputs: target/metrics/crap-report.md, metrics/history.csv (trend row,
+idempotent per date+commit — commit it), report on stdout.
+exit codes: 0 success | 1 gate exceeded | 2 usage/environment error
+example: crap-report.bb --coverage target/metrics/coverage.json --gate 30")
+
+(defn die-usage! [msg]
+  (binding [*out* *err*] (println (str "error: " msg)) (println) (println usage))
+  (System/exit 2))
+
+(defn lev [s t]
+  (let [s (vec s) t (vec t)]
+    (peek (reduce (fn [prev i]
+                    (reduce (fn [row j]
+                              (conj row (min (inc (peek row))
+                                             (inc (nth prev (inc j)))
+                                             (+ (nth prev j) (if (= (s i) (t j)) 0 1)))))
+                            [(inc i)] (range (count t))))
+                  (vec (range (inc (count t)))) (range (count s))))))
+
+(def value-flags #{"--coverage" "--top" "--gate"})
+(when (some #{"-h" "--help"} *command-line-args*)
+  (println usage) (System/exit 0))
+(def args
+  (loop [m {} [a & more] *command-line-args*]
+    (cond
+      (nil? a) m
+      (value-flags a) (if (and (first more) (not (str/starts-with? (first more) "-")))
+                        (recur (assoc m a (first more)) (rest more))
+                        (die-usage! (str a " requires a value")))
+      :else (let [sug (first (sort-by #(lev a %) (filter #(<= (lev a %) 2) value-flags)))]
+              (die-usage! (str "unknown argument " a
+                               (when sug (str " — did you mean " sug "?"))))))))
 (def cov-path (get args "--coverage" "target/metrics/coverage.json"))
-(def top-n (parse-long (get args "--top" "20")))
-(def gate (some-> (get args "--gate") parse-long))
+(def top-n (or (parse-long (get args "--top" "20"))
+               (die-usage! "--top expects an integer")))
+(def gate (when-let [g (get args "--gate")]
+            (or (parse-long g) (die-usage! "--gate expects an integer"))))
 
 (when-not (fs/exists? cov-path)
-  (binding [*out* *err*]
-    (println (str "crap-report: no coverage export at " cov-path))
-    (println "run: cargo llvm-cov nextest --workspace --json --output-path" cov-path))
-  (System/exit 2))
+  (die-usage! (str "no coverage export at " cov-path " — produce it with: "
+                   "cargo llvm-cov nextest --workspace --json --output-path " cov-path)))
 
 (def repo-root (str/trim (:out (sh "git" "rev-parse" "--show-toplevel"))))
 

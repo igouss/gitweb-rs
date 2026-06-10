@@ -1,32 +1,68 @@
 #!/usr/bin/env bb
 ;; tracker-audit.bb — audit a beads issues.jsonl against tracker-discipline.
 ;; Works on the JSONL mirror (bd and br both emit it), no tracker CLI needed.
-;;
-;; Usage: tracker-audit.bb [path/to/issues.jsonl]  (default .beads/issues.jsonl)
-;; Checks:
-;;   OPEN-EPIC-DONE     open parent whose children (dotted ids: X.1, X.2…)
-;;                      are all closed — the most common tracker rot; closing
-;;                      the epic when the last child lands is an explicit habit
-;;   DEFERRAL-NO-BEAD   close_reason says deferred/out of scope/follow-up but
-;;                      references no other bead id — a deferral with no
-;;                      tracker home rots silently (the no-exceptions rule).
-;;                      Known false-positive mode: "deferred" as a placement
-;;                      word ("deferred to the render adapter"). Triage by
-;;                      hand; field rate was ~half real, half word-usage.
-;;   DANGLING-DEP       dependency edge pointing at a nonexistent id
-;;   WARN STUB-OPEN     open bead with a <200-char description — fine as a
-;;                      backlog marker, NOT implementable; enrich before pickup
-;; Exit non-zero on any non-WARN finding.
 
 (require '[babashka.fs :as fs]
          '[cheshire.core :as json]
          '[clojure.string :as str])
 
-(def path (or (first *command-line-args*) ".beads/issues.jsonl"))
+(def usage "usage: tracker-audit.bb [--json] [issues.jsonl]
+
+Audit a beads JSONL mirror against tracker-discipline.
+
+args:
+  issues.jsonl   path to the tracker's JSONL mirror
+                 (default: .beads/issues.jsonl)
+flags:
+  --json         machine-readable result on stdout:
+                 {\"ok\":bool,\"findings\":[{\"check\",\"detail\"}],\"warnings\":[...]}
+  -h, --help     this help
+
+checks (findings, exit 1):
+  OPEN-EPIC-DONE     open parent, all dotted children (X.1, X.2…) closed —
+                     the most common tracker rot
+  DEFERRAL-NO-BEAD   close_reason defers without referencing a bead id
+                     (accepts short id suffixes — \"2os.11\" for
+                     \"proj-2os.11\"). Known false positive: \"deferred\"
+                     as a placement word. Triage by hand.
+  DANGLING-DEP       dependency edge pointing at a nonexistent id
+warnings (never affect exit):
+  STUB-OPEN          open bead with <200-char description — backlog
+                     marker, not implementable; enrich before pickup
+
+exit codes: 0 clean | 1 findings | 2 usage/environment error
+example: tracker-audit.bb --json .beads/issues.jsonl")
+
+;; --- args -------------------------------------------------------------------
+(defn die-usage! [msg]
+  (binding [*out* *err*] (println (str "error: " msg)) (println) (println usage))
+  (System/exit 2))
+
+(defn lev [s t]
+  (let [s (vec s) t (vec t)]
+    (peek (reduce (fn [prev i]
+                    (reduce (fn [row j]
+                              (conj row (min (inc (peek row))
+                                             (inc (nth prev (inc j)))
+                                             (+ (nth prev j) (if (= (s i) (t j)) 0 1)))))
+                            [(inc i)] (range (count t))))
+                  (vec (range (inc (count t)))) (range (count s))))))
+
+(def known-flags #{"--json" "--help" "-h"})
+(when (some #{"-h" "--help"} *command-line-args*)
+  (println usage) (System/exit 0))
+(doseq [a *command-line-args* :when (str/starts-with? a "-")]
+  (when-not (known-flags a)
+    (let [sug (first (sort-by #(lev a %) (filter #(<= (lev a %) 2) known-flags)))]
+      (die-usage! (str "unknown flag " a (when sug (str " — did you mean " sug "?")))))))
+
+(def json? (boolean (some #{"--json"} *command-line-args*)))
+(def positional (remove #(str/starts-with? % "-") *command-line-args*))
+(def path (or (first positional) ".beads/issues.jsonl"))
 
 (when-not (fs/exists? path)
-  (println (str "no such file: " path))
-  (System/exit 1))
+  (die-usage! (str "no such file: " path
+                   " — pass the JSONL mirror path (bd/br emit it; check .beads/)")))
 
 (def issues
   (->> (str/split-lines (slurp path))
@@ -37,23 +73,32 @@
 (def ids (set (keys by-id)))
 (def closed? #(= "closed" (:status %)))
 
-(def fail? (atom false))
-(defn flag! [& parts] (println (str "  " (str/join parts))) (reset! fail? true))
-(defn warn! [& parts] (println (str "  WARN " (str/join parts))))
+;; --- collect ------------------------------------------------------------------
+(def findings (atom []))
+(def warnings (atom []))
+(defn flag! [check & parts]
+  (let [d (str/join parts)]
+    (swap! findings conj {:check check :detail d})
+    (when-not json? (println (str "  " check "  " d)))))
+(defn warn! [check & parts]
+  (let [d (str/join parts)]
+    (swap! warnings conj {:check check :detail d})
+    (when-not json? (println (str "  WARN " check "  " d)))))
+(defn section! [title] (when-not json? (println (str "== " title " =="))))
 
 (defn children-of [id]
   (let [prefix (str id ".")]
     (filter #(str/starts-with? (:id %) prefix) issues)))
 
-(println "== Open epics with all children closed ==")
+(section! "Open epics with all children closed")
 (doseq [issue issues
         :when (not (closed? issue))
         :let [kids (children-of (:id issue))]
         :when (and (seq kids) (every? closed? kids))]
-  (flag! "OPEN-EPIC-DONE  " (:id issue) "  (" (count kids)
+  (flag! "OPEN-EPIC-DONE" (:id issue) "  (" (count kids)
          " children, all closed — close it or say what still blocks it)"))
 
-(println "== Deferrals without a tracker home ==")
+(section! "Deferrals without a tracker home")
 ;; Close reasons commonly cite SHORT id suffixes ("Follow-ups filed: 2os.11")
 ;; rather than full ids — accept both. The short form is the full id minus
 ;; the common project prefix shared by every id in the file.
@@ -78,26 +123,30 @@
         :when (and (closed? issue) (re-find deferral-re reason))]
   ;; a deferral is homed if the close reason names any OTHER existing bead id
   (when-not (some #(and (not= % (:id issue)) (mentions-id? reason %)) ids)
-    (flag! "DEFERRAL-NO-BEAD  " (:id issue)
+    (flag! "DEFERRAL-NO-BEAD" (:id issue)
            "  close_reason defers without referencing a bead id")))
 
-(println "== Dangling dependency edges ==")
+(section! "Dangling dependency edges")
 (doseq [issue issues
         dep (:dependencies issue)
         :let [target (:depends_on_id dep)]
         :when (and target (not (str/blank? target)) (not (ids target)))]
-  (flag! "DANGLING-DEP  " (:id issue) " -> " target " (" (:type dep) ")"))
+  (flag! "DANGLING-DEP" (:id issue) " -> " target " (" (:type dep) ")"))
 
-(println "== Stub beads still open ==")
+(section! "Stub beads still open")
 (doseq [issue issues
         :when (and (not (closed? issue))
                    (< (count (str (:description issue))) 200)
                    (empty? (children-of (:id issue))))]   ; epics carry detail in children
-  (warn! "STUB-OPEN  " (:id issue) "  \"" (:title issue)
+  (warn! "STUB-OPEN" (:id issue) "  \"" (:title issue)
          "\" (" (count (str (:description issue))) " chars — enrich before pickup)"))
 
-(if @fail?
-  (do (println)
-      (println "TRACKER AUDIT FAILED — fix per tracker-discipline.")
-      (System/exit 1))
-  (do (println) (println "TRACKER AUDIT OK.")))
+;; --- render -------------------------------------------------------------------
+(if json?
+  (println (json/generate-string {:ok (empty? @findings)
+                                  :findings @findings
+                                  :warnings @warnings}))
+  (if (seq @findings)
+    (do (println) (println "TRACKER AUDIT FAILED — fix per tracker-discipline."))
+    (do (println) (println "TRACKER AUDIT OK."))))
+(System/exit (if (seq @findings) 1 0))
