@@ -240,6 +240,23 @@ impl ProjectStore for GixProjectStore {
         let git_dir: PathBuf = self.locate(name)?;
         Ok(read_nonempty(&git_dir.join("README.html")))
     }
+
+    fn description(&self, name: &str) -> Result<Option<String>, DomainError> {
+        // gitweb's git_get_project_description: the $GIT_DIR/description file,
+        // else the gitweb.description config value. The same file_or_config read
+        // info() uses, but on its own — no owner/category/clone/last-activity
+        // work. locate() validates the name and confirms a repository lives
+        // there, so a bad name fails like open()/info().
+        let git_dir: PathBuf = self.locate(name)?;
+        let repo: gix::Repository = gix::open(&git_dir).map_err(backend)?;
+        let config: gix::config::Snapshot<'_> = repo.config_snapshot();
+        Ok(file_or_config(
+            &git_dir,
+            "description",
+            &config,
+            "gitweb.description",
+        ))
+    }
 }
 
 /// gitweb's `-s "$projectroot/$project/README.html"`: the file's bytes when it

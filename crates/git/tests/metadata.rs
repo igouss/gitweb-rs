@@ -27,6 +27,9 @@ struct MetadataWorld {
     /// store, so last activity can span branch directories beyond `refs/heads/`.
     extra_branch_refs: Vec<String>,
     info: Option<Result<ProjectInfo, DomainError>>,
+    /// The result of the lightweight `description` read (gitweb's
+    /// `git_get_project_description`), kept distinct from the full `info` read.
+    description: Option<Result<Option<String>, DomainError>>,
 }
 
 /// A pinned [`UserDirectory`]: every uid resolves to the same configured name
@@ -150,6 +153,12 @@ fn read_metadata(world: &mut MetadataWorld, name: String) {
     world.info = Some(store.info(&name));
 }
 
+#[when(regex = r#"^I read the description of "([^"]*)"$"#)]
+fn read_description(world: &mut MetadataWorld, name: String) {
+    let store: GixProjectStore = GixProjectStore::new(root(world).path().to_path_buf());
+    world.description = Some(store.description(&name));
+}
+
 // --- Thens: resolved metadata ------------------------------------------------
 
 #[then(regex = r#"^the description is "(.*)"$"#)]
@@ -160,6 +169,28 @@ fn description_is(world: &mut MetadataWorld, expected: String) {
 #[then("there is no description")]
 fn no_description(world: &mut MetadataWorld) {
     assert_eq!(ok_info(world).description(), None);
+}
+
+#[then(regex = r#"^the description value is "(.*)"$"#)]
+fn description_value_is(world: &mut MetadataWorld, expected: String) {
+    let resolved: &Option<String> = world
+        .description
+        .as_ref()
+        .expect("read the description first")
+        .as_ref()
+        .expect("reading the description succeeded");
+    assert_eq!(resolved.as_deref(), Some(expected.as_str()));
+}
+
+#[then("there is no description value")]
+fn no_description_value(world: &mut MetadataWorld) {
+    let resolved: &Option<String> = world
+        .description
+        .as_ref()
+        .expect("read the description first")
+        .as_ref()
+        .expect("reading the description succeeded");
+    assert_eq!(resolved.as_deref(), None);
 }
 
 #[then(regex = r#"^the owner is "(.*)"$"#)]

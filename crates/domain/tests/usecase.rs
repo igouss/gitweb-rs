@@ -133,6 +133,12 @@ impl ProjectStore for FakeStore {
         // reads it from the store), so no use case drives this through the fake.
         Ok(None)
     }
+
+    fn description(&self, name: &str) -> Result<Option<String>, DomainError> {
+        // The footer description is a web-boundary read, never driven through a
+        // domain use case; serve it from the same metadata `info` resolves.
+        Ok(self.info(name)?.description().map(str::to_owned))
+    }
 }
 
 /// An in-memory [`ProjectStore`] for the opml use case: each project either has a
@@ -179,6 +185,10 @@ impl ProjectStore for FakeOpmlStore {
 
     fn readme_html(&self, _name: &str) -> Result<Option<String>, DomainError> {
         unimplemented!("the opml use case never reads a README")
+    }
+
+    fn description(&self, _name: &str) -> Result<Option<String>, DomainError> {
+        unimplemented!("the opml use case never reads a project description")
     }
 }
 

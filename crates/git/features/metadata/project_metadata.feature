@@ -35,6 +35,31 @@ Feature: Per-project metadata through the gix ProjectStore adapter
     When I read the metadata of "solo.git"
     Then there is no description
 
+  # --- description() alone: the lightweight footer read -----------------------
+  # gitweb's git_footer_html shows the description on every page via
+  # git_get_project_description, the same description/gitweb.description source as
+  # the metadata above but without paying for owner/category/clone-URL/last-
+  # activity resolution. The dedicated read resolves file, then config, then None.
+
+  Scenario: the description read returns the description file
+    Given a project root containing repository "solo.git"
+    And "solo.git" has the description file "A neat little project"
+    When I read the description of "solo.git"
+    Then the description value is "A neat little project"
+
+  Scenario: the description read falls back to gitweb config when there is no file
+    Given a project root containing repository "solo.git"
+    And "solo.git" has no description file
+    And "solo.git" has gitweb config "description" set to "Configured description"
+    When I read the description of "solo.git"
+    Then the description value is "Configured description"
+
+  Scenario: the description read is empty when neither a file nor config is set
+    Given a project root containing repository "solo.git"
+    And "solo.git" has no description file
+    When I read the description of "solo.git"
+    Then there is no description value
+
   # --- owner: file / config win, then the filesystem owner (get_file_owner) ---
   # gitweb resolves an owner from the projects-list file, then the gitweb.owner
   # config, and only as a last resort from the operating-system owner of the

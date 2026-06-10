@@ -40,6 +40,20 @@ pub trait ProjectStore {
     /// repository fails the same way [`open`](Self::open) does.
     fn info(&self, name: &str) -> Result<ProjectInfo, DomainError>;
 
+    /// Just the project's description (gitweb's `git_get_project_description`):
+    /// the first line of its `$GIT_DIR/description` file, or, when that file is
+    /// absent, the `gitweb.description` config value; `None` when neither is set.
+    ///
+    /// This is the same source [`info`](Self::info) reads into
+    /// [`ProjectInfo::description`], split out as a lightweight read because the
+    /// page footer shows the description on *every* HTML page and must not pay
+    /// for `info`'s owner/category/clone-URL resolution and its full ref scan for
+    /// last activity. A name that does not resolve to a repository fails the same
+    /// way [`open`](Self::open) does; a missing description is not a failure.
+    ///
+    /// [`ProjectInfo::description`]: crate::model::project_info::ProjectInfo::description
+    fn description(&self, name: &str) -> Result<Option<String>, DomainError>;
+
     /// The raw contents of the project's `$GIT_DIR/README.html`, when the file
     /// exists and is non-empty (gitweb's `-s` test on the summary page); `None`
     /// when it is absent or empty.
