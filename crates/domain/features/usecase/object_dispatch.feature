@@ -55,3 +55,15 @@ Feature: Resolving the no-action default object view (gitweb's dispatch git_get_
     And the tree has file "README" of 5 bytes
     When I resolve the dispatch action for base "HEAD" and file "missing.txt"
     Then resolving the dispatch action fails with "File or directory does not exist"
+
+  # A submodule is where dispatch and the object action deliberately DIVERGE.
+  # The object action reads the kind from ls-tree's mode column, so a gitlink
+  # redirects to the commit view (see usecase/object). dispatch instead runs
+  # git_get_type = `cat-file -t hash_base:file_name`, which reads the recorded
+  # object — and a gitlink's commit lives in the submodule, absent here, so the
+  # read fails and gitweb 404s. We match that: a gitlink does not serve a view.
+  Scenario: A submodule under a base is the file-or-directory 404, its commit absent
+    Given the tree base is commit "root"
+    And the tree has submodule "vendor"
+    When I resolve the dispatch action for base "HEAD" and file "vendor"
+    Then resolving the dispatch action fails with "File or directory does not exist"
