@@ -21,7 +21,8 @@ use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::settings::{FeatureName, Settings};
 use gitweb_render::chrome::{
-    DocumentHead, FeedHrefs, FeedLink, PageFooter, project_feed_links, project_list_feed_links,
+    DocumentHead, FeedHrefs, FeedLink, FooterFeedHrefs, PageFooter, project_feed_links,
+    project_footer_links, project_list_feed_links, project_list_footer_links,
 };
 
 use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
@@ -75,19 +76,38 @@ pub fn document_head(title: String, feeds: Vec<FeedLink>) -> DocumentHead {
 /// every HTML handler builds this from the request and hands it to
 /// [`document`](gitweb_render::chrome::document) alongside the head.
 ///
-/// The footer's syndication links (RSS/Atom in project context, OPML/TXT on
-/// the projects list) are wired in a following commit; this seam threads the
-/// footer through every handler so the document renders it uniformly.
+/// In project context it links the page's RSS and Atom feeds (the same feed the
+/// head advertises, classified by [`project_feed_info`], but as visible anchors
+/// titled `"<feed title> <FORMAT> feed"` and without the head's `--no-merges`
+/// variants); on the projects list it links the OPML feed and the plain-text
+/// index. The project description gitweb shows above the project-context links
+/// is a separate `git_get_project_description` read, not yet wired.
 ///
 /// # Errors
-/// [`DomainError::Backend`] when building the links requires validating a
-/// malformed `extra-branch-refs` entry (gitweb's `die_error(500, ...)`), the
-/// same failure [`page_feeds`] surfaces.
+/// [`DomainError::Backend`] when a malformed `extra-branch-refs` entry fails
+/// validation (gitweb's `die_error(500, ...)`), the same failure [`page_feeds`]
+/// surfaces.
 pub fn page_footer(settings: &Settings, request: &Request) -> Result<PageFooter, DomainError> {
-    let _ = (settings, request);
+    let Some(project) = request.project.as_deref() else {
+        // gitweb's projects-list branch: the OPML feed and the plain-text index.
+        // Like the head feeds (page_feeds), these are not scoped to the
+        // project_filter — head and footer stay in step.
+        return Ok(PageFooter {
+            description: None,
+            links: project_list_footer_links(
+                &href(&[("a", "opml")]),
+                &href(&[("a", "project_index")]),
+            ),
+        });
+    };
+    let info: FeedInfo = project_feed_info(settings, request)?;
+    let hrefs: FooterFeedHrefs = FooterFeedHrefs {
+        rss: feed_href(project, "rss", &info, false),
+        atom: feed_href(project, "atom", &info, false),
+    };
     Ok(PageFooter {
         description: None,
-        links: Vec::new(),
+        links: project_footer_links(info.title(), &hrefs),
     })
 }
 
@@ -108,6 +128,24 @@ pub fn page_feeds(settings: &Settings, request: &Request) -> Result<Vec<FeedLink
             &href(&[("a", "opml")]),
         ));
     };
+    let info: FeedInfo = project_feed_info(settings, request)?;
+    Ok(project_feed_links(
+        project,
+        info.title(),
+        &feed_hrefs(project, &info),
+    ))
+}
+
+/// Classifies a project page's feed (gitweb's `get_feed_info`): the branch and
+/// file the feeds are scoped to and the descriptive title. The head's `<link>`
+/// feeds and the footer's anchors share this — they advertise the same feed,
+/// only with different wording and URLs.
+///
+/// # Errors
+/// [`DomainError::Backend`] when a malformed `extra-branch-refs` entry fails
+/// validation (gitweb's `die_error(500, ...)`), surfaced as it is at the other
+/// [`get_branch_refs`] consumers.
+fn project_feed_info(settings: &Settings, request: &Request) -> Result<FeedInfo, DomainError> {
     // The branch directories get_feed_info classifies refs against (heads plus
     // the validated extra-branch-refs), exactly as the heads/summary consumers
     // resolve them — a malformed entry is gitweb's die_error(500).
@@ -117,17 +155,12 @@ pub fn page_feeds(settings: &Settings, request: &Request) -> Result<Vec<FeedLink
     let branch_refs: Vec<String> = get_branch_refs(extra)?;
     let branch_refs: Vec<&str> = branch_refs.iter().map(String::as_str).collect();
     let action: &str = request.action.map_or("", Action::as_str);
-    let info: FeedInfo = feed_info(
+    Ok(feed_info(
         action,
         request.hash_base.as_ref().map(SafeRef::as_str),
         request.hash.as_ref().map(SafeRef::as_str),
         request.file_name.as_ref().map(SafePath::as_str),
         &branch_refs,
-    );
-    Ok(project_feed_links(
-        project,
-        info.title(),
-        &feed_hrefs(project, &info),
     ))
 }
 
