@@ -9,13 +9,16 @@
 //! relative ages are computed here, once, and the view-model stays free of any
 //! time dependency.
 
+use std::collections::HashMap;
+
 use crate::error::DomainError;
 use crate::model::age::Age;
+use crate::model::forks::{ProjectGroup, partition_forks};
 use crate::model::project::Project;
 use crate::model::project_filter::ProjectFilter;
 use crate::model::project_info::ProjectInfo;
 use crate::model::project_order::ProjectOrder;
-use crate::model::settings::Settings;
+use crate::model::settings::{FeatureName, Settings};
 use crate::port::project_store::ProjectStore;
 
 /// One project as it appears on the listing: its identity, the metadata gitweb
@@ -27,6 +30,7 @@ pub struct ProjectListRow {
     description: Option<String>,
     owner: Option<String>,
     age: Option<Age>,
+    fork_count: usize,
 }
 
 impl ProjectListRow {
@@ -55,6 +59,14 @@ impl ProjectListRow {
     pub fn age(&self) -> Option<Age> {
         self.age
     }
+
+    /// The number of forks folded under this project (gitweb's
+    /// `scalar @{$pr->{'forks'}}`). Always `0` when the forks feature is off; a
+    /// positive count drives the leading `+` link to the project's forks view.
+    #[must_use]
+    pub fn fork_count(&self) -> usize {
+        self.fork_count
+    }
 }
 
 /// The assembled projects-list page: the ordered rows and the order they are in,
@@ -63,6 +75,7 @@ impl ProjectListRow {
 pub struct ProjectListView {
     rows: Vec<ProjectListRow>,
     order: ProjectOrder,
+    forks_enabled: bool,
 }
 
 impl ProjectListView {
@@ -76,6 +89,14 @@ impl ProjectListView {
     #[must_use]
     pub fn order(&self) -> ProjectOrder {
         self.order
+    }
+
+    /// Whether the forks feature is on for this listing (gitweb's
+    /// `$check_forks`). When set, the view carries the leading fork column and a
+    /// project's [`fork_count`](ProjectListRow::fork_count) is meaningful.
+    #[must_use]
+    pub fn forks_enabled(&self) -> bool {
+        self.forks_enabled
     }
 }
 
@@ -98,25 +119,87 @@ pub fn assemble_project_list(
     filter: Option<&ProjectFilter>,
     now: i64,
 ) -> Result<ProjectListView, DomainError> {
+    // gitweb's git_project_list: die_error(404, "No projects found").
+    assemble_listing(store, settings, order, filter, "No projects found", now)
+}
+
+/// The shared projects-listing assembly behind both the landing list
+/// ([`assemble_project_list`]) and the forks view
+/// ([`assemble_forks`](crate::usecase::forks::assemble_forks)) — gitweb's
+/// `git_project_list_body`. It lists the projects (scoped by `filter`), dies
+/// `404 not_found` when the raw list is empty (the caller's message: "No
+/// projects found" or "No forks found"), folds forks under their parents when
+/// the forks feature is on, fills the surviving projects with their metadata, and
+/// sorts by `order`. `now` is the request-time epoch the relative ages measure
+/// against.
+///
+/// # Errors
+///
+/// Returns [`DomainError::Invalid`] for an unrecognized `order`, the store's own
+/// error if discovery or metadata fails, and [`DomainError::NotFound`] with
+/// `not_found` when no projects are discoverable.
+pub(crate) fn assemble_listing(
+    store: &dyn ProjectStore,
+    settings: &Settings,
+    order: Option<&str>,
+    filter: Option<&ProjectFilter>,
+    not_found: &str,
+    now: i64,
+) -> Result<ProjectListView, DomainError> {
     let order: ProjectOrder = resolve_order(order, settings)?;
 
     let projects: Vec<Project> = store.list(filter)?;
     if projects.is_empty() {
-        // gitweb's git_project_list: die_error(404, "No projects found").
-        return Err(DomainError::NotFound("No projects found".to_owned()));
+        return Err(DomainError::NotFound(not_found.to_owned()));
     }
 
-    let mut infos: Vec<ProjectInfo> = projects
+    // gitweb's git_project_list_body: $check_forks = gitweb_check_feature('forks').
+    let forks_enabled: bool = settings.feature(FeatureName::Forks).enabled();
+    let names: Vec<String> = projects
         .iter()
-        .map(|project: &Project| store.info(project.name()))
+        .map(|project: &Project| project.name().to_owned())
+        .collect();
+    let visible: Vec<(String, usize)> = fold_forks(&names, forks_enabled);
+    let fork_counts: HashMap<&str, usize> = visible
+        .iter()
+        .map(|(name, count): &(String, usize)| (name.as_str(), *count))
+        .collect();
+
+    let mut infos: Vec<ProjectInfo> = visible
+        .iter()
+        .map(|(name, _): &(String, usize)| store.info(name))
         .collect::<Result<Vec<ProjectInfo>, DomainError>>()?;
     order.sort(&mut infos);
 
     let rows: Vec<ProjectListRow> = infos
         .iter()
-        .map(|info: &ProjectInfo| ProjectListRow::from_info(info, now))
+        .map(|info: &ProjectInfo| {
+            let fork_count: usize = fork_counts.get(info.name()).copied().unwrap_or(0);
+            ProjectListRow::from_info(info, now, fork_count)
+        })
         .collect();
-    Ok(ProjectListView { rows, order })
+    Ok(ProjectListView {
+        rows,
+        order,
+        forks_enabled,
+    })
+}
+
+/// Folds forks under their parents when the feature is on (gitweb's
+/// `filter_forks_from_projects_list` inside `git_project_list_body`), pairing
+/// each surviving project with the count of forks folded under it; input order
+/// is preserved. With the feature off, every project stays visible with no fold.
+fn fold_forks(names: &[String], forks_enabled: bool) -> Vec<(String, usize)> {
+    if !forks_enabled {
+        return names
+            .iter()
+            .map(|name: &String| (name.clone(), 0))
+            .collect();
+    }
+    partition_forks(names)
+        .into_iter()
+        .map(|group: ProjectGroup| (group.name().to_owned(), group.forks().len()))
+        .collect()
 }
 
 /// Resolves the effective sort order: the request's `order` is validated and any
@@ -135,8 +218,9 @@ fn resolve_order(order: Option<&str>, settings: &Settings) -> Result<ProjectOrde
 
 impl ProjectListRow {
     /// Builds a row from a project's metadata, turning its last-activity epoch
-    /// into an age relative to `now` (gitweb computes `age = $now - $last`).
-    fn from_info(info: &ProjectInfo, now: i64) -> Self {
+    /// into an age relative to `now` (gitweb computes `age = $now - $last`), and
+    /// carrying the number of forks folded under it.
+    fn from_info(info: &ProjectInfo, now: i64, fork_count: usize) -> Self {
         let age: Option<Age> = info
             .last_activity()
             .map(|epoch: i64| Age::from_seconds(now - epoch));
@@ -145,6 +229,7 @@ impl ProjectListRow {
             description: info.description().map(str::to_owned),
             owner: info.owner().map(str::to_owned),
             age,
+            fork_count,
         }
     }
 }

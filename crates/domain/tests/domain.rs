@@ -30,7 +30,7 @@ use gitweb_domain::model::export::{ExportPolicy, RepoFacts};
 use gitweb_domain::model::feed::{comment_lines, feed_title, feed_window};
 use gitweb_domain::model::file_change::FileChangeNote;
 use gitweb_domain::model::file_mode::FileMode;
-use gitweb_domain::model::forks::{ProjectGroup, partition_forks};
+use gitweb_domain::model::forks::{ProjectGroup, forks_subdirectory, partition_forks};
 use gitweb_domain::model::format_patch::{FormatPatch, PatchEntry};
 use gitweb_domain::model::grep::{GrepMatch, file_matches};
 use gitweb_domain::model::grep_pattern::GrepPattern;
@@ -157,6 +157,7 @@ struct DomainWorld {
     decoded_token: Option<String>,
     fork_input: Vec<String>,
     fork_groups: Option<Vec<ProjectGroup>>,
+    fork_project: Option<String>,
     project_filter: Option<ProjectFilter>,
     subject_project: Option<ProjectInfo>,
     short_description: Option<String>,
@@ -2531,6 +2532,20 @@ fn has_the_fork(world: &mut DomainWorld, name: String, fork: String) {
         .iter()
         .any(|candidate: &String| candidate == &fork);
     assert!(found, "expected {name} to own the fork {fork}");
+}
+
+#[given(regex = r#"^the project "([^"]*)"$"#)]
+fn given_the_project(world: &mut DomainWorld, project: String) {
+    world.fork_project = Some(project);
+}
+
+#[then(regex = r#"^its forks live in the subdirectory "([^"]*)"$"#)]
+fn forks_live_in(world: &mut DomainWorld, expected: String) {
+    let project: &str = world
+        .fork_project
+        .as_deref()
+        .expect("name the project first");
+    assert_eq!(forks_subdirectory(project), expected);
 }
 
 // --- Project filter (pf subdirectory scoping) --------------------------------

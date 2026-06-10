@@ -70,3 +70,36 @@ Feature: Assembling the projects-list page
     Given the store has project "group/alpha.git"
     When I assemble the project list filtered by "elsewhere"
     Then assembling fails as not found
+
+  # --- the forks feature (fold forks under their parent) ---
+
+  Scenario: without the forks feature every project is listed flat
+    Given the store has project "repo.git"
+    And the store has project "repo/fork.git"
+    When I assemble the project list
+    Then the listed projects are "repo.git, repo/fork.git"
+    And the listing has no fork column
+
+  Scenario: the forks feature folds a fork under its parent
+    Given the forks feature is enabled
+    And the store has project "repo.git"
+    And the store has project "repo/fork.git"
+    When I assemble the project list
+    Then the listed projects are "repo.git"
+    And the listing has the fork column
+    And the project "repo.git" reports 1 fork
+
+  Scenario: the forks feature reports a project's full fork count
+    Given the forks feature is enabled
+    And the store has project "repo.git"
+    And the store has project "repo/one.git"
+    And the store has project "repo/two.git"
+    When I assemble the project list
+    Then the listed projects are "repo.git"
+    And the project "repo.git" reports 2 forks
+
+  Scenario: a fork-less project reports no forks even with the feature on
+    Given the forks feature is enabled
+    And the store has project "solo.git"
+    When I assemble the project list
+    Then the project "solo.git" reports 0 forks

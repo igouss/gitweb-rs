@@ -56,3 +56,18 @@ Feature: Rendering the projects-list table
     When I render the project list sorted by "project"
     Then the result contains "<table class="project-list">"
     And the result contains "Last Change"
+
+  # --- the forks feature: leading '+' column linking to the forks view ---
+
+  Scenario: a project with forks shows a linked '+' and a forks quick link
+    Given a listed project "repo.git" at "/repo" with 2 forks
+    When I render the project list sorted by "project"
+    Then the result contains "<a href="/repo/forks" title="2 forks">+</a>"
+    And the result contains "<a href="/repo/forks">forks</a>"
+
+  Scenario: with the fork column on, a fork-less project has an empty cell and no forks link
+    Given a listed project "solo.git" at "/solo" with 0 forks
+    When I render the project list sorted by "project"
+    Then the result contains "<th class="forks"></th>"
+    And the result does not contain ">+</a>"
+    And the result does not contain ">forks</a>"

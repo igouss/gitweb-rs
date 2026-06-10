@@ -54,3 +54,19 @@ Feature: Detecting forks among projects
     Then 2 top-level projects remain
     And "group/one.git" has 0 forks
     And "group/two.git" has 0 forks
+
+  # --- the forks-of subdirectory (gitweb's git_forks filter) ---
+  # The forks of `repo.git` live in `repo/`, so the forks action scopes the
+  # listing to the project path with one trailing `.git` removed.
+
+  Scenario: a bare project's forks live in its name without the .git suffix
+    Given the project "repo.git"
+    Then its forks live in the subdirectory "repo"
+
+  Scenario: a project path without a .git suffix is its own forks subdirectory
+    Given the project "repo"
+    Then its forks live in the subdirectory "repo"
+
+  Scenario: only one trailing .git is stripped to find the forks subdirectory
+    Given the project "nested/work.git"
+    Then its forks live in the subdirectory "nested/work"

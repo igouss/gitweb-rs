@@ -55,6 +55,12 @@ pub struct ProjectRow {
     pub age: Option<Age>,
     /// Per-project quick links.
     pub links: ProjectLinks,
+    /// Number of forks folded under this project; `0` when it has none (or the
+    /// forks feature is off). A positive count links the leading `+` and adds the
+    /// `forks` quick link.
+    pub fork_count: usize,
+    /// The project's forks view URL, the target of the `+` and `forks` links.
+    pub forks_href: String,
 }
 
 /// The projects-list table: the four sortable column headers and the rows.
@@ -68,6 +74,9 @@ pub struct ProjectList {
     pub owner_header: SortHeader,
     /// The "Last Change" column header.
     pub age_header: SortHeader,
+    /// Whether the forks feature is on (gitweb's `$check_forks`): when set, the
+    /// table carries a leading fork column (header + a cell per row).
+    pub forks_enabled: bool,
     /// The rows, already in display order.
     pub rows: Vec<ProjectRow>,
 }
@@ -106,6 +115,7 @@ pub fn project_list(list: &ProjectList) -> Markup {
         table class="project-list" {
             thead {
                 tr {
+                    @if list.forks_enabled { th class="forks" {} }
                     (sort_th(&list.project_header))
                     (sort_th(&list.description_header))
                     (sort_th(&list.owner_header))
@@ -115,7 +125,7 @@ pub fn project_list(list: &ProjectList) -> Markup {
             }
             tbody {
                 @for row in &list.rows {
-                    (project_row(row))
+                    (project_row(row, list.forks_enabled))
                 }
             }
         }
@@ -133,11 +143,12 @@ fn sort_th(header: &SortHeader) -> Markup {
     }
 }
 
-/// One project row: name and description linking to the summary, owner, age, and
-/// the quick links.
-fn project_row(row: &ProjectRow) -> Markup {
+/// One project row: the optional leading fork cell, name and description linking
+/// to the summary, owner, age, and the quick links.
+fn project_row(row: &ProjectRow, forks_enabled: bool) -> Markup {
     html! {
         tr {
+            @if forks_enabled { (fork_cell(row)) }
             td class="project" { a class="list" href=(row.href) { (row.name) } }
             td class="description" {
                 @if let Some(description) = &row.description {
@@ -158,6 +169,23 @@ fn project_row(row: &ProjectRow) -> Markup {
                 a href=(row.links.log) { "log" }
                 " | "
                 a href=(row.links.tree) { "tree" }
+                @if row.fork_count > 0 {
+                    " | "
+                    a href=(row.forks_href) { "forks" }
+                }
+            }
+        }
+    }
+}
+
+/// The leading fork cell (gitweb's `$check_forks` `<td>`): a `+` linking to the
+/// project's forks view when it has forks (titled with the count), or an empty
+/// cell when it has none.
+fn fork_cell(row: &ProjectRow) -> Markup {
+    html! {
+        td class="forks" {
+            @if row.fork_count > 0 {
+                a href=(row.forks_href) title=(format!("{} forks", row.fork_count)) { "+" }
             }
         }
     }

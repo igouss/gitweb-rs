@@ -61,6 +61,7 @@ use gitweb_domain::usecase::commit::{ChangedFiles, CommitView, assemble_commit};
 use gitweb_domain::usecase::commitdiff::assemble_commit_diff;
 use gitweb_domain::usecase::commitdiff_plain::assemble_commitdiff_plain;
 use gitweb_domain::usecase::feed::assemble_feed;
+use gitweb_domain::usecase::forks::assemble_forks;
 use gitweb_domain::usecase::grep::{GrepFileView, GrepLine, GrepRow, GrepView, assemble_grep};
 use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
 use gitweb_domain::usecase::history::{HistoryRow, HistoryView, assemble_history};
@@ -1291,6 +1292,23 @@ fn current_time_is(world: &mut UsecaseWorld, now: i64) {
     world.now = now;
 }
 
+#[given("the forks feature is enabled")]
+fn forks_feature_enabled(world: &mut UsecaseWorld) {
+    let mut features: BTreeMap<FeatureName, FeatureLayer> = BTreeMap::new();
+    features.insert(
+        FeatureName::Forks,
+        FeatureLayer {
+            default: Some(vec!["1".to_owned()]),
+            overridable: None,
+        },
+    );
+    let layer: SettingsLayer = SettingsLayer {
+        features,
+        ..SettingsLayer::default()
+    };
+    world.settings = Settings::resolve(&[layer]);
+}
+
 // --- Whens -------------------------------------------------------------------
 
 #[when("I assemble the project list")]
@@ -1336,6 +1354,20 @@ fn assemble_filtered(world: &mut UsecaseWorld, subdir: String) {
     ));
 }
 
+#[when(regex = r#"^I assemble the forks of "([^"]*)"$"#)]
+fn assemble_the_forks(world: &mut UsecaseWorld, project: String) {
+    let store: FakeStore = FakeStore {
+        projects: world.projects.clone(),
+    };
+    world.result = Some(assemble_forks(
+        &store,
+        &world.settings,
+        &project,
+        None,
+        world.now,
+    ));
+}
+
 // --- Thens -------------------------------------------------------------------
 
 #[then(regex = r#"^the listed projects are "(.*)"$"#)]
@@ -1351,6 +1383,29 @@ fn listed_projects_are(world: &mut UsecaseWorld, expected: String) {
 #[then("assembling fails as not found")]
 fn fails_not_found(world: &mut UsecaseWorld) {
     assert!(matches!(error(world), DomainError::NotFound(_)));
+}
+
+#[then(regex = r#"^the not-found message is "([^"]*)"$"#)]
+fn not_found_message_is(world: &mut UsecaseWorld, expected: String) {
+    let DomainError::NotFound(message) = error(world) else {
+        panic!("expected a not-found failure");
+    };
+    assert_eq!(message, &expected);
+}
+
+#[then("the listing has the fork column")]
+fn listing_has_fork_column(world: &mut UsecaseWorld) {
+    assert!(view(world).forks_enabled());
+}
+
+#[then("the listing has no fork column")]
+fn listing_has_no_fork_column(world: &mut UsecaseWorld) {
+    assert!(!view(world).forks_enabled());
+}
+
+#[then(regex = r#"^the project "([^"]*)" reports (\d+) forks?$"#)]
+fn project_reports_forks(world: &mut UsecaseWorld, name: String, count: usize) {
+    assert_eq!(row(world, &name).fork_count(), count);
 }
 
 #[then("assembling fails as invalid")]

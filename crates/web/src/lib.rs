@@ -26,10 +26,11 @@ pub mod url;
 pub use dispatch::{Dispatcher, Handler, ObjectKindResolver};
 pub use handlers::{
     BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
-    CommitdiffHandler, CommitdiffPlainHandler, DefaultObjectResolver, FeedHandler, HeadsHandler,
-    HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, PatchHandler, PatchesHandler,
-    ProjectIndexHandler, ProjectListHandler, RemotesHandler, SearchHandler, SearchHelpHandler,
-    ShortlogHandler, SnapshotHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler,
+    CommitdiffHandler, CommitdiffPlainHandler, DefaultObjectResolver, FeedHandler, ForksHandler,
+    HeadsHandler, HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, PatchHandler,
+    PatchesHandler, ProjectIndexHandler, ProjectListHandler, RemotesHandler, SearchHandler,
+    SearchHelpHandler, ShortlogHandler, SnapshotHandler, SummaryHandler, TagHandler, TagsHandler,
+    TreeHandler,
 };
 pub use response::View;
 pub use server::router;

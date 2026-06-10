@@ -31,6 +31,15 @@ impl ProjectGroup {
     }
 }
 
+/// The subdirectory the forks of `project` live in: its path with one trailing
+/// `.git` removed (gitweb's `$filter =~ s/\.git$//` in `git_forks`). The forks
+/// of `repo.git` live in `repo/`, so the forks action scopes the project
+/// listing to this subdirectory.
+#[must_use]
+pub fn forks_subdirectory(project: &str) -> &str {
+    project.strip_suffix(".git").unwrap_or(project)
+}
+
 /// Partitions `names` into top-level projects, folding each fork under the
 /// shortest project whose directory contains it. Input order is preserved.
 #[must_use]

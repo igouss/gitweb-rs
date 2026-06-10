@@ -29,6 +29,7 @@ use gitweb_render::escape::{
     esc_attr, esc_html, esc_html_nbsp, esc_index_field, esc_param, esc_path, esc_path_info, esc_url,
 };
 use gitweb_render::feed::{FeedEntryView, FeedFileView, FeedView, atom, rss};
+use gitweb_render::forks::{ForksPage, forks_body};
 use gitweb_render::grep::{GrepFileBlock, GrepLineView, GrepPage, GrepRowView, grep_body};
 use gitweb_render::heads::{HeadEntryView, HeadsTable, heads_table};
 use gitweb_render::history::{HistoryEntryView, HistoryTable, history_table};
@@ -60,6 +61,7 @@ struct RenderWorld {
     nav_items: Vec<NavItem>,
     footer_links: Vec<FooterLink>,
     project_rows: Vec<ProjectRow>,
+    forks_enabled: bool,
     project_index_entries: Vec<ProjectIndexEntry>,
     opml_site_name: Option<String>,
     opml_filter: Option<String>,
@@ -443,11 +445,33 @@ fn sort_header(label: &str, key: &str, order: &str) -> SortHeader {
 fn given_listed_project(world: &mut RenderWorld, name: String, href: String) {
     world.project_rows.push(ProjectRow {
         links: project_links(&href),
+        forks_href: format!("{href}/forks"),
         name,
         href,
         description: None,
         owner: None,
         age: None,
+        fork_count: 0,
+    });
+}
+
+#[given(regex = r#"^a listed project "([^"]*)" at "([^"]*)" with (\d+) forks?$"#)]
+fn given_listed_project_with_forks(
+    world: &mut RenderWorld,
+    name: String,
+    href: String,
+    fork_count: usize,
+) {
+    world.forks_enabled = true;
+    world.project_rows.push(ProjectRow {
+        links: project_links(&href),
+        forks_href: format!("{href}/forks"),
+        name,
+        href,
+        description: None,
+        owner: None,
+        age: None,
+        fork_count,
     });
 }
 
@@ -464,11 +488,13 @@ fn given_listed_project_full(
 ) {
     world.project_rows.push(ProjectRow {
         links: project_links(&href),
+        forks_href: format!("{href}/forks"),
         name,
         href,
         description: Some(description),
         owner: Some(owner),
         age: Some(Age::from_seconds(age_seconds)),
+        fork_count: 0,
     });
 }
 
@@ -476,24 +502,46 @@ fn given_listed_project_full(
 fn given_listed_project_no_commits(world: &mut RenderWorld, name: String, href: String) {
     world.project_rows.push(ProjectRow {
         links: project_links(&href),
+        forks_href: format!("{href}/forks"),
         name,
         href,
         description: None,
         owner: None,
         age: None,
+        fork_count: 0,
     });
+}
+
+/// Builds the table view-model from the rows collected so far, carrying the
+/// fork-column flag a "with N forks" project turned on.
+fn take_project_list(world: &mut RenderWorld, order: &str) -> ProjectList {
+    ProjectList {
+        project_header: sort_header("Project", "project", order),
+        description_header: sort_header("Description", "descr", order),
+        owner_header: sort_header("Owner", "owner", order),
+        age_header: sort_header("Last Change", "age", order),
+        forks_enabled: world.forks_enabled,
+        rows: std::mem::take(&mut world.project_rows),
+    }
 }
 
 #[when(regex = r#"^I render the project list sorted by "([^"]*)"$"#)]
 fn when_render_project_list(world: &mut RenderWorld, order: String) {
-    let list: ProjectList = ProjectList {
-        project_header: sort_header("Project", "project", &order),
-        description_header: sort_header("Description", "descr", &order),
-        owner_header: sort_header("Owner", "owner", &order),
-        age_header: sort_header("Last Change", "age", &order),
-        rows: std::mem::take(&mut world.project_rows),
-    };
+    let list: ProjectList = take_project_list(world, &order);
     world.output = Some(project_list(&list).into_string());
+}
+
+#[when(regex = r#"^I render the forks page for "([^"]*)" sorted by "([^"]*)"$"#)]
+fn when_render_forks_page(world: &mut RenderWorld, project: String, order: String) {
+    world.forks_enabled = true;
+    let list: ProjectList = take_project_list(world, &order);
+    let page: ForksPage = ForksPage {
+        crumbs: std::mem::take(&mut world.crumbs),
+        nav: std::mem::take(&mut world.nav_items),
+        title: format!("{project} forks"),
+        list,
+    };
+    world.output = Some(forks_body(&page).into_string());
 }
 
 // ---- Project index ----------------------------------------------------------

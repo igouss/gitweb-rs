@@ -29,10 +29,11 @@ use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
     BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
-    CommitdiffHandler, CommitdiffPlainHandler, DefaultObjectResolver, FeedHandler, HeadsHandler,
-    HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, PatchHandler, PatchesHandler,
-    ProjectIndexHandler, ProjectListHandler, RemotesHandler, SearchHandler, SearchHelpHandler,
-    ShortlogHandler, SnapshotHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler,
+    CommitdiffHandler, CommitdiffPlainHandler, DefaultObjectResolver, FeedHandler, ForksHandler,
+    HeadsHandler, HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, PatchHandler,
+    PatchesHandler, ProjectIndexHandler, ProjectListHandler, RemotesHandler, SearchHandler,
+    SearchHelpHandler, ShortlogHandler, SnapshotHandler, SummaryHandler, TagHandler, TagsHandler,
+    TreeHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -391,6 +392,21 @@ fn given_project_list_served(world: &mut WebWorld) {
     world.dispatcher.register(Action::ProjectList, handler);
 }
 
+#[given("the forks feature is served")]
+fn given_forks_served(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(forks_settings());
+    let list: Arc<dyn Handler> = Arc::new(ProjectListHandler::new(
+        Arc::clone(&store),
+        Arc::clone(&settings),
+    ));
+    world.dispatcher.register(Action::ProjectList, list);
+    let forks: Arc<dyn Handler> = Arc::new(ForksHandler::new(store, settings));
+    world.dispatcher.register(Action::Forks, forks);
+}
+
 #[given("the project index is served")]
 fn given_project_index_served(world: &mut WebWorld) {
     ensure_root(world);
@@ -602,6 +618,24 @@ fn patches_settings(enabled: bool) -> Settings {
         FeatureName::Patches,
         FeatureLayer {
             default: Some(vec!["0".to_owned()]),
+            overridable: None,
+        },
+    );
+    let layer: SettingsLayer = SettingsLayer {
+        features,
+        ..SettingsLayer::default()
+    };
+    Settings::resolve(&[layer])
+}
+
+/// Settings with the `forks` feature on, so the landing page folds forks and the
+/// forks action lists them.
+fn forks_settings() -> Settings {
+    let mut features: BTreeMap<FeatureName, FeatureLayer> = BTreeMap::new();
+    features.insert(
+        FeatureName::Forks,
+        FeatureLayer {
+            default: Some(vec!["1".to_owned()]),
             overridable: None,
         },
     );

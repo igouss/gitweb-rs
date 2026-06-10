@@ -63,16 +63,11 @@ impl Handler for ProjectListHandler {
 /// Maps the use-case view to the render view-model and wraps the assembled body
 /// in the document chrome — the boundary owns the asset URLs that go in the head.
 fn render_page(settings: &Settings, view: &ProjectListView) -> Markup {
-    let active: &str = view.order().as_str();
     let page: ProjectListPage = ProjectListPage {
         site_name: settings.site_name().to_owned(),
-        list: ProjectList {
-            project_header: sort_header("Project", "project", active),
-            description_header: sort_header("Description", "descr", active),
-            owner_header: sort_header("Owner", "owner", active),
-            age_header: sort_header("Last Change", "age", active),
-            rows: view.rows().iter().map(render_row).collect(),
-        },
+        // The landing page's sort headers replay the bare request (no action), so
+        // their re-sort base is empty: `?o=<key>`.
+        list: project_table(view, &[]),
     };
     let head: DocumentHead = DocumentHead {
         title: settings.site_name().to_owned(),
@@ -83,19 +78,39 @@ fn render_page(settings: &Settings, view: &ProjectListView) -> Markup {
     document(&head, project_list_body(&page))
 }
 
-/// One column header: a re-sort link, or plain text for the active column.
-fn sort_header(label: &str, key: &str, active: &str) -> SortHeader {
-    SortHeader {
-        label: label.to_owned(),
-        href: if key == active {
-            None
-        } else {
-            Some(href(&[("o", key)]))
-        },
+/// Maps a use-case view to the render table, shared by the landing page and the
+/// forks view. `replay` is the parameter base the sortable column headers re-sort
+/// against — empty for the landing page (`?o=<key>`), `p=<project>;a=forks` for
+/// the forks view — so each page's headers replay its own action.
+pub(crate) fn project_table(view: &ProjectListView, replay: &[(&str, &str)]) -> ProjectList {
+    let active: &str = view.order().as_str();
+    ProjectList {
+        project_header: sort_header("Project", "project", active, replay),
+        description_header: sort_header("Description", "descr", active, replay),
+        owner_header: sort_header("Owner", "owner", active, replay),
+        age_header: sort_header("Last Change", "age", active, replay),
+        forks_enabled: view.forks_enabled(),
+        rows: view.rows().iter().map(render_row).collect(),
     }
 }
 
-/// Maps a use-case row to a render row, building the summary and quick links.
+/// One column header: a re-sort link (the replay base plus `o=<key>`), or plain
+/// text for the active column.
+fn sort_header(label: &str, key: &str, active: &str, replay: &[(&str, &str)]) -> SortHeader {
+    let href: Option<String> = (key != active).then(|| {
+        let mut params: Vec<(&str, &str)> = replay.to_vec();
+        params.push(("o", key));
+        href(&params)
+    });
+    SortHeader {
+        label: label.to_owned(),
+        href,
+    }
+}
+
+/// Maps a use-case row to a render row, building the summary, quick links, and —
+/// for a project with forks — the forks-view URL the leading `+` and `forks` link
+/// point to.
 fn render_row(row: &ProjectListRow) -> ProjectRow {
     let name: &str = row.name();
     let summary: String = href(&[("p", name), ("a", "summary")]);
@@ -105,6 +120,8 @@ fn render_row(row: &ProjectListRow) -> ProjectRow {
         description: row.description().map(str::to_owned),
         owner: row.owner().map(str::to_owned),
         age: row.age(),
+        fork_count: row.fork_count(),
+        forks_href: href(&[("p", name), ("a", "forks")]),
         links: ProjectLinks {
             summary,
             shortlog: href(&[("p", name), ("a", "shortlog")]),
