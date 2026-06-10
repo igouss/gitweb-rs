@@ -1,2 +1,3 @@
 date,commit,branch,total_functions,mean_crap,median_crap,max_crap,mean_coverage,worst_function,worst_file
 2026-06-10,aab161c,main,1715,4.36,1.13,182.57,0.47,quote_path,crates/domain/src/model/diffstat.rs:470
+2026-06-10,3131507,main,1734,4.41,1.13,182.57,0.47,quote_path,crates/domain/src/model/diffstat.rs:470
