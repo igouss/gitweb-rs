@@ -16,7 +16,10 @@ pub mod search;
 
 pub use document::{DocumentHead, FeedLink, document};
 pub use feed_meta::{FeedHrefs, project_feed_links, project_list_feed_links};
-pub use footer::{FooterLink, PageFooter, footer};
+pub use footer::{
+    FooterFeedHrefs, FooterLink, PageFooter, footer, project_footer_links,
+    project_list_footer_links,
+};
 pub use header::{Crumb, Logo, breadcrumbs, page_header};
 pub use nav::{FormatLink, MoreLink, NavItem, formats_nav, page_nav};
 pub use search::{HiddenField, SearchForm, SearchOption, search_form};

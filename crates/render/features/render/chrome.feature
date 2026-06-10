@@ -146,3 +146,20 @@ Feature: Site chrome
     When I render the footer without a description
     Then the result contains "<a class="feed" href="/?a=opml" title="OPML">OPML</a>"
     And the result does not contain "footer-desc"
+
+  # ---- footer link assembly (git_footer_html) -------------------------------
+
+  Scenario: a project footer links the RSS and Atom feeds, titled per the feed
+    When I assemble the project footer titled "log" with rss "/?p=r;a=rss" and atom "/?p=r;a=atom"
+    Then the result contains "<a class="feed" href="/?p=r;a=rss" title="log RSS feed">RSS</a>"
+    And the result contains "<a class="feed" href="/?p=r;a=atom" title="log Atom feed">Atom</a>"
+
+  Scenario: a branch-scoped project footer feed title names the branch
+    When I assemble the project footer titled "log of topic" with rss "/?p=r;a=rss;h=refs/heads/topic" and atom "/?p=r;a=atom;h=refs/heads/topic"
+    Then the result contains "title="log of topic RSS feed""
+    And the result contains "title="log of topic Atom feed""
+
+  Scenario: the projects-list footer links OPML then the plain-text index
+    When I assemble the projects-list footer with opml "/?a=opml" and index "/?a=project_index"
+    Then the result contains "<a class="feed" href="/?a=opml" title="OPML">OPML</a>"
+    And the result contains "<a class="feed" href="/?a=project_index" title="TXT">TXT</a>"

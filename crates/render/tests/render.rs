@@ -17,9 +17,10 @@ use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_render::age::age_class_name;
 use gitweb_render::blob::{BlobContent, BlobLine, BlobPage, blob_body, blob_content};
 use gitweb_render::chrome::{
-    Crumb, DocumentHead, FeedHrefs, FeedLink, FooterLink, FormatLink, HiddenField, Logo, MoreLink,
-    NavItem, PageFooter, SearchForm, SearchOption, breadcrumbs, document, footer, page_header,
-    page_nav, project_feed_links, project_list_feed_links, search_form,
+    Crumb, DocumentHead, FeedHrefs, FeedLink, FooterFeedHrefs, FooterLink, FormatLink, HiddenField,
+    Logo, MoreLink, NavItem, PageFooter, SearchForm, SearchOption, breadcrumbs, document, footer,
+    page_header, page_nav, project_feed_links, project_footer_links, project_list_feed_links,
+    project_list_footer_links, search_form,
 };
 use gitweb_render::commit::{
     AuthorRow, ChangeNoteView, ChangedRow, CommitPage, LinkedId, ParentNav, ParentNavLink,
@@ -471,6 +472,27 @@ fn when_footer_no_desc(world: &mut RenderWorld) {
     let page_footer: PageFooter = PageFooter {
         description: None,
         links: std::mem::take(&mut world.footer_links),
+    };
+    world.output = Some(footer(&page_footer).into_string());
+}
+
+#[when(regex = r#"^I assemble the project footer titled "(.*)" with rss "(.*)" and atom "(.*)"$"#)]
+fn when_assemble_project_footer(world: &mut RenderWorld, title: String, rss: String, atom: String) {
+    let hrefs: FooterFeedHrefs = FooterFeedHrefs { rss, atom };
+    let links: Vec<FooterLink> = project_footer_links(&title, &hrefs);
+    let page_footer: PageFooter = PageFooter {
+        description: None,
+        links,
+    };
+    world.output = Some(footer(&page_footer).into_string());
+}
+
+#[when(regex = r#"^I assemble the projects-list footer with opml "(.*)" and index "(.*)"$"#)]
+fn when_assemble_list_footer(world: &mut RenderWorld, opml: String, index: String) {
+    let links: Vec<FooterLink> = project_list_footer_links(&opml, &index);
+    let page_footer: PageFooter = PageFooter {
+        description: None,
+        links,
     };
     world.output = Some(footer(&page_footer).into_string());
 }

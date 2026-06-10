@@ -29,6 +29,56 @@ pub struct PageFooter {
     pub links: Vec<FooterLink>,
 }
 
+/// The two project-page feed URLs a footer links (gitweb's `href(action =>
+/// rss/atom, …)`): RSS and Atom, scoped to the branch and file
+/// `get_feed_info` found. The web boundary builds these; render takes the
+/// finished strings.
+#[derive(Debug, Clone)]
+pub struct FooterFeedHrefs {
+    /// `a=rss`.
+    pub rss: String,
+    /// `a=atom`.
+    pub atom: String,
+}
+
+/// The RSS and Atom feed anchors a project page's footer shows (gitweb's
+/// `git_footer_html` project branch): RSS then Atom, each titled
+/// `"<feed title> <FORMAT> feed"` — the feed title is `get_feed_info`'s,
+/// defaulting to `log`.
+#[must_use]
+pub fn project_footer_links(feed_title: &str, hrefs: &FooterFeedHrefs) -> Vec<FooterLink> {
+    vec![
+        FooterLink {
+            label: "RSS".to_owned(),
+            href: hrefs.rss.clone(),
+            title: format!("{feed_title} RSS feed"),
+        },
+        FooterLink {
+            label: "Atom".to_owned(),
+            href: hrefs.atom.clone(),
+            title: format!("{feed_title} Atom feed"),
+        },
+    ]
+}
+
+/// The OPML and plain-text-index anchors the projects-list footer shows
+/// (gitweb's `git_footer_html` list branch): OPML then TXT, in that order.
+#[must_use]
+pub fn project_list_footer_links(opml_href: &str, project_index_href: &str) -> Vec<FooterLink> {
+    vec![
+        FooterLink {
+            label: "OPML".to_owned(),
+            href: opml_href.to_owned(),
+            title: "OPML".to_owned(),
+        },
+        FooterLink {
+            label: "TXT".to_owned(),
+            href: project_index_href.to_owned(),
+            title: "TXT".to_owned(),
+        },
+    ]
+}
+
 /// Renders the page footer: an optional description and the footer links.
 #[must_use]
 pub fn footer(page_footer: &PageFooter) -> Markup {
