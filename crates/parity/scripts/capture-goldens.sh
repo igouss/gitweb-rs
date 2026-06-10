@@ -179,24 +179,14 @@ capture "patch/single"   "p=repo.git;a=patch;h=$texts_root"
 capture "patches/range"  "p=repo.git;a=patches;h=$texts_head"
 
 # The binary `patch` golden is captured over the `binmix` branch head (a text +
-# binary modify). gitweb streams `git format-patch` verbatim, which embeds the
-# binary file as a base85 `GIT binary patch` section (git's own zlib output plus
-# a literal-vs-delta heuristic) — unreproducible by the gix-only, no-unsafe port.
-# So two references are captured side by side:
-#   patch/binary           — gitweb's real output (the base85 body we diverge from),
-#   patch/binary_no_binary  — `git format-patch --no-binary`, which emits the
-#                             `Binary files … differ` notice with an abbreviated
-#                             `index`: exactly what the port produces, captured with
-#                             the same flags gitweb uses (-1 --root) so the golden
-#                             test can assert our whole mail byte-for-byte against a
-#                             real git mode. By-hash, so only cache headers vary.
-echo ">> capturing binary patch goldens" >&2
+# binary modify, plus a binary delta-wins modify and a binary create). gitweb
+# streams `git format-patch` verbatim, which embeds each binary file as a base85
+# `GIT binary patch` (git's own zlib output plus a literal-vs-delta heuristic) with
+# a full `index` — all reproduced byte-for-byte by model::binary_patch (af6), so
+# the golden is asserted as full equality. By-hash, so only cache headers vary.
+echo ">> capturing binary patch golden" >&2
 binmix_head=$("$GIT" --git-dir="$project_root/repo.git" rev-parse binmix)
 capture "patch/binary"   "p=repo.git;a=patch;h=$binmix_head"
-"$GIT" --git-dir="$project_root/repo.git" format-patch -M --no-binary \
-	--encoding=utf8 --stdout -1 --root "$binmix_head" \
-	>"$crate_dir/goldens/patch/binary_no_binary"
-echo "   captured patch/binary_no_binary" >&2
 
 # The feed body carries a <generator> version composite ($version/$git_version).
 # $version is pinned via VERSION-FILE above; $git_version is the capturing git's

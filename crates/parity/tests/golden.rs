@@ -84,14 +84,11 @@ struct GoldenWorld {
     /// handler emits over the corpus `texts` branch tip.
     patches_body: Option<String>,
     patches_disposition: Option<String>,
-    /// The serialized binary `patch` mail over the corpus `binmix` head, plus the
-    /// two references it is judged against: `binary_golden` is gitweb's real output
-    /// (the base85 `GIT binary patch` body the port diverges from), and
-    /// `no_binary_golden` is `git format-patch --no-binary` (the notice form the
-    /// port reproduces byte-for-byte).
+    /// The serialized binary `patch` mail over the corpus `binmix` head, and
+    /// `binary_golden`, gitweb's real output for it — the base85 `GIT binary patch`
+    /// body the port now reproduces byte-for-byte (af6).
     binary_patch_body: Option<String>,
     binary_golden: Option<Golden>,
-    no_binary_golden: Option<Golden>,
     golden: Option<Golden>,
 }
 
@@ -414,7 +411,6 @@ fn serve_binary_patch(world: &mut GoldenWorld) {
         .expect("assemble the corpus binary patch");
     world.binary_patch_body = Some(stream.render());
     world.binary_golden = Some(Golden::load("patch/binary"));
-    world.no_binary_golden = Some(Golden::load("patch/binary_no_binary"));
 }
 
 /// The serialized binary patch body, or a panic if none was served.
@@ -431,62 +427,6 @@ fn binary_golden(world: &GoldenWorld) -> &Golden {
         .binary_golden
         .as_ref()
         .expect("serve the binary patch first")
-}
-
-/// The `git format-patch --no-binary` reference (the notice form the port emits).
-fn no_binary_golden(world: &GoldenWorld) -> &Golden {
-    world
-        .no_binary_golden
-        .as_ref()
-        .expect("serve the binary patch first")
-}
-
-/// The `diff --git a/<binary>` line a format-patch mail's binary file opens with —
-/// the boundary between the region the port reproduces (everything ahead of it:
-/// header, diffstat, the text file's diff) and the one byte it diverges in (the
-/// binary file's `index` and body). Built from the corpus path so it tracks the
-/// fixture.
-fn binary_diff_marker() -> Vec<u8> {
-    format!("diff --git a/{}", Corpus::BINMIX_BINARY).into_bytes()
-}
-
-/// The bytes of `haystack` before the first occurrence of `marker`.
-///
-/// # Panics
-/// Panics if `marker` is absent, so a corpus/marker drift fails loudly rather
-/// than silently comparing whole bodies.
-fn frame_before<'a>(haystack: &'a [u8], marker: &[u8]) -> &'a [u8] {
-    let at: usize = haystack
-        .windows(marker.len())
-        .position(|window: &[u8]| window == marker)
-        .unwrap_or_else(|| {
-            panic!(
-                "marker {:?} not found in patch",
-                String::from_utf8_lossy(marker)
-            )
-        });
-    &haystack[..at]
-}
-
-/// The format-patch `-- ` signature tail (`-- \n<version>\n\n`) both the port and
-/// gitweb close the mail with, built from the captured git version.
-fn patch_signature() -> Vec<u8> {
-    format!("-- \n{}\n\n", read_patch_version()).into_bytes()
-}
-
-/// Whether `haystack` contains the byte subsequence `needle` — the subslice search
-/// `[u8]::contains` (a single-element test) does not offer, used to find a marker
-/// in a golden body that may hold non-UTF-8 bytes.
-fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack
-        .windows(needle.len())
-        .any(|window: &[u8]| window == needle)
-}
-
-/// The `Binary files a/<p> and b/<p> differ` notice the port writes for the binary
-/// file, built from the corpus path.
-fn binary_notice() -> String {
-    format!("Binary files a/{0} and b/{0} differ", Corpus::BINMIX_BINARY)
 }
 
 // --- Then --------------------------------------------------------------------
@@ -687,50 +627,17 @@ fn patches_disposition_matches(world: &mut GoldenWorld) {
     assert_eq!(world.patches_disposition.as_deref(), Some(theirs));
 }
 
-#[then("the binary patch equals git format-patch --no-binary byte for byte")]
-fn binary_patch_equals_no_binary(world: &mut GoldenWorld) {
-    // The whole mail — header, diffstat, text diff, the binary notice with its
-    // abbreviated index, and the signature — is byte-for-byte git's `--no-binary`
-    // output, a real (applyable-less) git mode the port faithfully reproduces.
+#[then("the binary patch matches gitweb byte for byte")]
+fn binary_patch_matches(world: &mut GoldenWorld) {
+    // The whole mail is byte-for-byte gitweb's `git format-patch` output: the
+    // mailbox header, the diffstat (incl. the `Bin <old> -> <new> bytes` row), the
+    // text file's abbreviated-index diff, and — the af6 deliverable — the binary
+    // file's FULL `index` and its base85 `GIT binary patch` body (the forward and
+    // reverse blocks, each git's deflated literal or delta), then the signature.
     assert_eq!(
         binary_patch_body(world).as_bytes(),
-        no_binary_golden(world).body()
+        binary_golden(world).body()
     );
-}
-
-#[then("the binary patch frame matches gitweb up to the binary file")]
-fn binary_patch_frame_matches(world: &mut GoldenWorld) {
-    // Everything ahead of the binary file's `diff --git` line — the mailbox
-    // header, the `Bin <old> -> <new> bytes` diffstat, and the text file's diff —
-    // is identical to gitweb's real output, byte for byte.
-    let marker: Vec<u8> = binary_diff_marker();
-    assert_eq!(
-        frame_before(binary_patch_body(world).as_bytes(), &marker),
-        frame_before(binary_golden(world).body(), &marker)
-    );
-}
-
-#[then("the binary patch signature matches gitweb")]
-fn binary_patch_signature_matches(world: &mut GoldenWorld) {
-    // Past the divergent binary body, both mails close with the same `-- ` / git
-    // version signature.
-    let signature: Vec<u8> = patch_signature();
-    assert!(binary_patch_body(world).as_bytes().ends_with(&signature));
-    assert!(binary_golden(world).body().ends_with(&signature));
-}
-
-#[then("gitweb embeds a GIT binary patch where the port writes the notice")]
-fn binary_patch_documents_divergence(world: &mut GoldenWorld) {
-    // The one region the port cannot reproduce: gitweb's body carries git's base85
-    // `GIT binary patch`, while the port writes the `--no-binary` notice and no
-    // base85 at all.
-    let notice: String = binary_notice();
-    assert!(contains_bytes(
-        binary_golden(world).body(),
-        b"GIT binary patch"
-    ));
-    assert!(binary_patch_body(world).contains(&notice));
-    assert!(!binary_patch_body(world).contains("GIT binary patch"));
 }
 
 #[tokio::main]
