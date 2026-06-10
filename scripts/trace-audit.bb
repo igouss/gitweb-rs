@@ -21,6 +21,8 @@ env:
   SPEC_DIR     spec directory (default: specs)
   TEST_PATHS   comma-separated dirs to scan instead of the git index
                (escape hatch for non-git trees or scoping)
+  REQ_ID_CHECKS run the Mode A REQ-ID/spec audit (default: OFF — this is a
+               Mode B project; .feature files are the spec, no REQ IDs)
 
 checks: ORPHAN-REQ, DANGLING-REF, NO-REQ-ID, DANGLING-WIP, STALE-WIP,
         IN-PROGRESS-NO-WIP (see the traceability + slice-workflow skills)
@@ -34,6 +36,23 @@ example: SPEC_DIR=specs trace-audit.bb")
     (println (str "error: unexpected argument " (first *command-line-args*)))
     (println) (println usage))
   (System/exit 2))
+
+;; REQ-ID / spec traceability (specs/REQ-<AREA>-<NNN>.md + `// REQ-...` test
+;; comments) is a Mode A feature. This is a Mode B project: the .feature files
+;; ARE the spec and there are no REQ IDs (see .claude/settings.json — the Stop
+;; hook already omits this audit for the same reason). So every direction below
+;; is N/A here and these checks are DISABLED BY DEFAULT (human-approved
+;; check-change). Opt back into full Mode A auditing with REQ_ID_CHECKS=1 — e.g.
+;; if this tree ever adopts specs/REQ-*.md files.
+(def req-id-checks?
+  (contains? #{"1" "true" "yes" "on"}
+             (str/lower-case (or (System/getenv "REQ_ID_CHECKS") ""))))
+
+(when-not req-id-checks?
+  (println "REQ-ID / spec traceability checks are DISABLED BY DEFAULT (Mode B:")
+  (println ".feature files are the spec; this repo carries no REQ IDs).")
+  (println "Set REQ_ID_CHECKS=1 to run the full Mode A audit. Nothing to do.")
+  (System/exit 0))
 
 (def spec-dir (or (System/getenv "SPEC_DIR") "specs"))
 
