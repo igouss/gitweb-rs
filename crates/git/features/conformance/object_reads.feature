@@ -192,6 +192,35 @@ Feature: Reading git objects through the gix adapter
     When I read the path "file.txt" at "c2"
     Then the path resolves to nothing
 
+  # --- path_entry(tree-ish, path): the ls-tree row — mode, name, id ---
+  # The richer form of path_id: it carries the entry's mode, the type column git
+  # derives from the mode and not from the object. That is what lets a gitlink
+  # classify as a commit without its commit object existing here — the object
+  # action and the no-action dispatch read the destination view from it.
+
+  Scenario: a file path resolves to its blob entry, typed from the mode
+    When I read the path entry "file.txt" at "c1"
+    Then the path entry has long type "file"
+    And the path entry points at "hello"
+
+  Scenario: a directory path resolves to its tree entry
+    When I read the path entry "sub" at "c1"
+    Then the path entry has long type "directory"
+    And the path entry points at "empty"
+
+  Scenario: a gitlink path resolves to a commit-typed entry, its object absent
+    When I read the path entry "mod" at "c1"
+    Then the path entry has long type "submodule"
+    And the path entry points at "submod"
+
+  Scenario: the gitlink's recorded commit is itself absent from the repository
+    When I read the kind of "submod"
+    Then reading the kind fails as not found
+
+  Scenario: a path absent under the tree-ish has no entry
+    When I read the path entry "file.txt" at "c2"
+    Then the path entry resolves to nothing
+
   Scenario: a path that never existed resolves to nothing
     When I read the path "nope.txt" at "c1"
     Then the path resolves to nothing

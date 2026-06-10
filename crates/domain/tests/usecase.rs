@@ -1054,6 +1054,11 @@ impl Repository for FakeRepository {
         Ok(entry)
     }
 
+    fn path_entry(&self, _at: &ObjectId, _path: &str) -> Result<Option<TreeEntry>, DomainError> {
+        // RED stub: filled in alongside the gitlink-classification fix.
+        Ok(None)
+    }
+
     fn diff(
         &self,
         _from: Option<&ObjectId>,

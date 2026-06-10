@@ -625,14 +625,32 @@ impl Repository for GixRepository {
     }
 
     fn path_id(&self, at: &ObjectId, path: &str) -> Result<Option<ObjectId>, DomainError> {
-        // gitweb's `git_get_hash_by_path` / `git ls-tree <at> -- <path>`: peel the
-        // tree-ish to its tree, then look the path up. An absent path is `None`,
-        // not an error — the per-path history walk relies on that to skip the
-        // commits that deleted the file.
+        // gitweb's `git_get_hash_by_path`: the id alone of the `ls-tree` row
+        // [`Self::path_entry`] resolves. An absent path is `None`, not an error —
+        // the per-path history walk relies on that to skip the commits that
+        // deleted the file.
+        Ok(self
+            .path_entry(at, path)?
+            .map(|entry: TreeEntry| entry.oid().clone()))
+    }
+
+    fn path_entry(&self, at: &ObjectId, path: &str) -> Result<Option<TreeEntry>, DomainError> {
+        // gitweb's `git ls-tree <at> -- <path>`: peel the tree-ish to its tree,
+        // then look the path up. The entry carries its mode — the type column git
+        // derives from the mode and not from the object — so a gitlink reads as a
+        // commit without its commit object existing here. An absent path is
+        // `None`, not an error.
         let tree: gix::Tree<'_> = self.require_tree(at)?;
         let entry: Option<gix::object::tree::Entry<'_>> =
             tree.lookup_entry_by_path(path).map_err(backend)?;
-        Ok(entry.map(|found: gix::object::tree::Entry<'_>| to_domain_oid(found.id().detach())))
+        entry
+            .map(|found: gix::object::tree::Entry<'_>| {
+                let mode: FileMode = to_file_mode(found.mode())?;
+                let name: String = found.filename().to_string();
+                let oid: ObjectId = to_domain_oid(found.id().detach());
+                Ok(TreeEntry::new(mode, name, oid))
+            })
+            .transpose()
     }
 
     // --- Later slices of gitweb_in_rust-a10 ----------------------------------

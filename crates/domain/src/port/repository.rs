@@ -26,7 +26,7 @@ use crate::model::reference::{DereferencedRef, Reference};
 use crate::model::remote::Remote;
 use crate::model::search_pattern::SearchPattern;
 use crate::model::tag::Tag;
-use crate::model::tree::Tree;
+use crate::model::tree::{Tree, TreeEntry};
 
 // The snapshot value objects are owned by `model::snapshot` (the format table and
 // its rules); the port re-exports the two its `archive` signature names.
@@ -210,6 +210,25 @@ pub trait Repository {
     /// got. This is the seam the per-path history walk resolves a file's type and
     /// its blob at each commit through.
     fn path_id(&self, at: &ObjectId, path: &str) -> Result<Option<ObjectId>, DomainError>;
+
+    /// The full tree entry recorded at `path` within the tree of the tree-ish
+    /// `at` — its mode, name, and object id — the way `git ls-tree <at> -- <path>`
+    /// reports a row, or `None` when `path` is absent there. `at` is peeled to its
+    /// tree first, exactly like [`Self::path_id`] (of which this is the richer
+    /// form: `path_id` is this id alone).
+    ///
+    /// The mode is what classifies the entry, mirroring `ls-tree`'s type column,
+    /// which git derives from the entry mode and not from the object: a directory
+    /// is a tree, a regular/exec/symlink entry a blob, and — crucially — a
+    /// gitlink (mode `160000`) a *commit*, named without the referenced commit
+    /// needing to exist in this repository. The `object` action and the no-action
+    /// dispatch read the destination view from [`FileMode::object_kind`] of this
+    /// mode for exactly that reason: a submodule entry resolves to the commit view
+    /// even though its commit object is absent, where reading the kind off the
+    /// recorded id (gitweb's `cat-file -t`) would `404`.
+    ///
+    /// [`FileMode::object_kind`]: crate::model::file_mode::FileMode::object_kind
+    fn path_entry(&self, at: &ObjectId, path: &str) -> Result<Option<TreeEntry>, DomainError>;
 
     /// History reachable from `start`, optionally filtered to commits touching
     /// `path`, windowed by `page` (gitweb's `git rev-list` with `--skip` /

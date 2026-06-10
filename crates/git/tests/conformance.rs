@@ -40,6 +40,7 @@ struct AdapterWorld {
     tag: Option<Result<Tag, DomainError>>,
     name_tag: Option<Result<Option<String>, DomainError>>,
     path: Option<Result<Option<ObjectId>, DomainError>>,
+    path_entry: Option<Result<Option<DomainTreeEntry>, DomainError>>,
 }
 
 // --- fixture construction ----------------------------------------------------
@@ -144,6 +145,9 @@ fn build_populated(world: &mut AdapterWorld) {
     named.insert("c2".to_owned(), to_domain(c2));
     named.insert("merge".to_owned(), to_domain(merge));
     named.insert("tagobj".to_owned(), to_domain(tagobj));
+    // The gitlink target: a commit id recorded in the tree but never written as
+    // an object here, exactly as a real submodule's commit lives elsewhere.
+    named.insert("submod".to_owned(), to_domain(submod));
 
     world.named = named;
     world.builder = Some(builder);
@@ -341,6 +345,12 @@ fn read_size(world: &mut AdapterWorld, name: String) {
 fn read_path(world: &mut AdapterWorld, path: String, name: String) {
     let at: ObjectId = oid(world, &name);
     world.path = Some(repo(world).path_id(&at, &path));
+}
+
+#[when(regex = r#"^I read the path entry "([^"]*)" at "([^"]*)"$"#)]
+fn read_path_entry(world: &mut AdapterWorld, path: String, name: String) {
+    let at: ObjectId = oid(world, &name);
+    world.path_entry = Some(repo(world).path_entry(&at, &path));
 }
 
 // --- Thens: HEAD -------------------------------------------------------------
@@ -585,6 +595,42 @@ fn path_resolves_to(world: &mut AdapterWorld, name: String) {
 #[then("the path resolves to nothing")]
 fn path_resolves_to_nothing(world: &mut AdapterWorld) {
     assert_eq!(ok_path(world), &None);
+}
+
+// --- Thens: path_entry -------------------------------------------------------
+
+/// The resolved path entry (mode + name + id), or a panic if the read failed.
+fn ok_path_entry(world: &AdapterWorld) -> &DomainTreeEntry {
+    world
+        .path_entry
+        .as_ref()
+        .expect("read a path entry first")
+        .as_ref()
+        .expect("resolving the path entry succeeded")
+        .as_ref()
+        .expect("the path entry is present")
+}
+
+#[then(regex = r#"^the path entry has long type "([^"]*)"$"#)]
+fn path_entry_long_type(world: &mut AdapterWorld, expected: String) {
+    assert_eq!(ok_path_entry(world).mode().long_type(), expected);
+}
+
+#[then(regex = r#"^the path entry points at "([^"]*)"$"#)]
+fn path_entry_points_at(world: &mut AdapterWorld, name: String) {
+    let target: ObjectId = oid(world, &name);
+    assert_eq!(ok_path_entry(world).oid(), &target);
+}
+
+#[then("the path entry resolves to nothing")]
+fn path_entry_resolves_to_nothing(world: &mut AdapterWorld) {
+    let resolved: &Option<DomainTreeEntry> = world
+        .path_entry
+        .as_ref()
+        .expect("read a path entry first")
+        .as_ref()
+        .expect("resolving the path entry succeeded");
+    assert_eq!(resolved, &None);
 }
 
 #[tokio::main]
