@@ -102,11 +102,23 @@ Rules:
 After implementation is green:
 
 ```bash
+# ALWAYS run cargo-mutants with TMPDIR on a real disk, NEVER the default /tmp.
+# cargo-mutants copies the whole workspace + target/ into $TMPDIR for every
+# mutant build; on this host /tmp is a 16 GB tmpfs, so the copy overflows it
+# ("Disk quota exceeded (os error 122)") and EVERY mutant is reported
+# "unviable" — a false all-green that proves nothing. /home has the space.
+export TMPDIR="$HOME/.cache/cargo-mutants"; mkdir -p "$TMPDIR"
+
 # function-granular incremental scoping via fn-hash (preferred):
 fn-hash --changed-only | sed 's/ :: .*//' | sort -u \
   | xargs -I{} cargo mutants --file {}
 cargo mutants            # full run: CI on the dev branch / before merge
 ```
+
+If a mutants run ends with "No mutants were viable" or every mutant is
+`unviable`, do NOT read that as success — it is almost always the /tmp-tmpfs
+overflow above (check `mutants.out/log/*` for "Disk quota exceeded"). Re-run
+with `TMPDIR` on `/home` before trusting any result.
 
 fn-hash hashes every function over its normalized token stream (so `cargo
 fmt` is not a "change") against the committed `.fn-hashes.jsonl` snapshot,

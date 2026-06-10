@@ -7,3 +7,6 @@
 # ~11 MB of Shiki grammars; refresh locally, never committed. See
 # static/vendor/README.md.
 /static/vendor/pierre/
+
+# cargo-mutants run output
+mutants.out/

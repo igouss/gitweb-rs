@@ -69,7 +69,10 @@ into a feature or fix commit.
 4. `cargo mutants` scoped via `fn-hash --changed-only` (function-granular,
    fmt-immune). Triage every surviving mutant (skill: verification-ratchet).
    Surviving mutants are reported, never hidden. Hash-gated scoping is an
-   approximation — full runs in CI remain the proof.
+   approximation — full runs in CI remain the proof. ALWAYS run cargo-mutants
+   with `TMPDIR=$HOME/.cache/cargo-mutants` (the default `/tmp` is a 16 GB
+   tmpfs; cargo-mutants copies the whole `target/` per mutant and overflows it,
+   reporting every mutant "unviable" — a false green). See verification-ratchet.
 5. Quality gate: hex-lint clean (role matrix), no changed function over
    CRAP 30. Over-threshold functions are refactored or reported — never
    accepted silently and never gamed via coverage padding
