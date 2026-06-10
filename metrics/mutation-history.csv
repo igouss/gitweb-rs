@@ -1,0 +1,3 @@
+date,commit,branch,score_pct,killed,viable,caught,timeout,missed,unviable
+2026-06-10,4236f27,main,33.3,1,3,1,0,2,1
+2026-06-10,dff2948,main,90.6,336,371,336,0,35,16

@@ -8,5 +8,7 @@
 # static/vendor/README.md.
 /static/vendor/pierre/
 
-# cargo-mutants run output
+# cargo-mutants run output (mutants.out.old is the prior run, rotated by
+# cargo-mutants; isolated per-crate runs live under target/, already ignored)
 mutants.out/
+mutants.out.old/
