@@ -24,6 +24,7 @@ pub mod encoding;
 pub mod expiry;
 pub mod export;
 pub mod feed;
+pub mod feed_meta;
 pub mod file_change;
 pub mod file_mode;
 pub mod forks;

@@ -31,6 +31,7 @@ use gitweb_domain::model::encoding::{FallbackEncoding, to_utf8};
 use gitweb_domain::model::expiry::Expiry;
 use gitweb_domain::model::export::{ExportPolicy, RepoFacts};
 use gitweb_domain::model::feed::{comment_lines, feed_title, feed_window};
+use gitweb_domain::model::feed_meta::{FeedInfo, feed_info};
 use gitweb_domain::model::file_change::FileChangeNote;
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::forks::{
@@ -213,6 +214,12 @@ struct DomainWorld {
     feed_kept: Option<usize>,
     feed_title: Option<String>,
     feed_comment: Option<Vec<String>>,
+    feed_meta_action: String,
+    feed_meta_hash_base: Option<String>,
+    feed_meta_hash: Option<String>,
+    feed_meta_file: Option<String>,
+    feed_meta_branch_refs: Vec<String>,
+    feed_info_result: Option<FeedInfo>,
     obj_hash: Option<String>,
     obj_base: Option<String>,
     obj_file: Option<String>,
@@ -3471,6 +3478,79 @@ fn feed_comment_lines_are(world: &mut DomainWorld, expected: String) {
         .expect("extract the feed comment first")
         .join("|");
     assert_eq!(joined, expected);
+}
+
+// --- feed_meta: get_feed_info classification --------------------------------
+
+#[given(regex = r#"^the branch ref directories "([^"]*)"$"#)]
+fn feed_meta_branch_refs(world: &mut DomainWorld, dirs: String) {
+    world.feed_meta_branch_refs = dirs.split_whitespace().map(str::to_owned).collect();
+}
+
+#[given(regex = r#"^the feed page action "([^"]*)"$"#)]
+fn feed_meta_action(world: &mut DomainWorld, action: String) {
+    world.feed_meta_action = action;
+}
+
+#[given(regex = r#"^the feed page hash base "([^"]*)"$"#)]
+fn feed_meta_hash_base(world: &mut DomainWorld, hash_base: String) {
+    world.feed_meta_hash_base = Some(hash_base);
+}
+
+#[given(regex = r#"^the feed page hash "([^"]*)"$"#)]
+fn feed_meta_hash(world: &mut DomainWorld, hash: String) {
+    world.feed_meta_hash = Some(hash);
+}
+
+#[given(regex = r#"^the feed page file "([^"]*)"$"#)]
+fn feed_meta_file(world: &mut DomainWorld, file: String) {
+    world.feed_meta_file = Some(file);
+}
+
+#[when("I classify the feed info")]
+fn classify_feed_info(world: &mut DomainWorld) {
+    let branch_refs: Vec<&str> = world
+        .feed_meta_branch_refs
+        .iter()
+        .map(String::as_str)
+        .collect();
+    world.feed_info_result = Some(feed_info(
+        &world.feed_meta_action,
+        world.feed_meta_hash_base.as_deref(),
+        world.feed_meta_hash.as_deref(),
+        world.feed_meta_file.as_deref(),
+        &branch_refs,
+    ));
+}
+
+#[then(regex = r#"^the feed-info title is "(.*)"$"#)]
+fn feed_info_title_is(world: &mut DomainWorld, expected: String) {
+    let info: &FeedInfo = world.feed_info_result.as_ref().expect("classify first");
+    assert_eq!(info.title(), expected);
+}
+
+#[then(regex = r#"^the feed-info branch hash is "(.*)"$"#)]
+fn feed_info_hash_is(world: &mut DomainWorld, expected: String) {
+    let info: &FeedInfo = world.feed_info_result.as_ref().expect("classify first");
+    assert_eq!(info.hash(), Some(expected.as_str()));
+}
+
+#[then("the feed-info has no branch hash")]
+fn feed_info_has_no_hash(world: &mut DomainWorld) {
+    let info: &FeedInfo = world.feed_info_result.as_ref().expect("classify first");
+    assert_eq!(info.hash(), None);
+}
+
+#[then(regex = r#"^the feed-info file is "(.*)"$"#)]
+fn feed_info_file_is(world: &mut DomainWorld, expected: String) {
+    let info: &FeedInfo = world.feed_info_result.as_ref().expect("classify first");
+    assert_eq!(info.file_name(), Some(expected.as_str()));
+}
+
+#[then("the feed-info has no file")]
+fn feed_info_has_no_file(world: &mut DomainWorld) {
+    let info: &FeedInfo = world.feed_info_result.as_ref().expect("classify first");
+    assert_eq!(info.file_name(), None);
 }
 
 #[then(regex = r#"^the default projects order is "(.*)"$"#)]
