@@ -225,7 +225,13 @@ pub(crate) fn is_null_oid(oid: &ObjectId) -> bool {
 /// the structured [`DiffEntry`].
 pub(crate) fn to_file_patch(entry: &DiffEntry, before: &[u8], after: &[u8]) -> FilePatch {
     let content: FileContent = if is_binary(before) || is_binary(after) {
-        FileContent::Binary
+        // The bytes feed git's `GIT binary patch` body when this file patch is
+        // rendered for `format-patch` (`Patch::render_format_patch`); the plain
+        // endpoints ignore them and write the `Binary files … differ` notice.
+        FileContent::Binary {
+            source: before.to_vec(),
+            target: after.to_vec(),
+        }
     } else {
         FileContent::Text(text_hunks(before, after))
     };

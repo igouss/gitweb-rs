@@ -18,6 +18,7 @@
 //! line the way bare `diff-tree -p` does is an endpoint concern, not a format
 //! rule.
 
+use crate::model::binary_patch;
 use crate::model::change::{ChangeKind, ChangeStatus};
 use crate::model::file_mode::FileMode;
 use crate::model::object_id::ObjectId;
@@ -171,21 +172,33 @@ fn fmt_range(start: u32, len: u32) -> String {
     }
 }
 
-/// A file patch's body: a binary notice, or a sequence of text hunks (possibly
+/// A file patch's body: a binary blob, or a sequence of text hunks (possibly
 /// empty, for a pure rename or mode change that touches no content).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileContent {
-    /// The blob is binary; git prints a one-line `Binary files … differ` notice
-    /// instead of hunks. This is git's `--no-binary` rendering and what bare `git
-    /// diff-tree -p` (the plain endpoints) emits. `git format-patch`'s *default*
-    /// embeds the blob as a base85 `GIT binary patch` (a deflated literal or a
-    /// deflated git binary delta, whichever is shorter); the port emits the notice
-    /// everywhere for now — a *tracked* divergence on the `patch` / `patches`
-    /// endpoints, removable once git's binary delta encoder is ported
-    /// (gitweb_in_rust-ygu / -af6). See [`crate::usecase::patch`].
-    Binary,
+    /// The blob is binary. `source` and `target` are the pre- and post-image bytes
+    /// (an empty side for a create or delete), carried for the `format-patch
+    /// --binary` `GIT binary patch` body ([`BinaryMode::GitBinaryPatch`], rendered
+    /// by [`crate::model::binary_patch`]). The plain endpoints ignore the bytes and
+    /// emit git's `--no-binary` `Binary files … differ` notice instead
+    /// ([`BinaryMode::Notice`]).
+    Binary { source: Vec<u8>, target: Vec<u8> },
     /// The blob is text; these are its hunks.
     Text(Vec<Hunk>),
+}
+
+/// How a binary file's body is rendered, which differs by endpoint. gitweb's plain
+/// diff endpoints stream bare `git diff-tree -p` (no `--binary`), so they emit the
+/// notice; only `patch` / `patches` stream `git format-patch`, which embeds the
+/// blob as a base85 `GIT binary patch` and implies `--full-index` for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BinaryMode {
+    /// git's `--no-binary` form: the one-line `Binary files … differ` notice, with
+    /// the same (abbreviated or full) `index` the rest of the diff carries.
+    Notice,
+    /// git's `format-patch --binary` form: the `GIT binary patch` base85 body and a
+    /// full 40/64-hex `index` (git implies `--full-index` for an embedded blob).
+    GitBinaryPatch,
 }
 
 /// One file's worth of patch: its change status, the from/to modes, ids and
@@ -233,7 +246,7 @@ impl FilePatch {
     #[must_use]
     pub fn render(&self) -> String {
         let mut out: String = String::new();
-        self.write_to(&mut out, None);
+        self.write_to(&mut out, None, BinaryMode::Notice);
         out
     }
 
@@ -309,8 +322,11 @@ impl FilePatch {
     /// Appends this file patch to `out`. Shared by [`Patch::render`] so a
     /// multi-file patch is one streamed concatenation, exactly as git emits it.
     /// `abbrev` truncates the `index` ids to that many hex characters (bare
-    /// `diff-tree -p`'s default short form); `None` keeps them full.
-    fn write_to(&self, out: &mut String, abbrev: Option<usize>) {
+    /// `diff-tree -p`'s default short form); `None` keeps them full. `binary`
+    /// selects the binary-file body (the plain notice or git's base85 `GIT binary
+    /// patch`); git implies a full `index` for an embedded binary blob, so a binary
+    /// file in [`BinaryMode::GitBinaryPatch`] ignores `abbrev` for its `index`.
+    fn write_to(&self, out: &mut String, abbrev: Option<usize>, binary: BinaryMode) {
         let kind: ChangeKind = self.status.kind();
         let is_create: bool = matches!(kind, ChangeKind::Added);
         let is_delete: bool = matches!(kind, ChangeKind::Deleted);
@@ -319,8 +335,12 @@ impl FilePatch {
             "diff --git a/{} b/{}\n",
             self.from_path, self.to_path
         ));
-        self.write_extended_headers(out, kind, is_create, is_delete, abbrev);
-        self.write_body(out, is_create, is_delete);
+        let index_abbrev: Option<usize> = match (&self.content, binary) {
+            (FileContent::Binary { .. }, BinaryMode::GitBinaryPatch) => None,
+            _ => abbrev,
+        };
+        self.write_extended_headers(out, kind, is_create, is_delete, index_abbrev);
+        self.write_body(out, is_create, is_delete, binary);
     }
 
     /// The extended headers between the `diff --git` line and the body: the
@@ -381,10 +401,11 @@ impl FilePatch {
         }
     }
 
-    /// The body: a one-line binary notice, or the `--- `/`+++ ` lines followed
-    /// by the hunks. A content-less change (exact rename, pure mode change)
-    /// has no hunks and so emits no `--- `/`+++ ` at all.
-    fn write_body(&self, out: &mut String, is_create: bool, is_delete: bool) {
+    /// The body: a binary file's body (the plain notice or git's `GIT binary patch`
+    /// per `binary`), or the `--- `/`+++ ` lines followed by the hunks. A
+    /// content-less change (exact rename, pure mode change) has no hunks and so
+    /// emits no `--- `/`+++ ` at all.
+    fn write_body(&self, out: &mut String, is_create: bool, is_delete: bool, binary: BinaryMode) {
         let from_label: String = if is_create {
             "/dev/null".to_owned()
         } else {
@@ -396,11 +417,16 @@ impl FilePatch {
             format!("b/{}", self.to_path)
         };
         match &self.content {
-            FileContent::Binary => {
-                out.push_str(&format!(
-                    "Binary files {from_label} and {to_label} differ\n"
-                ));
-            }
+            FileContent::Binary { source, target } => match binary {
+                BinaryMode::Notice => {
+                    out.push_str(&format!(
+                        "Binary files {from_label} and {to_label} differ\n"
+                    ));
+                }
+                BinaryMode::GitBinaryPatch => {
+                    out.push_str(&binary_patch::render(source, target));
+                }
+            },
             FileContent::Text(hunks) => {
                 if hunks.is_empty() {
                     return;
@@ -487,7 +513,7 @@ impl Patch {
             .iter()
             .find(|file: &&FilePatch| file.to_path == to_path)?;
         let mut out: String = String::new();
-        file.write_to(&mut out, Some(abbrev));
+        file.write_to(&mut out, Some(abbrev), BinaryMode::Notice);
         Some(out)
     }
 
@@ -503,7 +529,7 @@ impl Patch {
             .iter()
             .find(|file: &&FilePatch| file.to_path == to_path)?;
         let mut out: String = String::new();
-        file.write_to(&mut out, None);
+        file.write_to(&mut out, None, BinaryMode::Notice);
         Some(out)
     }
 
@@ -533,11 +559,29 @@ impl Patch {
         )
     }
 
-    /// Concatenates every file patch, optionally abbreviating the `index` ids.
+    /// Renders the whole patch as `git format-patch --binary` streams it (the
+    /// `patch` / `patches` form): text files exactly like
+    /// [`render_abbreviated`](Self::render_abbreviated) — abbreviated `index`,
+    /// unified hunks — but each binary file as a base85 `GIT binary patch` body
+    /// with a full `index`. This is the only diff form that embeds a binary blob;
+    /// the plain endpoints ([`render`](Self::render),
+    /// [`render_abbreviated`](Self::render_abbreviated),
+    /// [`render_file`](Self::render_file)) keep git's `--no-binary` notice.
+    #[must_use]
+    pub fn render_format_patch(&self, abbrev_len: usize) -> String {
+        let mut out: String = String::new();
+        for file in &self.files {
+            file.write_to(&mut out, Some(abbrev_len), BinaryMode::GitBinaryPatch);
+        }
+        out
+    }
+
+    /// Concatenates every file patch, optionally abbreviating the `index` ids,
+    /// rendering binary files as git's `--no-binary` notice (the plain endpoints).
     fn render_with(&self, abbrev: Option<usize>) -> String {
         let mut out: String = String::new();
         for file in &self.files {
-            file.write_to(&mut out, abbrev);
+            file.write_to(&mut out, abbrev, BinaryMode::Notice);
         }
         out
     }

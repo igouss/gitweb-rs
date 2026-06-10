@@ -29,19 +29,22 @@ Feature: The patch use case (single commit as a format-patch mail)
     Then the patch stream has a line "Subject: [PATCH] Add the engine"
     And the patch stream has a line "The first program."
 
-  Scenario: A binary file shows a Bin diffstat and the --no-binary notice
+  Scenario: A binary file shows a Bin diffstat and a GIT binary patch body
     # gitweb streams `git format-patch`, which embeds a binary file as a base85
-    # `GIT binary patch` of git's own zlib output — unreproducible by the gix-only,
-    # no-unsafe port. The port emits git's `--no-binary` form instead: the
-    # `Binary files … differ` notice, while the `Bin <old> -> <new> bytes` diffstat
-    # row (read from the blob sizes over the port) is still byte-exact.
+    # `GIT binary patch` (whichever is shorter of the deflated post-image or a
+    # deflated git binary delta against the pre-image), rendered by
+    # model::binary_patch. The `Bin <old> -> <new> bytes` diffstat row is read from
+    # the blob sizes over the port. The exact base85 bytes are pinned end-to-end by
+    # the parity crate's binary `patch` golden; here we pin that the body is the
+    # `GIT binary patch`, not git's old `--no-binary` notice.
     Given a commit "b1a0c0" with author "Ada Lovelace <ada@example.com> 1700000000 +0000"
     And the commit message is "Add a binary asset"
     And the commit diff modifies binary "logo.bin" from 5 to 7 bytes
     When I assemble the patch for "HEAD" with limit 16 and version "2.54.0"
     Then the patch stream has a line " logo.bin | Bin 5 -> 7 bytes"
-    And the patch stream has a line "Binary files a/logo.bin and b/logo.bin differ"
-    And the patch stream does not contain "GIT binary patch"
+    And the patch stream has a line "GIT binary patch"
+    And the patch stream has a line "literal 7"
+    And the patch stream does not contain "Binary files a/logo.bin and b/logo.bin differ"
 
   Scenario: The patches feature being off forbids the view
     Given a commit "c0ffee" with author "Ada Lovelace <ada@example.com> 1700000000 +0000"

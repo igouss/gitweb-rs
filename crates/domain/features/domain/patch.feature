@@ -101,6 +101,27 @@ Feature: Unified diff (patch) text formatting
     When I render the patch
     Then the patch contains "Binary files /dev/null and b/logo.bin differ"
 
+  # gitweb's `patch` / `patches` stream `git format-patch`, which embeds a binary
+  # file as a base85 `GIT binary patch` instead of the notice, and writes a FULL
+  # `index` for it (git implies `--full-index` for an embedded blob) even though
+  # the rest of a format-patch diff abbreviates. The exact base85 is pinned by the
+  # binary_patch spec and the parity golden; this pins the format-patch wiring —
+  # the full index and the body in place of the notice.
+  Scenario: A format-patch render embeds a binary file as a GIT binary patch
+    Given a binary modification file patch for "logo.bin"
+    When I render the patch as format-patch abbreviated to 7
+    Then the patch is:
+      """
+      diff --git a/logo.bin b/logo.bin
+      index 1111111111111111111111111111111111111111..2222222222222222222222222222222222222222 100644
+      GIT binary patch
+      literal 7
+      OcmZQzWMXDvWdi^JKL8d0
+
+      literal 5
+      McmZQzWMXCk000>P3jhEB
+      """
+
   Scenario: A missing trailing newline is marked
     Given a created file patch for "link" whose single line has no trailing newline
     When I render the patch

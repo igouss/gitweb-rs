@@ -1792,7 +1792,13 @@ fn given_binary_modification_patch(world: &mut DomainWorld, path: String) {
         oid_of('2'),
         path.clone(),
         path,
-        FileContent::Binary,
+        // The plain notice ignores the bytes; the format-patch body needs them.
+        // These five/seven bytes are the binary_patch spec's literal-wins case, so
+        // the `GIT binary patch` body is the known `literal 7` / `literal 5` blocks.
+        FileContent::Binary {
+            source: vec![0x00, 0x01, 0x02, 0x03, 0x04],
+            target: vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06],
+        },
     );
     world.patch_under_test = Some(one_file(patch));
 }
@@ -1807,7 +1813,10 @@ fn given_binary_creation_patch(world: &mut DomainWorld, path: String) {
         oid_of('2'),
         path.clone(),
         path,
-        FileContent::Binary,
+        FileContent::Binary {
+            source: Vec::new(),
+            target: vec![0x00, 0x01, 0x02, 0x03],
+        },
     );
     world.patch_under_test = Some(one_file(patch));
 }
@@ -1876,6 +1885,15 @@ fn render_patch_abbreviated(world: &mut DomainWorld, len: usize) {
         .as_ref()
         .expect("a patch must be built before rendering");
     world.rendered = Some(patch.render_abbreviated(len));
+}
+
+#[when(regex = r#"^I render the patch as format-patch abbreviated to (\d+)$"#)]
+fn render_patch_format_patch(world: &mut DomainWorld, len: usize) {
+    let patch: &Patch = world
+        .patch_under_test
+        .as_ref()
+        .expect("a patch must be built before rendering");
+    world.rendered = Some(patch.render_format_patch(len));
 }
 
 fn rendered(world: &DomainWorld) -> &str {

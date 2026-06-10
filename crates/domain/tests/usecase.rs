@@ -4534,7 +4534,9 @@ fn given_commitdiff_creates(world: &mut UsecaseWorld, path: String) {
 
 /// A single-file binary modify patch for `path`: a `FilePatch` whose content git
 /// treats as binary, with distinct from/to blob ids whose `old`/`new` byte sizes
-/// the diffstat reads back through [`Repository::object_size`].
+/// the diffstat reads back through [`Repository::object_size`]. The five/seven
+/// pre/post bytes (a NUL makes them binary) feed the `format-patch` `GIT binary
+/// patch` body when the mail is rendered.
 fn modified_binary_file(path: &str) -> FilePatch {
     FilePatch::new(
         ChangeStatus::parse("M").expect("M is a valid status"),
@@ -4544,7 +4546,10 @@ fn modified_binary_file(path: &str) -> FilePatch {
         fake_oid(&format!("binto-{path}")),
         path.to_owned(),
         path.to_owned(),
-        FileContent::Binary,
+        FileContent::Binary {
+            source: vec![0x00, 0x01, 0x02, 0x03, 0x04],
+            target: vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06],
+        },
     )
 }
 

@@ -19,22 +19,18 @@
 //! encoding; the volatile git version on the signature is the boundary's, passed
 //! through to [`FormatPatch`].
 //!
-//! A binary file is the one place this mail diverges from gitweb — for now.
-//! gitweb streams `git format-patch` verbatim, which embeds a binary file as a
-//! base85 `GIT binary patch`: whichever is shorter of the deflated blob (`literal`)
-//! or a deflated git binary delta against the pre-image (`delta`). The deflate is
-//! plain zlib (level 1) — reproducible by a safe Rust zlib port — and the base85 is
-//! trivial; the one piece with no safe-Rust implementation is git's binary *delta*
-//! encoder (`diff-delta.c`), which would have to be ported (gitweb_in_rust-ygu),
-//! then wired in here (gitweb_in_rust-af6). Until then the port emits git's
-//! `--no-binary` form: the `Binary files … differ` notice with an abbreviated
-//! `index` (see [`FileContent::Binary`](crate::model::patch::FileContent::Binary)),
-//! a real, coherent git mode. The `Bin <old> -> <new> bytes` diffstat row is
-//! already byte-exact ([`binary_change`] reads the blob sizes over the port). This
-//! is a deliberate, *tracked* divergence, pinned by the `parity` crate's binary
-//! `patch` golden against both gitweb and `git format-patch --no-binary`.
+//! A binary file is embedded as git's base85 `GIT binary patch` body, byte-for-byte
+//! with `git format-patch --binary` (which `format-patch` implies):
+//! [`Patch::render_format_patch`] picks whichever is shorter of the deflated blob
+//! (`literal`) or a deflated git binary delta against the pre-image (`delta`) and
+//! writes a full `index`, via [`crate::model::binary_patch`]. The `Bin <old> -> <new>
+//! bytes` diffstat row is byte-exact ([`binary_change`] reads the blob sizes over
+//! the port). Only `patch` / `patches` embed the blob this way; the plain diff
+//! endpoints stream bare `git diff-tree -p`, whose binary body is the `Binary files
+//! … differ` notice.
 //!
 //! [`Repository`]: crate::port::repository::Repository
+//! [`Patch::render_format_patch`]: crate::model::patch::Patch::render_format_patch
 
 use crate::error::DomainError;
 use crate::model::change::ChangeKind;
@@ -146,7 +142,7 @@ pub(crate) fn build_entry(
     let from: Option<ObjectId> = commit.parents().first().cloned();
     let patch: Patch = repo.patch(from.as_ref(), oid, DETECTION)?;
     let abbrev: usize = repo.abbrev_length()?;
-    let diff_body: String = patch.render_abbreviated(abbrev);
+    let diff_body: String = patch.render_format_patch(abbrev);
     let diffstat: Diffstat = build_diffstat(repo, &patch)?;
 
     let (subject, body): (String, Vec<String>) = split_message(commit.message());
