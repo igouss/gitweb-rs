@@ -17,9 +17,9 @@ use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_render::age::age_class_name;
 use gitweb_render::blob::{BlobContent, BlobLine, BlobPage, blob_body, blob_content};
 use gitweb_render::chrome::{
-    Crumb, DocumentHead, FeedLink, FooterLink, FormatLink, HiddenField, Logo, MoreLink, NavItem,
-    PageFooter, SearchForm, SearchOption, breadcrumbs, document, footer, page_header, page_nav,
-    search_form,
+    Crumb, DocumentHead, FeedHrefs, FeedLink, FooterLink, FormatLink, HiddenField, Logo, MoreLink,
+    NavItem, PageFooter, SearchForm, SearchOption, breadcrumbs, document, footer, page_header,
+    page_nav, project_feed_links, project_list_feed_links, search_form,
 };
 use gitweb_render::commit::{
     AuthorRow, ChangeNoteView, ChangedRow, CommitPage, LinkedId, ParentNav, ParentNavLink,
@@ -70,6 +70,7 @@ struct RenderWorld {
     crumbs: Vec<Crumb>,
     nav_items: Vec<NavItem>,
     footer_links: Vec<FooterLink>,
+    feed_links: Vec<FeedLink>,
     project_rows: Vec<ProjectRow>,
     forks_enabled: bool,
     project_index_entries: Vec<ProjectIndexEntry>,
@@ -296,6 +297,43 @@ fn when_render_document_feed(world: &mut RenderWorld, href: String, title: Strin
         feeds: vec![feed],
     };
     world.output = Some(document(&head, raw("")).into_string());
+}
+
+// ---- Chrome: feed auto-discovery link assembly ------------------------------
+
+#[when(regex = r#"^I assemble the project feed links for "(.*)" titled "(.*)"$"#)]
+fn when_assemble_project_feed_links(world: &mut RenderWorld, project: String, title: String) {
+    let hrefs: FeedHrefs = FeedHrefs {
+        rss: "/rss".to_owned(),
+        rss_no_merges: "/rss-nm".to_owned(),
+        atom: "/atom".to_owned(),
+        atom_no_merges: "/atom-nm".to_owned(),
+    };
+    world.feed_links = project_feed_links(&project, &title, &hrefs);
+}
+
+#[when(regex = r#"^I assemble the project-list feed links for site "(.*)"$"#)]
+fn when_assemble_project_list_feed_links(world: &mut RenderWorld, site: String) {
+    world.feed_links = project_list_feed_links(&site, "/index", "/opml");
+}
+
+#[then(regex = r#"^the feed links number (\d+)$"#)]
+fn then_feed_links_number(world: &mut RenderWorld, expected: usize) {
+    assert_eq!(world.feed_links.len(), expected);
+}
+
+#[then(regex = r#"^feed link (\d+) is titled "(.*)" linking "(.*)" of type "(.*)"$"#)]
+fn then_feed_link_is(
+    world: &mut RenderWorld,
+    index: usize,
+    title: String,
+    href: String,
+    mime: String,
+) {
+    let link: &FeedLink = &world.feed_links[index];
+    assert_eq!(link.title, title);
+    assert_eq!(link.href, href);
+    assert_eq!(link.mime, mime);
 }
 
 // ---- Chrome: breadcrumbs and header -----------------------------------------

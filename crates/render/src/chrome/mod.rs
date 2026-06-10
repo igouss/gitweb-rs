@@ -8,12 +8,14 @@
 //! only raw HTML enters through [`crate::markup::raw`].
 
 pub mod document;
+pub mod feed_meta;
 pub mod footer;
 pub mod header;
 pub mod nav;
 pub mod search;
 
 pub use document::{DocumentHead, FeedLink, document};
+pub use feed_meta::{FeedHrefs, project_feed_links, project_list_feed_links};
 pub use footer::{FooterLink, PageFooter, footer};
 pub use header::{Crumb, Logo, breadcrumbs, page_header};
 pub use nav::{FormatLink, MoreLink, NavItem, formats_nav, page_nav};
