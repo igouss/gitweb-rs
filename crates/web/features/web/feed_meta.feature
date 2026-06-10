@@ -16,12 +16,19 @@ Feature: Advertising feed auto-discovery links in the page head (print_feed_meta
     And the response body contains "<link rel="alternate" type="application/atom+xml" title="repo.git - log - Atom feed" href="/?p=repo.git&amp;a=atom">"
     And the response body contains "<link rel="alternate" type="application/atom+xml" title="repo.git - log - Atom feed (no merges)" href="/?p=repo.git&amp;a=atom&amp;opt=--no-merges">"
 
-  Scenario: a page viewing a branch ref names the branch in its feed title
+  Scenario: a page viewing a branch ref scopes its feed to that branch
     Given a project root containing repository "repo.git"
     And the summary action is served
     When I GET "/?p=repo.git&a=summary&hb=refs/heads/topic"
     Then the response status is 200
-    And the response body contains "title="repo.git - log of topic - RSS feed""
+    And the response body contains "title="repo.git - log of topic - RSS feed" href="/?p=repo.git&amp;a=rss&amp;h=refs%2Fheads%2Ftopic">"
+
+  Scenario: a page scoped to a file scopes its feed to that file's history
+    Given a project root containing repository "repo.git"
+    And the summary action is served
+    When I GET "/?p=repo.git&a=summary&f=src/foo.c"
+    Then the response status is 200
+    And the response body contains "title="repo.git - history of src/foo.c - RSS feed" href="/?p=repo.git&amp;a=rss&amp;f=src%2Ffoo.c">"
 
   Scenario: the projects list advertises its index and OPML feeds
     Given a project root containing repository "alpha.git"
