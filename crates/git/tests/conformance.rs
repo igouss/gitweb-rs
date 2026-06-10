@@ -56,6 +56,15 @@ fn ada() -> Identity {
     }
 }
 
+/// The pinned identity stamped at a chosen epoch, so two annotated tags can be
+/// dated apart to exercise name-rev's older-tag tie-break.
+fn dated(epoch_seconds: i64) -> Identity {
+    Identity {
+        epoch_seconds,
+        ..ada()
+    }
+}
+
 /// Converts a fixture (gix) object id into the domain's, for assertions.
 fn to_domain(oid: FixtureOid) -> ObjectId {
     ObjectId::parse(&oid.to_string()).expect("a git object id is valid hex")
@@ -160,6 +169,75 @@ fn build_unborn(world: &mut AdapterWorld) {
     builder.set_head("main");
     let repo: GixRepository =
         GixRepository::open(builder.path()).expect("open the unborn fixture repository");
+    world.builder = Some(builder);
+    world.repo = Some(repo);
+}
+
+/// A history that exercises name-rev's *ancestor* naming, kept apart from the
+/// populated fixture (whose tag count other scenarios pin). Two disjoint shapes,
+/// each on its own root so they cannot name each other:
+///   * `p0 <- p1 <- p2`, annotated tag "rel" at `p2` — `p1` is "rel~1", `p0` is
+///     "rel~2" (the annotated `^0` stripped before the generation suffix);
+///   * `t0` with two children `t1`, `t2` carrying annotated tags "older" and
+///     "newer" dated apart — `t0` is equidistant, so the older tag wins:
+///     "older~1" (the adapter must read each tag's own tagger date).
+fn build_tagged_history(world: &mut AdapterWorld) {
+    let builder: RepoBuilder = RepoBuilder::init();
+    let who: Identity = ada();
+    let empty: FixtureOid = builder.tree(&[]);
+
+    let commit = |parents: Vec<FixtureOid>, message: &str| -> FixtureOid {
+        builder.commit(&CommitSpec {
+            tree: empty,
+            parents,
+            author: who.clone(),
+            committer: who.clone(),
+            message: format!("{message}\n"),
+        })
+    };
+
+    let p0: FixtureOid = commit(Vec::new(), "p0");
+    let p1: FixtureOid = commit(vec![p0], "p1");
+    let p2: FixtureOid = commit(vec![p1], "p2");
+    let _rel: FixtureOid = builder.annotated_tag(&TagSpec {
+        name: "rel".to_owned(),
+        target: p2,
+        target_kind: TargetKind::Commit,
+        tagger: who.clone(),
+        message: "rel\n".to_owned(),
+    });
+
+    let t0: FixtureOid = commit(Vec::new(), "t0");
+    let t1: FixtureOid = commit(vec![t0], "t1");
+    let t2: FixtureOid = commit(vec![t0], "t2");
+    let _older: FixtureOid = builder.annotated_tag(&TagSpec {
+        name: "older".to_owned(),
+        target: t1,
+        target_kind: TargetKind::Commit,
+        tagger: dated(1_000_000_000),
+        message: "older\n".to_owned(),
+    });
+    let _newer: FixtureOid = builder.annotated_tag(&TagSpec {
+        name: "newer".to_owned(),
+        target: t2,
+        target_kind: TargetKind::Commit,
+        tagger: dated(1_900_000_000),
+        message: "newer\n".to_owned(),
+    });
+
+    builder.branch("main", p2);
+    builder.set_head("main");
+
+    let repo: GixRepository =
+        GixRepository::open(builder.path()).expect("open the tagged-history fixture repository");
+
+    let mut named: BTreeMap<String, ObjectId> = BTreeMap::new();
+    named.insert("p0".to_owned(), to_domain(p0));
+    named.insert("p1".to_owned(), to_domain(p1));
+    named.insert("p2".to_owned(), to_domain(p2));
+    named.insert("t0".to_owned(), to_domain(t0));
+
+    world.named = named;
     world.builder = Some(builder);
     world.repo = Some(repo);
 }
@@ -274,6 +352,11 @@ fn given_populated(world: &mut AdapterWorld) {
 #[given("an unborn repository")]
 fn given_unborn(world: &mut AdapterWorld) {
     build_unborn(world);
+}
+
+#[given("a tagged history")]
+fn given_tagged_history(world: &mut AdapterWorld) {
+    build_tagged_history(world);
 }
 
 // --- Whens -------------------------------------------------------------------

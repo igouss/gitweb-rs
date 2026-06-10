@@ -61,6 +61,12 @@ impl TagTip {
             deref,
         }
     }
+
+    /// The commit this tag peels to — the seed the adapter walks ancestry from.
+    #[must_use]
+    pub fn oid(&self) -> &ObjectId {
+        &self.oid
+    }
 }
 
 /// The commit ancestry the walk needs: each commit mapped to its parents, in

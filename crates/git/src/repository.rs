@@ -21,6 +21,7 @@ use gitweb_domain::model::diff::{CombinedDiff, CombinedDiffEntry, CombinedParent
 use gitweb_domain::model::file_mode::{FileKind, FileMode};
 use gitweb_domain::model::grep::{GREP_MATCH_LIMIT, GrepMatch, GrepResults, file_matches};
 use gitweb_domain::model::grep_pattern::GrepPattern;
+use gitweb_domain::model::name_rev::{CommitGraph, TagTip, name_by_tags};
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
 use gitweb_domain::model::patch::{FilePatch, Patch};
@@ -347,6 +348,100 @@ impl GixRepository {
         );
         Ok(())
     }
+
+    /// Resolves a `refs/tags/*` reference to the name-rev tip it contributes, or
+    /// `None` when it is not a tag ref or does not peel to a commit (a tag of a
+    /// tree or blob, which name-rev cannot name as a commit). Mirrors git's
+    /// `name_ref` for `--tags`: peel through any tag objects, taking the
+    /// innermost tag's date as the `taggerdate`, and fall back to the commit's
+    /// own committer date for a lightweight tag (git's `commit->date`).
+    fn resolve_tag_tip(
+        &self,
+        reference: gix::Reference<'_>,
+    ) -> Result<Option<TagTip>, DomainError> {
+        let full: String = reference.name().as_bstr().to_string();
+        let Some(short) = full.strip_prefix("refs/tags/") else {
+            return Ok(None);
+        };
+        let short: String = short.to_owned();
+        let Some(direct) = reference.try_id().map(|id: gix::Id<'_>| id.detach()) else {
+            return Ok(None);
+        };
+        let mut object: gix::Object<'_> = self.repo.find_object(direct).map_err(backend)?;
+        let mut deref: bool = false;
+        let mut taggerdate: Option<i64> = None;
+        while object.kind == gix::object::Kind::Tag {
+            let tag: gix::Tag<'_> =
+                object
+                    .try_into_tag()
+                    .map_err(|_error: gix::object::try_into::Error| {
+                        backend(format!("not a tag: {short}"))
+                    })?;
+            deref = true;
+            if let Some(sig) = tag.tagger().map_err(backend)? {
+                taggerdate = Some(to_signature(sig)?.epoch());
+            }
+            let target: gix::ObjectId = tag.target_id().map_err(backend)?.detach();
+            object = self.repo.find_object(target).map_err(backend)?;
+        }
+        let commit: gix::Commit<'_> = match object.try_into_commit() {
+            Ok(commit) => commit,
+            Err(_) => return Ok(None),
+        };
+        let taggerdate: i64 = match taggerdate {
+            Some(epoch) => epoch,
+            None => to_signature(commit.committer().map_err(backend)?)?.epoch(),
+        };
+        Ok(Some(TagTip::new(
+            to_domain_oid(commit.id),
+            short,
+            taggerdate,
+            deref,
+        )))
+    }
+
+    /// Collects every commit reachable from the tag tips into a graph of
+    /// commit → parents — the ancestry name-rev propagates names across. The
+    /// full reachable set is walked (no date cutoff); every commit on a
+    /// tag→target path is newer than the target, so this names the target
+    /// exactly as git's cut-off search would.
+    fn collect_ancestry(&self, tips: &[TagTip]) -> Result<CommitGraph, DomainError> {
+        let mut graph: CommitGraph = CommitGraph::new();
+        let mut seen: BTreeSet<gix::ObjectId> = BTreeSet::new();
+        let mut stack: Vec<gix::ObjectId> = Vec::with_capacity(tips.len());
+        for tip in tips {
+            stack.push(to_gix_oid(tip.oid())?);
+        }
+        while let Some(id) = stack.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let commit: gix::Commit<'_> = match self
+                .repo
+                .find_object(id)
+                .map_err(backend)?
+                .try_into_commit()
+            {
+                Ok(commit) => commit,
+                Err(_) => continue,
+            };
+            let parents: Vec<gix::ObjectId> = commit
+                .parent_ids()
+                .map(|parent: gix::Id<'_>| parent.detach())
+                .collect();
+            for parent in &parents {
+                if !seen.contains(parent) {
+                    stack.push(*parent);
+                }
+            }
+            let domain_parents: Vec<ObjectId> = parents
+                .iter()
+                .map(|parent: &gix::ObjectId| to_domain_oid(*parent))
+                .collect();
+            graph.insert(to_domain_oid(id), domain_parents);
+        }
+        Ok(graph)
+    }
 }
 
 /// One copy gix detected: where the copy landed, the path it was copied from,
@@ -581,47 +676,25 @@ impl Repository for GixRepository {
 
     fn rev_name_tag(&self, oid: &ObjectId) -> Result<Option<String>, DomainError> {
         // gitweb's `git_get_rev_name_tags`: `git name-rev --tags <oid>`, keeping
-        // the captured `tags/<name>`. We implement name-rev's distance-zero case
-        // — a tag whose tip is exactly this commit. A lightweight tag points
-        // straight at the commit (its ref id is the commit), so it names it by the
-        // bare `<name>`; an annotated tag's ref points at a tag object that peels
-        // to the commit, which name-rev marks with one dereference, `<name>^0`.
-        // Ancestor-distance naming (`<name>~N`) and git's multi-tag tie-break are
-        // out of scope (see the port doc); candidates are gathered in ref-name
-        // order so the first match is deterministic.
-        let target: gix::ObjectId = to_gix_oid(oid)?;
+        // the captured `tags/<name>` body. The naming itself — the nearest tag,
+        // `~N` per first-parent generation, `^N` onto a merge parent, `^0` for an
+        // annotated tag's own tip — is the pure `model::name_rev` port. Here we
+        // only resolve each tag ref to its tip (peeled commit, name, date, and
+        // dereference flag) and collect the ancestry that naming walks.
         let platform: gix::reference::iter::Platform<'_> =
             self.repo.references().map_err(backend)?;
-        // The winning tag, keyed by its short ref name so ties break in ref-name
-        // order regardless of gix's iteration order.
-        let mut best: Option<(String, String)> = None;
+        let mut tips: Vec<TagTip> = Vec::new();
         for item in platform.all().map_err(backend)? {
             let reference: gix::Reference<'_> = item.map_err(backend)?;
-            let full: String = reference.name().as_bstr().to_string();
-            let Some(short) = full.strip_prefix("refs/tags/") else {
-                continue;
-            };
-            // The ref's own target distinguishes the tag shape: equal to the
-            // peeled commit means lightweight; a tag object in between means
-            // annotated.
-            let direct: Option<gix::ObjectId> =
-                reference.try_id().map(|id: gix::Id<'_>| id.detach());
-            let peeled: gix::ObjectId = reference.into_fully_peeled_id().map_err(backend)?.detach();
-            if peeled != target {
-                continue;
-            }
-            let annotated: bool = direct != Some(peeled);
-            let name: String = if annotated {
-                format!("{short}^0")
-            } else {
-                short.to_owned()
-            };
-            match &best {
-                Some((best_short, _)) if best_short.as_str() <= short => {}
-                _ => best = Some((short.to_owned(), name)),
+            if let Some(tip) = self.resolve_tag_tip(reference)? {
+                tips.push(tip);
             }
         }
-        Ok(best.map(|(_, name): (String, String)| name))
+        if tips.is_empty() {
+            return Ok(None);
+        }
+        let graph: CommitGraph = self.collect_ancestry(&tips)?;
+        Ok(name_by_tags(&tips, &graph, oid))
     }
 
     fn path_id(&self, at: &ObjectId, path: &str) -> Result<Option<ObjectId>, DomainError> {

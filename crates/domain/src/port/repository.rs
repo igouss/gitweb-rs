@@ -181,22 +181,24 @@ pub trait Repository {
 
     /// The tag name that names `oid`, the way gitweb's `git_get_rev_name_tags`
     /// (`git name-rev --tags <oid>`) supplies the `X-Git-Tag` line on
-    /// `commitdiff_plain` / `patch`. `None` when no tag names the commit.
+    /// `commitdiff_plain` / `patch`. `None` when no tag reaches the commit.
     ///
     /// The returned string is the captured `tags/<name>` body — gitweb's regex
     /// `^<hash> tags/(.*)$` — so a hierarchical tag keeps its path (`release/v1`)
     /// and, mirroring `name-rev`'s one-dereference marker, an *annotated* tag
-    /// whose object peels to the commit reads as `<name>^0` while a *lightweight*
-    /// tag reads as the bare `<name>`.
+    /// whose tip is exactly the commit reads as `<name>^0` while a *lightweight*
+    /// one reads as the bare `<name>`.
     ///
-    /// This is `name-rev`'s *distance-zero* case — a tag whose tip is exactly the
-    /// commit — which is what a tagged (release) commit stamps. `name-rev`'s
-    /// ancestor-distance naming (`<name>~N` for a commit some generations behind a
-    /// tag) is deliberately out of scope; an untagged commit reachable only as
-    /// such an ancestor reports `None` here rather than a suffixed name. When more
-    /// than one tag's tip is the commit, the first in ref-name order wins (git's
-    /// own multi-tag tie-break is not replicated). The corpus and the adapter
-    /// conformance exercise the lightweight, annotated and no-tag cases.
+    /// This is full `name-rev --tags`, not just the distance-zero (tagged-tip)
+    /// case: a commit some generations behind a tag is named by the path
+    /// `name-rev` walks from that tag's tip — `~N` per first-parent generation,
+    /// `^N` onto a merge's Nth parent, with the `^0` dereference marker stripped
+    /// before any `~N` (so a commit three first-parent generations behind
+    /// annotated `v1.0` is `v1.0~3`). The nearest tag wins, ties going to the
+    /// older tag, matching git byte-for-byte; the naming itself is the pure
+    /// [`name_rev`] port, this method only supplies the tips and ancestry.
+    ///
+    /// [`name_rev`]: crate::model::name_rev
     fn rev_name_tag(&self, oid: &ObjectId) -> Result<Option<String>, DomainError>;
 
     /// Reads the annotated tag named by `oid`.

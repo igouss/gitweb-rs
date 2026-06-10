@@ -153,11 +153,12 @@ Feature: Reading git objects through the gix adapter
     When I read the tag "c1"
     Then reading the tag fails as invalid
 
-  # --- rev_name_tag(oid): git name-rev --tags, distance-zero subset ---
+  # --- rev_name_tag(oid): git name-rev --tags, distance-zero on this fixture ---
   # gitweb's git_get_rev_name_tags stamps the commitdiff_plain X-Git-Tag line.
   # c1 carries the lightweight tag "lw" (bare name); c2 carries the annotated tag
   # "v1" (name-rev's one-dereference "^0"); the merge commit carries no tag, and
-  # is reachable from neither tag, so it is unnamed.
+  # is reachable from neither tag, so it is unnamed. Ancestor-distance (~N) and
+  # multi-tag tie-break naming live in name_rev.feature, on a tagged history.
 
   Scenario: a lightweight tag names its commit by its bare name
     When I read the rev-name tag of "c1"
