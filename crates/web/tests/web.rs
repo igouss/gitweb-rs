@@ -158,6 +158,11 @@ fn given_also_repo(world: &mut WebWorld, name: String) {
     root(world).add_repo(&name);
 }
 
+#[given(regex = r#"^the root also contains a plain directory "([^"]*)"$"#)]
+fn given_also_plain_dir(world: &mut WebWorld, name: String) {
+    root(world).add_dir(&name);
+}
+
 #[given(regex = r#"^a repository "([^"]*)" with an unborn HEAD$"#)]
 fn given_unborn_repo(world: &mut WebWorld, name: String) {
     ensure_root(world);

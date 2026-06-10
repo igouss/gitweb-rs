@@ -15,6 +15,16 @@ Feature: Serving the forks view and folding forks on the landing page
     And the response body contains "a=forks"
     And the response body does not contain "one.git"
 
+  Scenario: an empty fork-container directory shows the unlinked '+' and a forks link
+    Given a project root containing repository "repo.git"
+    And the root also contains a plain directory "repo"
+    And the forks feature is served
+    When I GET "/"
+    Then the response status is 200
+    And the response body contains "<span title="0 forks">+</span>"
+    And the response body contains "a=forks"
+    And the response body does not contain ">+</a>"
+
   Scenario: the forks action lists a project's forks
     Given a project root containing repository "repo.git"
     And the root also contains repository "repo/one.git"
