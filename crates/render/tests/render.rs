@@ -5,8 +5,11 @@
 
 use cucumber::gherkin::Step;
 use cucumber::{World, given, then, when};
+use std::num::NonZeroUsize;
+
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::age::{Age, AgeClass};
+use gitweb_domain::model::forks::ForkState;
 use gitweb_domain::model::message_body::LogLine;
 use gitweb_domain::model::search_help::SearchHelpTopic;
 use gitweb_domain::model::tag_age::TagAge;
@@ -451,7 +454,7 @@ fn given_listed_project(world: &mut RenderWorld, name: String, href: String) {
         description: None,
         owner: None,
         age: None,
-        fork_count: 0,
+        fork_state: ForkState::NotForkable,
     });
 }
 
@@ -463,6 +466,10 @@ fn given_listed_project_with_forks(
     fork_count: usize,
 ) {
     world.forks_enabled = true;
+    let fork_state: ForkState = match NonZeroUsize::new(fork_count) {
+        Some(count) => ForkState::Forked(count),
+        None => ForkState::NotForkable,
+    };
     world.project_rows.push(ProjectRow {
         links: project_links(&href),
         forks_href: format!("{href}/forks"),
@@ -471,7 +478,22 @@ fn given_listed_project_with_forks(
         description: None,
         owner: None,
         age: None,
-        fork_count,
+        fork_state,
+    });
+}
+
+#[given(regex = r#"^a listed project "([^"]*)" at "([^"]*)" with an empty fork container$"#)]
+fn given_listed_project_empty_container(world: &mut RenderWorld, name: String, href: String) {
+    world.forks_enabled = true;
+    world.project_rows.push(ProjectRow {
+        links: project_links(&href),
+        forks_href: format!("{href}/forks"),
+        name,
+        href,
+        description: None,
+        owner: None,
+        age: None,
+        fork_state: ForkState::EmptyContainer,
     });
 }
 
@@ -494,7 +516,7 @@ fn given_listed_project_full(
         description: Some(description),
         owner: Some(owner),
         age: Some(Age::from_seconds(age_seconds)),
-        fork_count: 0,
+        fork_state: ForkState::NotForkable,
     });
 }
 
@@ -508,7 +530,7 @@ fn given_listed_project_no_commits(world: &mut RenderWorld, name: String, href: 
         description: None,
         owner: None,
         age: None,
-        fork_count: 0,
+        fork_state: ForkState::NotForkable,
     });
 }
 

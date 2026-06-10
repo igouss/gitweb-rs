@@ -11,6 +11,7 @@
 //! prints gitweb's relative string.
 
 use gitweb_domain::model::age::Age;
+use gitweb_domain::model::forks::ForkState;
 
 use crate::age::age_class_name;
 use crate::chrome::{Crumb, PageFooter, footer, page_header};
@@ -55,10 +56,10 @@ pub struct ProjectRow {
     pub age: Option<Age>,
     /// Per-project quick links.
     pub links: ProjectLinks,
-    /// Number of forks folded under this project; `0` when it has none (or the
-    /// forks feature is off). A positive count links the leading `+` and adds the
-    /// `forks` quick link.
-    pub fork_count: usize,
+    /// The project's fork-column state (gitweb's `forks` field): whether it shows
+    /// no `+`, an unlinked `+` (empty container), or a `+` linked to the forks
+    /// view, and whether it carries the `forks` quick link.
+    pub fork_state: ForkState,
     /// The project's forks view URL, the target of the `+` and `forks` links.
     pub forks_href: String,
 }
@@ -169,7 +170,7 @@ fn project_row(row: &ProjectRow, forks_enabled: bool) -> Markup {
                 a href=(row.links.log) { "log" }
                 " | "
                 a href=(row.links.tree) { "tree" }
-                @if row.fork_count > 0 {
+                @if row.fork_state.is_forkable() {
                     " | "
                     a href=(row.forks_href) { "forks" }
                 }
@@ -178,14 +179,21 @@ fn project_row(row: &ProjectRow, forks_enabled: bool) -> Markup {
     }
 }
 
-/// The leading fork cell (gitweb's `$check_forks` `<td>`): a `+` linking to the
-/// project's forks view when it has forks (titled with the count), or an empty
-/// cell when it has none.
+/// The leading fork cell (gitweb's `$check_forks` `<td>`), one rendering per
+/// [`ForkState`]: a `+` linked to the forks view and titled with the count for a
+/// forked project, an *unlinked* `+` titled "0 forks" for a fork-capable but
+/// empty container, and an empty cell for a project that cannot parent forks.
 fn fork_cell(row: &ProjectRow) -> Markup {
     html! {
         td class="forks" {
-            @if row.fork_count > 0 {
-                a href=(row.forks_href) title=(format!("{} forks", row.fork_count)) { "+" }
+            @match row.fork_state {
+                ForkState::Forked(count) => {
+                    a href=(row.forks_href) title=(format!("{count} forks")) { "+" }
+                }
+                ForkState::EmptyContainer => {
+                    span title="0 forks" { "+" }
+                }
+                ForkState::NotForkable => {}
             }
         }
     }

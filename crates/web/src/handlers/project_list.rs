@@ -109,8 +109,8 @@ fn sort_header(label: &str, key: &str, active: &str, replay: &[(&str, &str)]) ->
 }
 
 /// Maps a use-case row to a render row, building the summary, quick links, and —
-/// for a project with forks — the forks-view URL the leading `+` and `forks` link
-/// point to.
+/// for a fork-capable project — the forks-view URL the leading `+` and `forks`
+/// link point to.
 fn render_row(row: &ProjectListRow) -> ProjectRow {
     let name: &str = row.name();
     let summary: String = href(&[("p", name), ("a", "summary")]);
@@ -120,7 +120,7 @@ fn render_row(row: &ProjectListRow) -> ProjectRow {
         description: row.description().map(str::to_owned),
         owner: row.owner().map(str::to_owned),
         age: row.age(),
-        fork_count: row.fork_count(),
+        fork_state: row.fork_state(),
         forks_href: href(&[("p", name), ("a", "forks")]),
         links: ProjectLinks {
             summary,
