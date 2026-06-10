@@ -112,6 +112,73 @@ indistinguishable. Never run interactive/TUI commands or watch modes; use
 non-interactive flags (`--json`, `--no-pager`) or report the tool as
 unusable.
 
+## Running tests (how to read the result)
+
+`cargo test` is the source of truth. **Do NOT use `cargo nextest` here.** Every
+crate carries at least one cucumber `harness = false` target, and nextest cannot
+introspect a custom-harness binary — it hard-errors trying to list it
+(`config-… --list --format terse` → `error: unexpected argument '--list' found`)
+and aborts the run. A "green" nextest run in this workspace is a **false green**:
+it never executed the conformance/feature suites. There is also no
+machine-readable output — `--format json` is nightly-only (`-Z unstable-options`)
+and this toolchain is stable, so you parse the text below.
+
+### The exit code is the first and most reliable signal
+`cargo test` exits `0` iff everything passed; any failure — libtest assertion or
+cucumber step — yields non-zero (`101`). Check it; never trust a summary that
+scrolled past. A green run prints a *lot* of noise (a `✔` per cucumber step,
+gherkin echoes, `Compiling`/`Running` chatter, a `… ok` per libtest case), so
+filter it. Define the noise pattern once:
+
+    # passing cucumber steps, gherkin echoes, cargo build + libtest chatter:
+    NOISE='✔|^\s*(Feature|Rule|Scenario|Background):|^\s+(Compiling|Finished|Running|Doc-tests) |^running [0-9]+ test|^test .* \.\.\. ok$'
+
+Then run, filtering noise but keeping the full log on disk and cargo's real exit
+code (the pipe would otherwise hand you grep's code, not cargo's):
+
+    cargo test --workspace --no-fail-fast 2>&1 | tee /tmp/cargo-test.log | grep -vE "$NOISE"
+    echo "exit=${PIPESTATUS[0]}"   # cargo's status, NOT grep's — read it on the line after the pipe
+
+`--no-fail-fast` is mandatory for a full picture. Without it, cargo stops after
+the FIRST failing test binary, so you see one crate's failures and silently miss
+every later crate. With it, all binaries run and you get every failure in one
+pass. (`RUST_BACKTRACE=1 cargo test …` adds backtraces to panic messages.) On a
+failure, `/tmp/cargo-test.log` holds the unfiltered output to drill into.
+
+### Two harnesses → two output shapes to grep for
+**libtest** (`#[test]` unit/doc tests) — load-bearing lines:
+- per-binary summary: `test result: FAILED. 12 passed; 1 failed; 0 ignored; …`
+  (success looks like `test result: ok. 8 passed; 0 failed; …`).
+- a `failures:` block listing each failed test by name, and for each a
+  `---- <test> stdout ----` section with the `panicked at <file>:<line>` message.
+
+**cucumber** (`harness = false` `.feature` suites) — load-bearing lines:
+- a `[Summary]` block: `8 scenarios (7 passed, 1 failed)` and
+  `35 steps (34 passed, 1 failed)` (all-green omits the `, N failed`).
+- the failing step is marked `✘`, printed with its `<name>.feature:<line>`
+  location and the assertion/panic message inline.
+- on any failure the binary panics (`N step(s) failed`) → non-zero exit, and
+  cargo prints `error: test failed, to rerun pass '-p <crate> --test <name>'`.
+
+### Extract just the failure data
+    # counts + which crates/suites failed, nothing else:
+    cargo test --workspace --no-fail-fast 2>&1 \
+      | grep -E 'test result: FAILED|[0-9]+ failed|scenarios \(|steps \(|^error'
+
+    # failed libtest names + their panic messages:
+    cargo test --workspace --no-fail-fast 2>&1 \
+      | grep -E '^---- .* stdout ----|panicked at|^    [a-zA-Z0-9_:]+$'
+
+### Scope while iterating (the TDD inner loop)
+    cargo test -p gitweb-git                 # one crate, all its targets
+    cargo test -p gitweb-git --test refs     # one cucumber suite (its [[test]] name)
+    cargo test -p gitweb-domain --lib        # only that crate's unit/doc tests
+    cargo test -p gitweb-git some_fn_name    # libtest name filter (does NOT filter cucumber)
+
+Cucumber suites load their `.feature` files by a path relative to the crate root
+(`SomeWorld::run("features/<x>")`); `cargo test` sets CWD to the package dir, so
+always invoke them through cargo — never the bare binary from another directory.
+
 ## Evidence discipline (claims require receipts)
 
 - Never state that tests pass, a mutant is killed, a gate is green, or a
