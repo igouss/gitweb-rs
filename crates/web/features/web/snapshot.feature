@@ -43,6 +43,27 @@ Feature: Serving a downloadable snapshot archive (snapshot action)
     And the response content disposition contains "filename="t-HEAD-"
     And the response content disposition contains ".tar.gz""
 
+  Scenario: a snapshot of a ref under an extra branch dir is named with the dir prefix
+    Given the repository "t.git" has a ref "refs/sandbox/wip" committed at 1500000000
+    And the snapshot action is served with formats "tgz" and extra branch refs "sandbox"
+    When I GET "/?p=t.git&a=snapshot&h=refs/sandbox/wip&sf=tgz"
+    Then the response status is 200
+    And the response content type is "application/x-gzip"
+    And the response content disposition contains "filename="t-sandbox-wip-"
+    And the response content disposition contains ".tar.gz""
+
+  Scenario: without the extra-branch-refs feature, the same ref keeps its literal name
+    Given the repository "t.git" has a ref "refs/sandbox/wip" committed at 1500000000
+    And the snapshot action is served with formats "tgz"
+    When I GET "/?p=t.git&a=snapshot&h=refs/sandbox/wip&sf=tgz"
+    Then the response status is 200
+    And the response content disposition contains "filename="t-refs.sandbox.wip-"
+
+  Scenario: a malformed extra-branch-refs entry is a server error
+    Given the snapshot action is served with formats "tgz" and extra branch refs "bad ref"
+    When I GET "/?p=t.git&a=snapshot&h=refs/tags/v1.0&sf=tgz"
+    Then the response status is 500
+
   Scenario: a disabled snapshot feature forbids the download
     Given the snapshot action is served with formats ""
     When I GET "/?p=t.git&a=snapshot&h=refs/tags/v1.0&sf=tgz"

@@ -12,6 +12,7 @@ use gitweb_domain::model::age::{Age, AgeClass};
 use gitweb_domain::model::binary::is_binary;
 use gitweb_domain::model::blob::{Blob, BlobDisplay};
 use gitweb_domain::model::blobdiff_plain::BlobdiffPlain;
+use gitweb_domain::model::branch_refs::get_branch_refs;
 use gitweb_domain::model::change::ChangeStatus;
 use gitweb_domain::model::chop::{ChopMode, chop_str};
 use gitweb_domain::model::commit::Commit;
@@ -223,6 +224,8 @@ struct DomainWorld {
     snapshot_hash: String,
     snapshot_short: String,
     snapshot_name_out: Option<String>,
+    branch_refs_extra: Vec<String>,
+    branch_refs_result: Option<Result<Vec<String>, DomainError>>,
     tag_age_now: i64,
     tag_age_creation: Option<i64>,
     tag_age_result: Option<TagAge>,
@@ -3902,6 +3905,46 @@ fn when_build_snapshot_name(world: &mut DomainWorld) {
 #[then(regex = r#"^the snapshot name is "([^"]*)"$"#)]
 fn then_snapshot_name_is(world: &mut DomainWorld, expected: String) {
     assert_eq!(world.snapshot_name_out.as_deref(), Some(expected.as_str()));
+}
+
+// --- branch refs: get_branch_refs / filter_and_validate_refs ------------------
+
+#[given("no extra branch refs")]
+fn given_no_extra_branch_refs(world: &mut DomainWorld) {
+    world.branch_refs_extra = Vec::new();
+}
+
+#[given(regex = r#"^the extra branch refs "([^"]*)"$"#)]
+fn given_extra_branch_refs(world: &mut DomainWorld, list: String) {
+    world.branch_refs_extra = split_tokens(&list);
+}
+
+#[when("I resolve the branch refs")]
+fn when_resolve_branch_refs(world: &mut DomainWorld) {
+    world.branch_refs_result = Some(get_branch_refs(&world.branch_refs_extra));
+}
+
+#[then(regex = r#"^the branch refs are "([^"]*)"$"#)]
+fn then_branch_refs_are(world: &mut DomainWorld, expected: String) {
+    let refs: &[String] = world
+        .branch_refs_result
+        .as_ref()
+        .expect("resolve the branch refs first")
+        .as_ref()
+        .expect("branch ref resolution succeeded");
+    assert_eq!(refs.join(", "), expected);
+}
+
+#[then(regex = r#"^resolving the branch refs fails as "(.*)"$"#)]
+fn then_branch_refs_fail(world: &mut DomainWorld, message: String) {
+    match world
+        .branch_refs_result
+        .as_ref()
+        .expect("resolve the branch refs first")
+    {
+        Err(DomainError::Backend(actual)) => assert_eq!(actual, &message),
+        other => panic!("expected Backend({message:?}), got {other:?}"),
+    }
 }
 
 fn marker_view_of(name: &str) -> MarkerView {

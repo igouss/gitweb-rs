@@ -910,7 +910,8 @@ fn pickaxe_off_settings() -> Settings {
 
 /// Settings whose `snapshot` feature enables exactly `formats` (a comma-separated
 /// list, empty for none) — gitweb's `$feature{snapshot}{default}`.
-fn snapshot_settings(formats: &str) -> Settings {
+/// A settings layer that enables the `snapshot` feature with the given formats.
+fn snapshot_settings_layer(formats: &str) -> SettingsLayer {
     let options: Vec<String> = if formats.trim().is_empty() {
         Vec::new()
     } else {
@@ -927,20 +928,68 @@ fn snapshot_settings(formats: &str) -> Settings {
             overridable: None,
         },
     );
-    let layer: SettingsLayer = SettingsLayer {
+    SettingsLayer {
         features,
         ..SettingsLayer::default()
+    }
+}
+
+fn snapshot_settings(formats: &str) -> Settings {
+    Settings::resolve(&[snapshot_settings_layer(formats)])
+}
+
+/// The snapshot settings with the `extra-branch-refs` feature set as well, for the
+/// branch-ref-naming proofs.
+fn snapshot_settings_with_extra_refs(formats: &str, extra_refs: &str) -> Settings {
+    let extra_options: Vec<String> = if extra_refs.trim().is_empty() {
+        Vec::new()
+    } else {
+        extra_refs
+            .split(',')
+            .map(|token: &str| token.trim().to_owned())
+            .collect()
     };
+    let mut layer: SettingsLayer = snapshot_settings_layer(formats);
+    layer.features.insert(
+        FeatureName::ExtraBranchRefs,
+        FeatureLayer {
+            default: Some(extra_options),
+            overridable: None,
+        },
+    );
     Settings::resolve(&[layer])
+}
+
+#[given(regex = r#"^the repository "([^"]*)" has a ref "([^"]*)" committed at (\d+)$"#)]
+fn given_repo_custom_ref(world: &mut WebWorld, name: String, full_ref: String, epoch: i64) {
+    root(world).add_ref_at(&name, &full_ref, epoch);
 }
 
 #[given(regex = r#"^the snapshot action is served with formats "([^"]*)"$"#)]
 fn given_snapshot_served(world: &mut WebWorld, formats: String) {
+    register_snapshot(world, snapshot_settings(&formats));
+}
+
+#[given(
+    regex = r#"^the snapshot action is served with formats "([^"]*)" and extra branch refs "([^"]*)"$"#
+)]
+fn given_snapshot_served_with_extra_refs(
+    world: &mut WebWorld,
+    formats: String,
+    extra_refs: String,
+) {
+    register_snapshot(
+        world,
+        snapshot_settings_with_extra_refs(&formats, &extra_refs),
+    );
+}
+
+/// Wires the snapshot handler over the root's store and the given settings.
+fn register_snapshot(world: &mut WebWorld, settings: Settings) {
     ensure_root(world);
     let store: Arc<dyn ProjectStore + Send + Sync> =
         Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
-    let settings: Arc<Settings> = Arc::new(snapshot_settings(&formats));
-    let handler: Arc<dyn Handler> = Arc::new(SnapshotHandler::new(store, settings));
+    let handler: Arc<dyn Handler> = Arc::new(SnapshotHandler::new(store, Arc::new(settings)));
     world.dispatcher.register(Action::Snapshot, handler);
 }
 

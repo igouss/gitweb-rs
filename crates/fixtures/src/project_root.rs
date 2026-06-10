@@ -418,6 +418,17 @@ impl ProjectRoot {
         builder.branch(branch, commit);
     }
 
+    /// Points an arbitrary fully-qualified ref `full_ref` (e.g.
+    /// `refs/sandbox/wip`) at a fresh commit committed at `epoch` in the repository
+    /// at `name`. This builds the refs outside `refs/heads/` and `refs/remotes/`
+    /// that the `extra-branch-refs` feature treats as branches — used to verify a
+    /// snapshot of such a ref is named with its directory prefix.
+    pub fn add_ref_at(&self, name: &str, full_ref: &str, epoch: i64) {
+        let builder: RepoBuilder = RepoBuilder::open_at(&self.dir.path().join(name));
+        let commit: gix::ObjectId = commit_at(&builder, full_ref, epoch);
+        builder.custom_ref(full_ref, commit);
+    }
+
     /// Points a lightweight `refs/tags/<tag>` at a fresh commit committed at
     /// `epoch` in the repository at `name`, on no branch. This exercises gitweb's
     /// rule that only branch refs count for last activity: a newer tag must not

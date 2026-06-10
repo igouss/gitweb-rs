@@ -7,6 +7,7 @@ pub mod binary;
 pub mod blame;
 pub mod blob;
 pub mod blobdiff_plain;
+pub mod branch_refs;
 pub mod change;
 pub mod chop;
 pub mod commit;

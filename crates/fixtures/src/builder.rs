@@ -157,6 +157,20 @@ impl RepoBuilder {
             .expect("create a fixture branch");
     }
 
+    /// Points an arbitrary fully-qualified ref (e.g. `refs/sandbox/wip`) at
+    /// `target`. This is what builds the refs outside `refs/heads/` and
+    /// `refs/remotes/` that the `extra-branch-refs` feature classifies as branches.
+    pub fn custom_ref(&self, full_ref: &str, target: ObjectId) {
+        self.repo
+            .reference(
+                full_ref.to_owned(),
+                target,
+                PreviousValue::Any,
+                "fixture custom ref",
+            )
+            .expect("create a fixture custom ref");
+    }
+
     /// Points `HEAD` symbolically at `refs/heads/<branch>`. The branch need not
     /// exist yet, which leaves HEAD unborn.
     pub fn set_head(&self, branch: &str) {
