@@ -49,7 +49,9 @@ impl Handler for HeadsHandler {
             .as_deref()
             .ok_or_else(|| DomainError::Invalid("Project needed".to_owned()))?;
         let repository: Box<dyn Repository> = self.store.open(project)?;
-        let view: HeadsView = assemble_heads(repository.as_ref(), now_epoch())?;
+        // TODO(d7s): resolve get_branch_refs from settings.extra-branch-refs and
+        // pass it here so the heads page covers extra branch directories.
+        let view: HeadsView = assemble_heads(repository.as_ref(), now_epoch(), &["heads"])?;
         Ok(View::html(render_page(&self.settings, project, &view)))
     }
 }

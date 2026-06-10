@@ -87,16 +87,23 @@ struct HeadEntry {
 }
 
 /// Assembles the heads page over the [`Repository`] port. `now` is the
-/// request-time epoch the relative ages are measured against.
+/// request-time epoch the relative ages are measured against. `branch_refs` is
+/// gitweb's `get_branch_refs` — the directories under `refs/` that count as
+/// branches (`heads`, plus the validated `extra-branch-refs` entries) — so the
+/// listing covers every branch directory, not just `refs/heads/`.
 ///
 /// # Errors
 ///
 /// Propagates the repository's error if ref listing or a tip-commit read fails.
 /// An unborn repository whose HEAD names no commit is not an error — it simply
 /// floats no branch and marks none current.
-pub fn assemble_heads(repo: &dyn Repository, now: i64) -> Result<HeadsView, DomainError> {
+pub fn assemble_heads(
+    repo: &dyn Repository,
+    now: i64,
+    branch_refs: &[&str],
+) -> Result<HeadsView, DomainError> {
     let (head_branch, head_commit): (Option<String>, Option<ObjectId>) = read_head(repo)?;
-    let references: Vec<Reference> = repo.references("refs/heads/")?;
+    let references: Vec<Reference> = branch_references(repo, branch_refs)?;
     let rows: Vec<HeadRow> = assemble_head_rows(
         repo,
         &references,
@@ -106,6 +113,27 @@ pub fn assemble_heads(repo: &dyn Repository, now: i64) -> Result<HeadsView, Doma
         |reference: &Reference| reference.short().into_owned(),
     )?;
     Ok(HeadsView { rows })
+}
+
+/// Lists the refs under every branch directory `branch_refs` names — gitweb's
+/// `map { "refs/$_" } get_branch_refs()` fed to a single `for-each-ref`. The
+/// per-directory listings are concatenated; the global
+/// `--sort=-HEAD --sort=-committerdate` order is restored downstream by
+/// [`assemble_head_rows`], so it does not matter that the port reports each
+/// directory separately.
+///
+/// # Errors
+///
+/// Propagates the repository's error if any directory's ref listing fails.
+fn branch_references(
+    repo: &dyn Repository,
+    branch_refs: &[&str],
+) -> Result<Vec<Reference>, DomainError> {
+    let mut references: Vec<Reference> = Vec::new();
+    for dir in branch_refs {
+        references.extend(repo.references(&format!("refs/{dir}/"))?);
+    }
+    Ok(references)
 }
 
 /// Enriches a set of branch-like refs into ordered head rows: each ref's tip age

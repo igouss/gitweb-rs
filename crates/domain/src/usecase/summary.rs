@@ -131,8 +131,12 @@ pub fn assemble_summary(
     let shortlog: ShortlogView = assemble_shortlog(repo, None, now, Page::new(0, SUMMARY_LIMIT))?;
     let tags: Section<TagRow> =
         Section::limited(assemble_tags(repo, now)?.rows().to_vec(), SUMMARY_LIMIT);
-    let heads: Section<HeadRow> =
-        Section::limited(assemble_heads(repo, now)?.rows().to_vec(), SUMMARY_LIMIT);
+    // TODO(d7s): thread the resolved get_branch_refs through here so the summary
+    // heads section honours extra-branch-refs; heads-only until that commit.
+    let heads: Section<HeadRow> = Section::limited(
+        assemble_heads(repo, now, &["heads"])?.rows().to_vec(),
+        SUMMARY_LIMIT,
+    );
     Ok(SummaryView {
         description: described(info),
         owner: shown_owner(info, settings),

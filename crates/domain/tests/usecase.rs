@@ -18,6 +18,7 @@ use gitweb_domain::model::action::Action;
 use gitweb_domain::model::blame::Blame;
 use gitweb_domain::model::blob::{Blob, BlobDisplay};
 use gitweb_domain::model::blobdiff_plain::BlobdiffPlain;
+use gitweb_domain::model::branch_refs::get_branch_refs;
 use gitweb_domain::model::change::{ChangeKind, ChangeStatus};
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::commitdiff_plain::CommitdiffPlain;
@@ -193,6 +194,7 @@ struct UsecaseWorld {
     opml_result: Option<Result<Opml, DomainError>>,
     head: Option<String>,
     branches: Vec<FakeBranch>,
+    extra_branch_refs: Vec<String>,
     heads_result: Option<Result<HeadsView, DomainError>>,
     tags: Vec<FakeTag>,
     tags_result: Option<Result<TagsView, DomainError>>,
@@ -333,10 +335,12 @@ struct FakeRemoteBranch {
     epoch: i64,
 }
 
-/// One branch in the fake repository: its short name, the id of its tip commit,
-/// and that commit's committer epoch.
+/// One branch in the fake repository: the directory under `refs/` it lives in
+/// (`heads` for an ordinary branch, an extra-branch-refs directory otherwise),
+/// its short name, the id of its tip commit, and that commit's committer epoch.
 #[derive(Debug, Clone)]
 struct FakeBranch {
+    dir: String,
     name: String,
     tip: ObjectId,
     epoch: i64,
@@ -598,7 +602,7 @@ impl FakeRepository {
 
     fn branch_ref(branch: &FakeBranch) -> Reference {
         Reference::new(
-            RefName::new(format!("refs/heads/{}", branch.name)),
+            RefName::new(format!("refs/{}/{}", branch.dir, branch.name)),
             branch.tip.clone(),
         )
     }
@@ -1695,14 +1699,40 @@ fn head_is_unborn(world: &mut UsecaseWorld, name: String) {
 #[given(regex = r#"^the repository has branch "([^"]*)" committed at (\d+)$"#)]
 fn repo_has_branch(world: &mut UsecaseWorld, name: String, epoch: i64) {
     let tip: ObjectId = fake_oid(&name);
-    world.branches.push(FakeBranch { name, tip, epoch });
+    world.branches.push(FakeBranch {
+        dir: "heads".to_owned(),
+        name,
+        tip,
+        epoch,
+    });
 }
 
 #[given(regex = r#"^the repository has branch "([^"]*)" at the same commit as "([^"]*)"$"#)]
 fn repo_has_aliased_branch(world: &mut UsecaseWorld, name: String, other: String) {
     let tip: ObjectId = fake_oid(&other);
     let epoch: i64 = branch_epoch(world, &other);
-    world.branches.push(FakeBranch { name, tip, epoch });
+    world.branches.push(FakeBranch {
+        dir: "heads".to_owned(),
+        name,
+        tip,
+        epoch,
+    });
+}
+
+#[given(regex = r#"^the "extra-branch-refs" feature lists "([^"]*)"$"#)]
+fn extra_branch_refs_lists(world: &mut UsecaseWorld, dir: String) {
+    world.extra_branch_refs.push(dir);
+}
+
+#[given(regex = r#"^the repository has a ref "([^"]*)" under "([^"]*)" committed at (\d+)$"#)]
+fn repo_has_ref_under_dir(world: &mut UsecaseWorld, name: String, dir: String, epoch: i64) {
+    let tip: ObjectId = fake_oid(&format!("{dir}/{name}"));
+    world.branches.push(FakeBranch {
+        dir,
+        name,
+        tip,
+        epoch,
+    });
 }
 
 // --- heads: When -------------------------------------------------------------
@@ -1710,7 +1740,10 @@ fn repo_has_aliased_branch(world: &mut UsecaseWorld, name: String, other: String
 #[when("I assemble the heads")]
 fn assemble_the_heads(world: &mut UsecaseWorld) {
     let repo: FakeRepository = fake_repo(world);
-    world.heads_result = Some(assemble_heads(&repo, world.now));
+    let branch_refs: Vec<String> =
+        get_branch_refs(&world.extra_branch_refs).expect("valid extra-branch-refs");
+    let branch_refs: Vec<&str> = branch_refs.iter().map(String::as_str).collect();
+    world.heads_result = Some(assemble_heads(&repo, world.now, &branch_refs));
 }
 
 // --- heads: Thens ------------------------------------------------------------
@@ -2766,6 +2799,7 @@ fn marker_index(world: &UsecaseWorld) -> &RefMarkerIndex {
 #[given(regex = r#"^branch "([^"]*)" points at commit "([^"]*)"$"#)]
 fn branch_points_at(world: &mut UsecaseWorld, name: String, commit: String) {
     world.branches.push(FakeBranch {
+        dir: "heads".to_owned(),
         name,
         tip: fake_oid(&commit),
         epoch: 0,

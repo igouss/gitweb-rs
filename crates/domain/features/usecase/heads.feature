@@ -1,12 +1,16 @@
 Feature: Listing a project's branches (heads action)
   The heads use case (gitweb's git_heads / git_get_heads_list) lists the refs
-  under refs/heads/, enriches each with its tip commit's age relative to an
-  injected request time, and orders them the way gitweb's for-each-ref does:
-  most-recently-committed first, with the branch HEAD points at floated above
-  any branch sharing its commit time, then by ref name. The branch (or branches)
-  whose tip is HEAD's commit is marked current. A branch tip with no commit time
-  has an unknown age, and a repository with no branches — including an unborn one
-  with no HEAD — lists nothing without failing.
+  under every branch directory gitweb's get_branch_refs reports — refs/heads/
+  plus whatever the extra-branch-refs feature configures — enriches each with its
+  tip commit's age relative to an injected request time, and orders them the way
+  gitweb's for-each-ref does: most-recently-committed first, with the branch HEAD
+  points at floated above any branch sharing its commit time, then by ref name.
+  A ref outside refs/heads/ and refs/remotes/ keeps its leaf name annotated with
+  its directory (gitweb's "name (dir)" form), and a directory the feature does
+  not list is invisible. The branch (or branches) whose tip is HEAD's commit is
+  marked current. A branch tip with no commit time has an unknown age, and a
+  repository with no branches — including an unborn one with no HEAD — lists
+  nothing without failing.
 
   Background:
     Given the current time is 1000000
@@ -80,3 +84,20 @@ Feature: Listing a project's branches (heads action)
     And the repository has branch "main" committed at 0
     When I assemble the heads
     Then the head "main" has no age
+
+  # --- extra branch-ref directories (gitweb's get_branch_refs beyond heads) ---
+
+  Scenario: a ref under an extra branch directory is listed, annotated with its dir
+    Given the repository HEAD is branch "main"
+    And the "extra-branch-refs" feature lists "sandbox"
+    And the repository has branch "main" committed at 100
+    And the repository has a ref "wip" under "sandbox" committed at 200
+    When I assemble the heads
+    Then the listed heads are "wip (sandbox), main"
+
+  Scenario: a ref under a directory the feature does not list stays invisible
+    Given the repository HEAD is branch "main"
+    And the repository has branch "main" committed at 100
+    And the repository has a ref "wip" under "sandbox" committed at 200
+    When I assemble the heads
+    Then the listed heads are "main"
