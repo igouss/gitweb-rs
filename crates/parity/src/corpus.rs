@@ -108,13 +108,22 @@ impl Corpus {
     /// whose hunk and `name | N +-` diffstat row our binary `patch` golden pins
     /// byte-for-byte against gitweb, proving the non-binary parts still match.
     pub const BINMIX_TEXT: &'static str = "notes.txt";
-    /// The `binmix` branch's binary file, modified by its head commit. It is named
-    /// to sort *after* [`Corpus::BINMIX_TEXT`] so its (divergent) diff is the
-    /// mail's trailing region: everything ahead of its `diff --git` line — the
-    /// header, the `Bin <old> -> <new> bytes` diffstat, the text diff — and the
-    /// `-- ` signature after it match gitweb exactly, isolating the divergence to
-    /// this one file's body.
+    /// The `binmix` branch's small binary file, modified by its head commit. Its
+    /// pre/post images are too small and dissimilar for a delta to win, so its
+    /// `GIT binary patch` body is a `literal` on both the forward and reverse
+    /// blocks — the literal-wins arm of the byte-for-byte binary `patch` golden.
     pub const BINMIX_BINARY: &'static str = "zdata.bin";
+    /// The `binmix` branch's large, mostly-similar binary file, modified by its
+    /// head commit (one interior byte changed). Its pre/post images are big enough
+    /// and similar enough that git's binary delta beats the deflated literal, so
+    /// its `GIT binary patch` body is a `delta` on both blocks — the delta-wins arm
+    /// that actually exercises the diff-delta.c port (gitweb_in_rust-ygu).
+    pub const BINMIX_DELTA: &'static str = "bigdata.bin";
+    /// The `binmix` branch's binary file *created* by its head commit (absent from
+    /// the root). With no pre-image the forward block is a `literal` of the new
+    /// blob and the reverse block is a `literal 0` of the empty pre-image — the
+    /// binary-create arm of the byte-for-byte binary `patch` golden.
+    pub const BINMIX_CREATE: &'static str = "newbin.bin";
 
     /// The object id of the blob named `name`.
     ///
@@ -326,14 +335,15 @@ fn build_texts_branch(builder: &RepoBuilder, who: &Identity) -> (ObjectId, Objec
     (root, head)
 }
 
-/// The `binmix` branch the binary `patch` golden is captured over: a root commit
-/// creating a text file and a binary file, then a head commit modifying both. The
-/// head's `git format-patch` mail mixes a text diff (a hunk and a `notes.txt | 2
-/// +-` stat row) with a binary diff (`zdata.bin | Bin 5 -> 7 bytes`, then the
-/// `GIT binary patch` body gitweb emits and the port renders as `--no-binary`).
-/// The binary file sorts last, so its body is the only region that diverges; the
-/// header, the whole diffstat, the text diff, and the signature match byte-for-byte.
-/// It hangs off no other ref, leaving every other golden untouched.
+/// The `binmix` branch the byte-for-byte binary `patch` golden is captured over: a
+/// root commit creating a text file and two binary files, then a head commit that
+/// modifies the text file and both binary files and creates a third binary file.
+/// The head's `git format-patch` mail mixes a text diff (`notes.txt | 2 +-`) with
+/// three `GIT binary patch` bodies covering every arm the port must reproduce:
+/// `zdata.bin` (literal wins on both blocks), `bigdata.bin` (delta wins on both —
+/// the diff-delta.c arm), and `newbin.bin` (a create: `literal` then `literal 0`).
+/// Each binary file carries a full `index`; the text file stays abbreviated. The
+/// branch hangs off no other ref, leaving every other golden untouched.
 ///
 /// Returns the head commit id — the binary `patch` golden's `h`.
 fn build_binmix_branch(builder: &RepoBuilder, who: &Identity) -> ObjectId {
@@ -347,6 +357,11 @@ fn build_binmix_branch(builder: &RepoBuilder, who: &Identity) -> ObjectId {
             name: Corpus::BINMIX_BINARY.to_owned(),
             mode: Mode::File,
             oid: builder.blob(&[0x00, 0x01, 0x02, 0x03, 0x04]),
+        },
+        TreeEntry {
+            name: Corpus::BINMIX_DELTA.to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(&delta_wins_blob()),
         },
     ]);
     let root: ObjectId = builder.commit(&CommitSpec {
@@ -368,6 +383,16 @@ fn build_binmix_branch(builder: &RepoBuilder, who: &Identity) -> ObjectId {
             mode: Mode::File,
             oid: builder.blob(&[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06]),
         },
+        TreeEntry {
+            name: Corpus::BINMIX_DELTA.to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(&delta_wins_blob_modified()),
+        },
+        TreeEntry {
+            name: Corpus::BINMIX_CREATE.to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(&[0x00, 0x01, 0x02, 0x03]),
+        },
     ]);
     let head: ObjectId = builder.commit(&CommitSpec {
         tree: head_tree,
@@ -378,6 +403,27 @@ fn build_binmix_branch(builder: &RepoBuilder, who: &Identity) -> ObjectId {
     });
     builder.branch("binmix", head);
     head
+}
+
+/// The `bigdata.bin` pre-image: 600 bytes of a low-period ramp (so it deflates
+/// small, making the literal large) with the first byte zeroed (a NUL, so git
+/// treats it as binary). Its near-identical [`delta_wins_blob_modified`] post-image
+/// makes git's binary delta beat the deflated literal — the delta-wins arm.
+fn delta_wins_blob() -> Vec<u8> {
+    let mut blob: Vec<u8> = (0..600u32)
+        .map(|index: u32| ((index * 7 + 3) & 0xff) as u8)
+        .collect();
+    blob[0] = 0;
+    blob
+}
+
+/// The `bigdata.bin` post-image: [`delta_wins_blob`] with one interior byte bumped,
+/// so the binary delta is a copy / one-byte insert / copy — far smaller than the
+/// deflated literal.
+fn delta_wins_blob_modified() -> Vec<u8> {
+    let mut blob: Vec<u8> = delta_wins_blob();
+    blob[300] = blob[300].wrapping_add(1);
+    blob
 }
 
 /// Pins the project's `gitweb.owner` config and `description` file, so the feed
