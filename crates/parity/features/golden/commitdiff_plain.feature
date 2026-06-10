@@ -17,3 +17,14 @@ Feature: commitdiff_plain golden conformance
     Then the commitdiff_plain body matches gitweb's reference output
     And the commitdiff_plain content type matches gitweb's
     And the commitdiff_plain content disposition matches gitweb's
+
+  # The `anchored` branch's middle commit is named only as an ancestor of the
+  # annotated v2.0 tag, so gitweb stamps `X-Git-Tag: v2.0~1` — the byte-exact
+  # proof of name-rev ancestor-distance naming (the `^0` dereference marker
+  # stripped before the `~N` suffix), the case the old subset omitted entirely.
+  Scenario: an ancestor-named commit's commitdiff_plain matches gitweb byte for byte
+    Given the parity corpus
+    When I serve the commitdiff_plain of the anchored ancestor commit
+    Then the commitdiff_plain body matches gitweb's reference output
+    And the commitdiff_plain content type matches gitweb's
+    And the commitdiff_plain content disposition matches gitweb's

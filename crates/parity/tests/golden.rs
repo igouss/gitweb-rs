@@ -285,6 +285,33 @@ fn serve_commitdiff_plain(world: &mut GoldenWorld) {
     world.golden = Some(Golden::load("commitdiff_plain/root"));
 }
 
+#[when("I serve the commitdiff_plain of the anchored ancestor commit")]
+fn serve_commitdiff_plain_anchored(world: &mut GoldenWorld) {
+    // The `anchored` branch's middle commit — named only as an ancestor of the
+    // v2.0 tag, so its X-Git-Tag line is the ~N ancestor-distance form. Served
+    // exactly like the root: the use case over the adapter for the commit's oid,
+    // the body rendered with the request's own self URL, the inline filename
+    // stamped with that hash.
+    let hash: String = corpus(world).anchored_ancestor.to_string();
+    let plain: CommitdiffPlain = assemble_commitdiff_plain(repo(world), Some(&hash), None)
+        .expect("assemble the anchored commitdiff_plain");
+    let link: String = self_url(
+        "http://localhost",
+        &[
+            ("p", Corpus::PROJECT),
+            ("a", "commitdiff_plain"),
+            ("h", &hash),
+        ],
+    );
+    world.commitdiff_plain_body = Some(plain.render(&link));
+    world.commitdiff_plain_disposition = Some(format!(
+        "inline; filename=\"{}-{}.patch\"",
+        Corpus::PROJECT,
+        hash
+    ));
+    world.golden = Some(Golden::load("commitdiff_plain/anchored"));
+}
+
 /// The serialized commitdiff_plain body, or a panic if none was served.
 fn commitdiff_plain_body(world: &GoldenWorld) -> &str {
     world

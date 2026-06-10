@@ -1,0 +1,21 @@
+Expires: Thu, 11 Jun 2026 23:48:08 GMT
+Date: Wed, 10 Jun 2026 23:48:08 GMT
+Content-disposition: inline; filename="repo.git-2faf9e14a8d4550e3182aabb0fc0c30f3a9b738a.patch"
+Content-Type: text/plain; charset=utf-8
+
+From: Ada Lovelace <ada@example.com>
+Date: Tue, 14 Nov 2023 22:13:20 +0000 (+0000)
+Subject: anchored middle
+X-Git-Tag: v2.0~1
+X-Git-Url: http://localhost?p=repo.git;a=commitdiff_plain;h=2faf9e14a8d4550e3182aabb0fc0c30f3a9b738a
+
+anchored middle
+---
+
+diff --git a/anchor.txt b/anchor.txt
+index df967b9..f35df34 100644
+--- a/anchor.txt
++++ b/anchor.txt
+@@ -1 +1 @@
+-base
++revised

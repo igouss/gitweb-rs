@@ -62,6 +62,12 @@ pub struct Corpus {
     /// text file's diff, the signature) and documents the binary-body divergence.
     /// Off `HEAD` like the other branches, so every existing golden is untouched.
     pub binmix_head: ObjectId,
+    /// The middle commit of the `anchored` branch — the ancestor-named
+    /// `commitdiff_plain` golden's `h`. It carries no tag of its own; the
+    /// annotated `v2.0` at the branch tip names it `v2.0~1`, the `~N`
+    /// ancestor-distance form gitweb stamps on the `X-Git-Tag` line. Off its own
+    /// root, so every existing golden is byte-identical.
+    pub anchored_ancestor: ObjectId,
 }
 
 impl Corpus {
@@ -124,6 +130,10 @@ impl Corpus {
     /// blob and the reverse block is a `literal 0` of the empty pre-image — the
     /// binary-create arm of the byte-for-byte binary `patch` golden.
     pub const BINMIX_CREATE: &'static str = "newbin.bin";
+
+    /// The single file the `anchored` branch carries, modified along its chain so
+    /// each commit has a real diff for its ancestor-named commitdiff_plain golden.
+    pub const ANCHOR_FILE: &'static str = "anchor.txt";
 
     /// The object id of the blob named `name`.
     ///
@@ -405,6 +415,48 @@ fn build_binmix_branch(builder: &RepoBuilder, who: &Identity) -> ObjectId {
     head
 }
 
+/// The `anchored` branch the ancestor-named `commitdiff_plain` golden frames:
+/// `ar <- a1 <- a2`, with an annotated tag `v2.0` at the tip `a2`. The middle
+/// commit `a1` is named by no tag of its own — only as an ancestor of `v2.0` —
+/// so `git name-rev --tags` calls it `v2.0~1` (the annotated `^0` stripped
+/// before the generation suffix), which gitweb stamps on its commitdiff_plain
+/// `X-Git-Tag` line. This is the parity proof for ancestor-distance naming, the
+/// case the old distance-zero subset omitted. Off its own root, so the tag
+/// reaches no other commit and every existing golden stays byte-identical.
+///
+/// Returns the middle commit `a1` — the ancestor-named golden's `h`.
+fn build_anchored_branch(builder: &RepoBuilder, who: &Identity) -> ObjectId {
+    let commit = |tree: ObjectId, parents: Vec<ObjectId>, message: &str| -> ObjectId {
+        builder.commit(&CommitSpec {
+            tree,
+            parents,
+            author: who.clone(),
+            committer: who.clone(),
+            message: format!("{message}\n"),
+        })
+    };
+    let tree_at = |content: &[u8]| -> ObjectId {
+        builder.tree(&[TreeEntry {
+            name: Corpus::ANCHOR_FILE.to_owned(),
+            mode: Mode::File,
+            oid: builder.blob(content),
+        }])
+    };
+
+    let ar: ObjectId = commit(tree_at(b"base\n"), Vec::new(), "anchored root");
+    let a1: ObjectId = commit(tree_at(b"revised\n"), vec![ar], "anchored middle");
+    let a2: ObjectId = commit(tree_at(b"final\n"), vec![a1], "anchored tip");
+    builder.branch("anchored", a2);
+    let _tag: ObjectId = builder.annotated_tag(&TagSpec {
+        name: "v2.0".to_owned(),
+        target: a2,
+        target_kind: TargetKind::Commit,
+        tagger: who.clone(),
+        message: "release 2.0\n".to_owned(),
+    });
+    a1
+}
+
 /// The `bigdata.bin` pre-image: 600 bytes of a low-period ramp (so it deflates
 /// small, making the literal large) with the first byte zeroed (a NUL, so git
 /// treats it as binary). Its near-identical [`delta_wins_blob_modified`] post-image
@@ -516,6 +568,11 @@ pub fn build(project_root: &Path) -> Corpus {
     // Off HEAD like the others, so every existing golden stays byte-identical.
     let binmix_head: ObjectId = build_binmix_branch(&builder, &who);
 
+    // The `anchored` branch the ancestor-named commitdiff_plain golden frames —
+    // a commit named only as an ancestor of the `v2.0` tag. Off its own root, so
+    // its tag reaches no other commit and every existing golden is untouched.
+    let anchored_ancestor: ObjectId = build_anchored_branch(&builder, &who);
+
     pin_metadata(&repo_path);
 
     Corpus {
@@ -527,5 +584,6 @@ pub fn build(project_root: &Path) -> Corpus {
         text_commit,
         texts_head,
         binmix_head,
+        anchored_ancestor,
     }
 }

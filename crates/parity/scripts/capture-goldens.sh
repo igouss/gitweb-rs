@@ -140,6 +140,15 @@ echo ">> capturing commitdiff_plain golden" >&2
 head_hash=$("$GIT" --git-dir="$project_root/repo.git" rev-parse HEAD)
 capture "commitdiff_plain/root" "p=repo.git;a=commitdiff_plain;h=$head_hash"
 
+# The ancestor-named commitdiff_plain: the `anchored` branch's middle commit (a1)
+# carries no tag of its own and is named only as an ancestor of the annotated
+# v2.0 tag at the tip, so gitweb stamps `X-Git-Tag: v2.0~1` — the ~N
+# ancestor-distance form the old distance-zero subset omitted (the annotated ^0
+# stripped before the suffix). By-hash like the root, so only the cache headers
+# are volatile and the golden test compares the body.
+anchored_hash=$("$GIT" --git-dir="$project_root/repo.git" rev-parse anchored~1)
+capture "commitdiff_plain/anchored" "p=repo.git;a=commitdiff_plain;h=$anchored_hash"
+
 # blobdiff_plain is format-stable: the bare `git diff-tree -r -p` of ONE path
 # (abbreviated index, no mailbox header), prefixed by an X-Git-Url self-link
 # line. It is captured over the two-commit `diffs` branch (NOT HEAD, so the
