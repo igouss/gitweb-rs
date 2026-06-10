@@ -12,3 +12,6 @@
 # cargo-mutants; isolated per-crate runs live under target/, already ignored)
 mutants.out/
 mutants.out.old/
+
+# Per-session handoff scratch — rewritten every session, not version-controlled
+HANDOFF.md
