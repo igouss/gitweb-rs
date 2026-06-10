@@ -31,7 +31,9 @@ use gitweb_domain::model::export::{ExportPolicy, RepoFacts};
 use gitweb_domain::model::feed::{comment_lines, feed_title, feed_window};
 use gitweb_domain::model::file_change::FileChangeNote;
 use gitweb_domain::model::file_mode::FileMode;
-use gitweb_domain::model::forks::{ProjectGroup, forks_subdirectory, partition_forks};
+use gitweb_domain::model::forks::{
+    ProjectGroup, fork_container, forks_subdirectory, partition_forks,
+};
 use gitweb_domain::model::format_patch::{FormatPatch, PatchEntry};
 use gitweb_domain::model::grep::{GrepMatch, file_matches};
 use gitweb_domain::model::grep_pattern::GrepPattern;
@@ -2549,6 +2551,24 @@ fn forks_live_in(world: &mut DomainWorld, expected: String) {
         .as_deref()
         .expect("name the project first");
     assert_eq!(forks_subdirectory(project), expected);
+}
+
+#[then(regex = r#"^its fork container is "([^"]*)"$"#)]
+fn fork_container_is(world: &mut DomainWorld, expected: String) {
+    let project: &str = world
+        .fork_project
+        .as_deref()
+        .expect("name the project first");
+    assert_eq!(fork_container(project), Some(expected.as_str()));
+}
+
+#[then("it has no fork container")]
+fn has_no_fork_container(world: &mut DomainWorld) {
+    let project: &str = world
+        .fork_project
+        .as_deref()
+        .expect("name the project first");
+    assert_eq!(fork_container(project), None);
 }
 
 // --- Project filter (pf subdirectory scoping) --------------------------------

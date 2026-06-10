@@ -40,6 +40,26 @@ pub fn forks_subdirectory(project: &str) -> &str {
     project.strip_suffix(".git").unwrap_or(project)
 }
 
+/// The directory a project might *contain* forks in — the path it must own on
+/// disk for gitweb to treat it as fork-capable. This is gitweb's
+/// `filter_forks_from_projects_list` name-side guards: strip one trailing `.git`
+/// (`forks of 'repo.git' are in 'repo/'`), then reject a non-bare working tree
+/// (`repo/.git` strips to `repo/`, which ends in `/`) and the bare `.git`
+/// repository itself (strips to the empty string). `None` means the project can
+/// never parent forks, whatever the filesystem holds; `Some(dir)` is the
+/// directory the caller still has to confirm exists (gitweb's `-d` test, the
+/// filesystem half this pure rule cannot decide).
+#[must_use]
+pub fn fork_container(name: &str) -> Option<&str> {
+    let stripped: &str = forks_subdirectory(name);
+    // gitweb: `next if ($path =~ m!/$!)` (non-bare repo) and `next unless ($path)`
+    // (the bare `.git` itself) — both leave the project unable to parent forks.
+    if stripped.is_empty() || stripped.ends_with('/') {
+        return None;
+    }
+    Some(stripped)
+}
+
 /// Partitions `names` into top-level projects, folding each fork under the
 /// shortest project whose directory contains it. Input order is preserved.
 #[must_use]
@@ -48,7 +68,7 @@ pub fn partition_forks(names: &[String]) -> Vec<ProjectGroup> {
     // each project's path with a single trailing `.git` removed.
     let mut trie: Trie = Trie::default();
     for (index, name) in names.iter().enumerate() {
-        if let Some(container) = container_path(name) {
+        if let Some(container) = fork_container(name) {
             let components: Vec<&str> = container.split('/').collect();
             trie.insert(&components, index);
         }
@@ -76,17 +96,6 @@ pub fn partition_forks(names: &[String]) -> Vec<ProjectGroup> {
         .zip(folded)
         .filter_map(|(group, fork): (ProjectGroup, bool)| (!fork).then_some(group))
         .collect()
-}
-
-/// The directory a project might contain forks in: its path with one trailing
-/// `.git` stripped. `None` for a non-bare working tree (`repo/.git` → `repo/`)
-/// or the bare `.git` itself, neither of which can parent forks.
-fn container_path(name: &str) -> Option<String> {
-    let stripped: &str = name.strip_suffix(".git").unwrap_or(name);
-    if stripped.is_empty() || stripped.ends_with('/') {
-        return None;
-    }
-    Some(stripped.to_owned())
 }
 
 /// A prefix tree of project-path components, with an end marker recording which

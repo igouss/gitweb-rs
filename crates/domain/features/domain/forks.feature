@@ -70,3 +70,29 @@ Feature: Detecting forks among projects
   Scenario: only one trailing .git is stripped to find the forks subdirectory
     Given the project "nested/work.git"
     Then its forks live in the subdirectory "nested/work"
+
+  # --- the fork container (gitweb's name-side guards before the -d test) ---
+  # A project is fork-capable only when, with one trailing `.git` stripped, the
+  # remainder is a real bare-repo directory name: not the `.git` repo itself and
+  # not a non-bare `repo/.git` working tree. That remainder is the directory the
+  # store must then confirm exists on disk.
+
+  Scenario: a bare project's fork container is its name without the .git suffix
+    Given the project "repo.git"
+    Then its fork container is "repo"
+
+  Scenario: a project path without a .git suffix is its own fork container
+    Given the project "repo"
+    Then its fork container is "repo"
+
+  Scenario: a nested bare project's fork container keeps its parent directories
+    Given the project "nested/work.git"
+    Then its fork container is "nested/work"
+
+  Scenario: a non-bare repository can never parent forks
+    Given the project "repo/.git"
+    Then it has no fork container
+
+  Scenario: the bare .git repository itself can never parent forks
+    Given the project ".git"
+    Then it has no fork container
