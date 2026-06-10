@@ -437,11 +437,20 @@ fn given_opml_served(world: &mut WebWorld) {
 
 #[given("the heads action is served")]
 fn given_heads_served(world: &mut WebWorld) {
+    register_heads(world, Settings::builtin());
+}
+
+#[given(regex = r#"^the heads action is served with extra branch refs "([^"]*)"$"#)]
+fn given_heads_served_with_extra_refs(world: &mut WebWorld, extra_refs: String) {
+    register_heads(world, extra_branch_refs_settings(&extra_refs));
+}
+
+/// Wires the heads handler over the root's store and the given settings.
+fn register_heads(world: &mut WebWorld, settings: Settings) {
     ensure_root(world);
     let store: Arc<dyn ProjectStore + Send + Sync> =
         Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
-    let settings: Arc<Settings> = Arc::new(Settings::builtin());
-    let handler: Arc<dyn Handler> = Arc::new(HeadsHandler::new(store, settings));
+    let handler: Arc<dyn Handler> = Arc::new(HeadsHandler::new(store, Arc::new(settings)));
     world.dispatcher.register(Action::Heads, handler);
 }
 
@@ -963,6 +972,31 @@ fn snapshot_settings_with_extra_refs(formats: &str, extra_refs: &str) -> Setting
         },
     );
     Settings::resolve(&[layer])
+}
+
+/// Settings with only the `extra-branch-refs` feature set, for the heads-listing
+/// branch-directory proof.
+fn extra_branch_refs_settings(extra_refs: &str) -> Settings {
+    let options: Vec<String> = if extra_refs.trim().is_empty() {
+        Vec::new()
+    } else {
+        extra_refs
+            .split(',')
+            .map(|token: &str| token.trim().to_owned())
+            .collect()
+    };
+    let mut features: BTreeMap<FeatureName, FeatureLayer> = BTreeMap::new();
+    features.insert(
+        FeatureName::ExtraBranchRefs,
+        FeatureLayer {
+            default: Some(options),
+            overridable: None,
+        },
+    );
+    Settings::resolve(&[SettingsLayer {
+        features,
+        ..SettingsLayer::default()
+    }])
 }
 
 #[given(regex = r#"^the repository "([^"]*)" has a ref "([^"]*)" committed at (\d+)$"#)]

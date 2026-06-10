@@ -27,6 +27,16 @@ Feature: Serving a project's branches (heads action)
     Then the response status is 200
     And the response body contains "current"
 
+  Scenario: the heads page lists a branch under an extra branch directory
+    Given a repository "repo.git" with an unborn HEAD
+    And the repository "repo.git" has branch "main" committed at 1000
+    And the repository "repo.git" has a ref "refs/sandbox/wip" committed at 2000
+    And the heads action is served with extra branch refs "sandbox"
+    When I GET "/?p=repo.git&a=heads"
+    Then the response status is 200
+    And the response body contains "wip (sandbox)"
+    And the response body contains "main"
+
   Scenario: a repository with no branches serves an empty heads page
     Given a repository "void.git" with an unborn HEAD
     And the heads action is served

@@ -11,8 +11,9 @@
 use std::sync::Arc;
 
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::branch_refs::get_branch_refs;
 use gitweb_domain::model::request::Request;
-use gitweb_domain::model::settings::Settings;
+use gitweb_domain::model::settings::{FeatureName, Settings};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
@@ -49,9 +50,16 @@ impl Handler for HeadsHandler {
             .as_deref()
             .ok_or_else(|| DomainError::Invalid("Project needed".to_owned()))?;
         let repository: Box<dyn Repository> = self.store.open(project)?;
-        // TODO(d7s): resolve get_branch_refs from settings.extra-branch-refs and
-        // pass it here so the heads page covers extra branch directories.
-        let view: HeadsView = assemble_heads(repository.as_ref(), now_epoch(), &["heads"])?;
+        // gitweb's get_branch_refs: heads plus the validated extra-branch-refs
+        // feature, so the listing covers every branch directory. A malformed
+        // entry is gitweb's die_error(500).
+        let extra_branch_refs: &[String] = self
+            .settings
+            .feature(FeatureName::ExtraBranchRefs)
+            .default_options();
+        let branch_refs: Vec<String> = get_branch_refs(extra_branch_refs)?;
+        let branch_refs: Vec<&str> = branch_refs.iter().map(String::as_str).collect();
+        let view: HeadsView = assemble_heads(repository.as_ref(), now_epoch(), &branch_refs)?;
         Ok(View::html(render_page(&self.settings, project, &view)))
     }
 }
