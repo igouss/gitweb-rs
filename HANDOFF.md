@@ -1,59 +1,82 @@
 # Handoff
 
-## Last session: gitweb_in_rust-23u DONE (object/dispatch gitlink base+path)
+## Last session: gitweb_in_rust-12k DONE (forks empty-container state)
 
-**What shipped** — a mode-160000 gitlink/submodule named via base+path now
-resolves correctly through both consumers, FAITHFUL to gitweb (verified by
-reading the subs + empirical git):
+**What shipped** — gitweb's `forks` field is a tri-state (undef / `[]` / `[N>0]`)
+and the listing collapsed it to a fork count, so a fork-capable project with a
+real-but-fork-less sibling directory (`repo.git` next to an empty `repo/`) was
+indistinguishable from one that can't parent forks. Now all three states render
+faithfully. Built red→green through every layer (each layer's new behavior was
+seen RED first, then made green):
 
-- **object action** redirects to `a=commit` (gitweb takes `$type` from
-  `ls-tree`'s mode-derived type column, which prints "commit" for a gitlink,
-  even though the submodule commit is absent here). FIXED.
-- **no-action dispatch** 404s "File or directory does not exist" (gitweb's
-  `git_get_type` = `cat-file -t hb:f` reads the absent object and fails). Was
-  ALREADY faithful — no code change, only a characterization scenario.
+- **domain** `model::forks::ForkState` = NotForkable / EmptyContainer /
+  Forked(NonZeroUsize), with `fork_count()` + `is_forkable()` (gitweb's
+  `scalar @{forks}` and truthy `$pr->{forks}`). `fork_container(name)->Option<&str>`
+  = the name-side `-d` guard (strip one `.git`, reject non-bare `repo/.git` and
+  the bare `.git`); `partition_forks` reuses it (old `container_path` deleted).
+- **port** `ProjectStore::container_exists(subdir)->bool` = gitweb's infallible
+  `-d`; gix adapter = `SafePath::parse` + `root.join().is_dir()`.
+- **usecase** resolves each surviving project's state: Forked from the fold
+  count, else EmptyContainer iff `fork_container` is Some AND `container_exists`,
+  else NotForkable. The `-d` is consulted only for the 0-fork case (a forked
+  project always owns its container). `fork_count()` kept as a derived row
+  accessor so existing count assertions are untouched.
+- **render** `fork_cell` matches the tri-state (linked `+` / unlinked
+  `<span title="0 forks">+</span>` / empty); `| forks` quick link gated on
+  `is_forkable()`.
+- **web** maps `row.fork_state()`; handler wiring was already in place (6i5).
+- **fixture** `ProjectRoot::add_dir` lays the empty sibling container; web e2e
+  proves state-2 over the real gix store.
 
-WARNING: Bead 23u's premise that dispatch reports "commit" for a gitlink was
-WRONG. See memory `gitlink-object-vs-dispatch-asymmetry`. No follow-up needed.
+**Commits**: 3789098 (fork_container) - db4e374 (container_exists port+adapters)
+- e855f87 (usecase) - 01a1f58 (render+web) - b164c2a (web e2e) - a3dc7d2
+(is_forkable domain coverage, mutation strengthen).
 
-**New seam**: `Repository::path_entry(at, path) -> Option<TreeEntry>` — the
-ls-tree ROW (mode + name + oid); `path_id` now delegates to it (gix + fake).
-Classify a path by `entry.mode().object_kind()`, not by cat-file'ing a maybe
--absent id.
+**Gates**: fmt --check clean; clippy --workspace --all-targets clean; full
+workspace suite green (1574 cucumber scenarios, exit 0). cargo-mutants scoped to
+the 6 changed prod fns: 14 caught + 2 unviable (`Default::default()` on ForkState,
+which has no Default) + 3 is_forkable survivors that were then KILLED by adding
+domain coverage (re-run: 3 caught). CRAP: every changed fn is CC<=4 and fully
+covered → far under 30 (not mechanically run; whole-workspace llvm-cov).
 
-**Commits**: a5ef39f (port+gix conformance) - 4a1a5d1 (object usecase) -
-793c990 (dispatch characterization) - 463ad8d (web acceptance).
+### TWO THINGS THE NEXT SESSION MUST KNOW
 
-**Gates**: fmt OK - clippy --workspace --all-targets OK - full workspace tests
-green - cargo-mutants scoped to the 3 changed prod fns = 0 survivors
-(redirect_by_base_path + path_id/path_entry: caught or unviable). CRAP not
-mechanically run (whole-workspace llvm-cov); the 3 fns are CC<=3 and fully
-covered, so far under 30.
+1. **cargo-mutants MUST run with `TMPDIR=$HOME/.cache/cargo-mutants`.** The
+   default `/tmp` is a 16 GB tmpfs; cargo-mutants copies the whole `target/` per
+   mutant and overflows it → `Disk quota exceeded` → EVERY mutant falsely
+   "unviable" (a false green). Now documented in CLAUDE.md step 4 +
+   verification-ratchet skill (commit 28a097e). See memory
+   `cargo-mutants-tmpfs-trap`.
 
-**Pre-existing, NOT mine**: `hex-lint` reports every workspace package is
-`missing package.metadata.hex-arch.role` (the role matrix was never set up).
-hex-lint exits 0 so it doesn't fail the gate, but the architecture gate is
-effectively unenforced. Worth a bead (likely under 9uc / CI). `fn-hash` has no
-`.fn-hashes.jsonl` baseline, so `--changed-only` reports the whole repo —
-mutation scoping was done by hand this session.
+2. **`db4e374` is contaminated (NOT cleaned up).** A concurrent session
+   (committing as the same git author) was editing `.claude/skills/*` in the
+   working tree; my `git add -A` for db4e374 swept NINE skill files
+   (quality-gates, refactoring-campaign, verification-ratchet, slice-workflow,
+   …) into my forks commit. Content is preserved in git, just misattributed and
+   bundled. I did NOT rewrite history — another agent was actively committing
+   (interleaved commits 0acbf03, 57cb6cf) and a rebase would clobber its work.
+   Lesson applied: use targeted `git add <paths>`, never `git add -A`, on this
+   shared tree. If the human wants db4e374 split, that's a deliberate,
+   coordinated history edit.
 
 ## Next session
 
-Baseline is green. Suggested ready beads (P3 first):
+Baseline is green. Suggested ready beads (handoff carried over from last
+session, still valid):
 - **d7s** (P3): thread `get_branch_refs` into the heads listing (' (dir)'
-  suffix) + last-activity. Needs `references` to take multiple prefixes — the
-  meatiest. See memory `branch-refs-seam`.
-- **12k** (P4, small): forks dir-exists-but-zero-forks unlinked '+' span;
-  needs a ProjectStore container-exists port method. See `forks-view-seams`.
+  suffix) + last-activity. The meatiest; needs `references` to take multiple
+  prefixes. See memory `branch-refs-seam`.
 - **e5l** / **him**: golden-parity beads (need brew perl+CGI to regenerate
   gitweb refs).
+- Pre-existing, unenforced: hex-lint reports every package missing
+  `package.metadata.hex-arch.role`; `fn-hash` has no `.fn-hashes.jsonl`
+  baseline; and the spec/REQ traceability machinery (`specs/` + `REQ-AREA-NNN`
+  comments) is unbuilt repo-wide (zero REQ refs exist). Likely belongs with the
+  CI bead 9uc.
 
-The graph top-picks (h2t client-JS, 2os.13 combined --cc) are large
-multi-session capabilities.
-
-### Exact next test if picking 12k
-Add to `crates/domain/features/usecase/project_list.feature` a scenario: a
-fork-capable project whose sibling container dir exists but folds zero forks
-renders the unlinked `+` span (state 2). Watch it red against the current
-`partition_forks` (which collapses state-2 into state-1, no '+'), then thread
-a `ProjectStore::container_exists`-style port read behind the Forks gate.
+### Exact next test if picking d7s
+Add to `crates/domain/features/domain/` a heads-name scenario: a ref under a
+non-`heads`/`remotes` branch dir (e.g. `refs/sandbox/wip`) renders as
+`wip (sandbox)` (the ` ($ref_dir)` suffix), watched red against the current
+heads use case (which calls `references("refs/heads/")`, a single prefix), then
+thread `branch_refs` + multi-prefix `references` through `assemble_heads`.
