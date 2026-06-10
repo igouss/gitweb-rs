@@ -35,6 +35,7 @@ pub mod format_patch;
 pub mod grep;
 pub mod grep_pattern;
 pub mod message_body;
+pub mod name_rev;
 pub mod object_dispatch;
 pub mod object_id;
 pub mod object_kind;

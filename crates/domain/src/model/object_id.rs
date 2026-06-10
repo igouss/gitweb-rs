@@ -12,7 +12,7 @@ const SHA256_LEN: usize = 64;
 const DEFAULT_ABBREV: usize = 7;
 
 /// A validated git object id, preserving the original hex text.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ObjectId {
     hex: String,
 }

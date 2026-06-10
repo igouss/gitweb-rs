@@ -3,6 +3,7 @@
 //! Runs every `.feature` under `features/domain`. cucumber supplies its own
 //! `main`, so this test target sets `harness = false` in Cargo.toml.
 
+use std::collections::HashMap;
 use std::num::NonZeroUsize;
 
 use cucumber::gherkin::Step;
@@ -44,6 +45,7 @@ use gitweb_domain::model::format_patch::{FormatPatch, PatchEntry};
 use gitweb_domain::model::grep::{GrepMatch, file_matches};
 use gitweb_domain::model::grep_pattern::GrepPattern;
 use gitweb_domain::model::message_body::{LogLine, log_lines};
+use gitweb_domain::model::name_rev::{CommitGraph, TagTip, name_by_tags};
 use gitweb_domain::model::object_dispatch::{DispatchLookup, dispatch_lookup};
 use gitweb_domain::model::object_id::ObjectId;
 use gitweb_domain::model::object_kind::ObjectKind;
@@ -261,6 +263,12 @@ struct DomainWorld {
     expiry_base: Option<String>,
     expiry_parent_base: Option<String>,
     expiry_result: Option<Expiry>,
+    /// Readable feature labels (`n0`, `merge`) mapped to synthesised object ids,
+    /// so name-rev scenarios describe a graph without spelling out hex.
+    name_rev_labels: HashMap<String, ObjectId>,
+    name_rev_graph: CommitGraph,
+    name_rev_tips: Vec<TagTip>,
+    name_rev_result: Option<Option<String>>,
 }
 
 fn dummy_oid() -> ObjectId {
@@ -4514,6 +4522,76 @@ fn binary_patch_body_is(world: &mut DomainWorld, step: &Step) {
         actual.ends_with("\n\n"),
         "the body must close with the footer blank line"
     );
+}
+
+// --- name-rev --tags ancestor naming -----------------------------------------
+
+/// Resolves a readable feature label to a stable synthesised object id, minting
+/// a fresh one on first sight so a scenario can describe a graph with names.
+fn nr_label_oid(world: &mut DomainWorld, label: &str) -> ObjectId {
+    if let Some(oid) = world.name_rev_labels.get(label) {
+        return oid.clone();
+    }
+    let n: usize = world.name_rev_labels.len() + 1;
+    let oid: ObjectId = ObjectId::parse(&format!("{n:040x}")).expect("a synthesised object id");
+    world.name_rev_labels.insert(label.to_owned(), oid.clone());
+    oid
+}
+
+#[given(regex = r#"^a root commit "([^"]*)"$"#)]
+fn nr_root_commit(world: &mut DomainWorld, label: String) {
+    let oid: ObjectId = nr_label_oid(world, &label);
+    world.name_rev_graph.insert(oid, Vec::new());
+}
+
+#[given(regex = r#"^a commit "([^"]*)" with parent "([^"]*)"$"#)]
+fn nr_commit_one_parent(world: &mut DomainWorld, label: String, parent: String) {
+    let parent_oid: ObjectId = nr_label_oid(world, &parent);
+    let oid: ObjectId = nr_label_oid(world, &label);
+    world.name_rev_graph.insert(oid, vec![parent_oid]);
+}
+
+#[given(regex = r#"^a commit "([^"]*)" with parents "([^"]*)" and "([^"]*)"$"#)]
+fn nr_commit_two_parents(world: &mut DomainWorld, label: String, first: String, second: String) {
+    let first_oid: ObjectId = nr_label_oid(world, &first);
+    let second_oid: ObjectId = nr_label_oid(world, &second);
+    let oid: ObjectId = nr_label_oid(world, &label);
+    world
+        .name_rev_graph
+        .insert(oid, vec![first_oid, second_oid]);
+}
+
+#[given(regex = r#"^an annotated tag "([^"]*)" at "([^"]*)" with tagger date (\d+)$"#)]
+fn nr_annotated_tag(world: &mut DomainWorld, name: String, at: String, date: i64) {
+    let oid: ObjectId = nr_label_oid(world, &at);
+    world.name_rev_tips.push(TagTip::new(oid, name, date, true));
+}
+
+#[given(regex = r#"^a lightweight tag "([^"]*)" at "([^"]*)" with tagger date (\d+)$"#)]
+fn nr_lightweight_tag(world: &mut DomainWorld, name: String, at: String, date: i64) {
+    let oid: ObjectId = nr_label_oid(world, &at);
+    world
+        .name_rev_tips
+        .push(TagTip::new(oid, name, date, false));
+}
+
+#[when(regex = r#"^I name "([^"]*)" by tags$"#)]
+fn nr_name_by_tags(world: &mut DomainWorld, label: String) {
+    let target: ObjectId = nr_label_oid(world, &label);
+    let named: Option<String> = name_by_tags(&world.name_rev_tips, &world.name_rev_graph, &target);
+    world.name_rev_result = Some(named);
+}
+
+#[then(regex = r#"^the rev-name is "([^"]*)"$"#)]
+fn nr_rev_name_is(world: &mut DomainWorld, expected: String) {
+    let result: &Option<String> = world.name_rev_result.as_ref().expect("name a commit first");
+    assert_eq!(result.as_deref(), Some(expected.as_str()));
+}
+
+#[then("there is no rev-name")]
+fn nr_no_rev_name(world: &mut DomainWorld) {
+    let result: &Option<String> = world.name_rev_result.as_ref().expect("name a commit first");
+    assert_eq!(result.as_ref(), None);
 }
 
 #[tokio::main]
