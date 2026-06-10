@@ -53,3 +53,11 @@ Feature: Rendering the heads table
     Given a head "main" at "/main" aged 600
     When I render the heads table
     Then the result does not contain "more"
+
+  Scenario: the heads page body wraps the table in the page chrome
+    Given a head "main" at "/r/shortlog" aged 600
+    When I render the heads page
+    Then the result contains "class="page-header""
+    And the result contains "Heads"
+    And the result contains ">main<"
+    And the result contains "class="page-footer""

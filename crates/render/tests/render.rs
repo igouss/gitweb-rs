@@ -15,7 +15,7 @@ use gitweb_domain::model::search_help::SearchHelpTopic;
 use gitweb_domain::model::tag_age::TagAge;
 use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_render::age::age_class_name;
-use gitweb_render::blob::{BlobContent, BlobLine, blob_content};
+use gitweb_render::blob::{BlobContent, BlobLine, BlobPage, blob_body, blob_content};
 use gitweb_render::chrome::{
     Crumb, DocumentHead, FeedLink, FooterLink, FormatLink, HiddenField, Logo, MoreLink, NavItem,
     PageFooter, SearchForm, SearchOption, breadcrumbs, document, footer, page_header, page_nav,
@@ -34,27 +34,34 @@ use gitweb_render::escape::{
 use gitweb_render::feed::{FeedEntryView, FeedFileView, FeedView, atom, rss};
 use gitweb_render::forks::{ForksPage, forks_body};
 use gitweb_render::grep::{GrepFileBlock, GrepLineView, GrepPage, GrepRowView, grep_body};
-use gitweb_render::heads::{HeadEntryView, HeadsTable, heads_table};
-use gitweb_render::history::{HistoryEntryView, HistoryTable, history_table};
-use gitweb_render::log::{LogEntryView, log_entries};
+use gitweb_render::heads::{HeadEntryView, HeadsPage, HeadsTable, heads_body, heads_table};
+use gitweb_render::history::{
+    HistoryEntryView, HistoryPage, HistoryTable, history_body, history_table,
+};
+use gitweb_render::log::{LogEntryView, LogPage, log_body, log_entries};
 use gitweb_render::markup::{Markup, html, raw};
 use gitweb_render::opml::{OpmlRowView, OpmlView, opml};
 use gitweb_render::pickaxe::{PickaxeEntryView, PickaxeFileLink, PickaxePage, pickaxe_body};
 use gitweb_render::project_index::{ProjectIndexEntry, ProjectIndexView, project_index};
 use gitweb_render::project_list::{
-    ProjectLinks, ProjectList, ProjectRow, SortHeader, project_list,
+    ProjectLinks, ProjectList, ProjectListPage, ProjectRow, SortHeader, project_list,
+    project_list_body,
 };
 use gitweb_render::refs::RefMarkerView;
 use gitweb_render::remotes::{RemoteBlockView, RemoteUrlLine, RemotesPage, remotes_body};
 use gitweb_render::search::{SearchEntryView, SearchPage, SearchPaging, SnippetView, search_body};
 use gitweb_render::search_help::{SearchHelpPage, search_help_body};
-use gitweb_render::shortlog::{ShortlogEntryView, ShortlogTable, shortlog_table};
+use gitweb_render::shortlog::{
+    ShortlogEntryView, ShortlogPage, ShortlogTable, shortlog_body, shortlog_table,
+};
 use gitweb_render::summary::{
     HeadsSection, ShortlogSection, SummaryMetadata, SummaryPage, TagsSection, summary_body,
 };
 use gitweb_render::tag::{TagAuthorView, TagPage, TaggedObjectView, tag_body};
 use gitweb_render::tags::{TagEntryView, TagReftype, TagsPage, TagsTable, tags_body, tags_table};
-use gitweb_render::tree::{TreeLink, TreeParentRow, TreeRowView, TreeTable, tree_table};
+use gitweb_render::tree::{
+    TreeLink, TreePage, TreeParentRow, TreeRowView, TreeTable, tree_body, tree_table,
+};
 
 #[derive(Debug, Default, World)]
 struct RenderWorld {
@@ -553,6 +560,16 @@ fn when_render_project_list(world: &mut RenderWorld, order: String) {
     world.output = Some(project_list(&list).into_string());
 }
 
+#[when(regex = r#"^I render the project list page sorted by "([^"]*)"$"#)]
+fn when_render_project_list_page(world: &mut RenderWorld, order: String) {
+    let list: ProjectList = take_project_list(world, &order);
+    let page: ProjectListPage = ProjectListPage {
+        site_name: "Git Repositories".to_owned(),
+        list,
+    };
+    world.output = Some(project_list_body(&page).into_string());
+}
+
 #[when(regex = r#"^I render the forks page for "([^"]*)" sorted by "([^"]*)"$"#)]
 fn when_render_forks_page(world: &mut RenderWorld, project: String, order: String) {
     world.forks_enabled = true;
@@ -687,6 +704,20 @@ fn when_render_heads_table(world: &mut RenderWorld) {
         more: world.heads_more.take(),
     };
     world.output = Some(heads_table(&table).into_string());
+}
+
+#[when("I render the heads page")]
+fn when_render_heads_page(world: &mut RenderWorld) {
+    let table: HeadsTable = HeadsTable {
+        rows: std::mem::take(&mut world.head_entries),
+        more: world.heads_more.take(),
+    };
+    let page: HeadsPage = HeadsPage {
+        crumbs: std::mem::take(&mut world.crumbs),
+        ref_views: std::mem::take(&mut world.nav_items),
+        table,
+    };
+    world.output = Some(heads_body(&page).into_string());
 }
 
 /// Builds a shortlog row from its display fields and a base href: the commit
@@ -824,6 +855,20 @@ fn when_render_shortlog_table(world: &mut RenderWorld) {
         more: world.shortlog_more.take(),
     };
     world.output = Some(shortlog_table(&table).into_string());
+}
+
+#[when("I render the shortlog page")]
+fn when_render_shortlog_page(world: &mut RenderWorld) {
+    let table: ShortlogTable = ShortlogTable {
+        rows: std::mem::take(&mut world.shortlog_entries),
+        more: world.shortlog_more.take(),
+    };
+    let page: ShortlogPage = ShortlogPage {
+        crumbs: std::mem::take(&mut world.crumbs),
+        nav: std::mem::take(&mut world.nav_items),
+        table,
+    };
+    world.output = Some(shortlog_body(&page).into_string());
 }
 
 // ---- search results ----------------------------------------------------------
@@ -1247,6 +1292,25 @@ fn when_render_history_table(world: &mut RenderWorld) {
     world.output = Some(history_table(&table).into_string());
 }
 
+#[when("I render the history page")]
+fn when_render_history_page(world: &mut RenderWorld) {
+    let table: HistoryTable = HistoryTable {
+        object_label: world
+            .history_object_label
+            .take()
+            .unwrap_or_else(|| "blob".to_owned()),
+        rows: std::mem::take(&mut world.history_entries),
+        more: world.history_more.take(),
+    };
+    let page: HistoryPage = HistoryPage {
+        crumbs: std::mem::take(&mut world.crumbs),
+        nav: std::mem::take(&mut world.nav_items),
+        file_name: "file.txt".to_owned(),
+        table,
+    };
+    world.output = Some(history_body(&page).into_string());
+}
+
 // ---- Verbose log ------------------------------------------------------------
 
 /// Builds a log entry from its display fields and a base href. The timestamp is a
@@ -1326,6 +1390,17 @@ fn given_log_badged(
 fn when_render_log_entries(world: &mut RenderWorld) {
     let entries: Vec<LogEntryView> = std::mem::take(&mut world.log_entries);
     world.output = Some(log_entries(&entries, world.log_more.as_ref()).into_string());
+}
+
+#[when("I render the log page")]
+fn when_render_log_page(world: &mut RenderWorld) {
+    let page: LogPage = LogPage {
+        crumbs: std::mem::take(&mut world.crumbs),
+        nav: std::mem::take(&mut world.nav_items),
+        entries: std::mem::take(&mut world.log_entries),
+        more: world.log_more.take(),
+    };
+    world.output = Some(log_body(&page).into_string());
 }
 
 // ---- Tags table -------------------------------------------------------------
@@ -1816,6 +1891,23 @@ fn when_render_tree_table(world: &mut RenderWorld) {
     world.output = Some(tree_table(&table).into_string());
 }
 
+#[when("I render the tree page")]
+fn when_render_tree_page(world: &mut RenderWorld) {
+    let table: TreeTable = TreeTable {
+        show_sizes: !world.tree_size_off,
+        parent: world.tree_parent.take(),
+        rows: std::mem::take(&mut world.tree_rows),
+    };
+    let page: TreePage = TreePage {
+        crumbs: std::mem::take(&mut world.crumbs),
+        nav: std::mem::take(&mut world.nav_items),
+        title: "main tree".to_owned(),
+        path: None,
+        table,
+    };
+    world.output = Some(tree_body(&page).into_string());
+}
+
 #[then(regex = r#"^the result contains "(.*)"$"#)]
 fn then_result_contains(world: &mut RenderWorld, expected: String) {
     let output: &str = world.output.as_deref().expect("a rendered result");
@@ -1869,6 +1961,20 @@ fn given_blob_binary(world: &mut RenderWorld, raw_href: String) {
 fn when_render_blob_content(world: &mut RenderWorld) {
     let content: BlobContent = built_blob_content(world);
     world.output = Some(blob_content(&content).into_string());
+}
+
+#[when("I render the blob page")]
+fn when_render_blob_page(world: &mut RenderWorld) {
+    let content: BlobContent = built_blob_content(world);
+    let page: BlobPage = BlobPage {
+        crumbs: std::mem::take(&mut world.crumbs),
+        nav: std::mem::take(&mut world.nav_items),
+        formats: Vec::new(),
+        title: "readme.txt".to_owned(),
+        path: Some("readme.txt".to_owned()),
+        content,
+    };
+    world.output = Some(blob_body(&page).into_string());
 }
 
 #[then("the result is:")]

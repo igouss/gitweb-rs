@@ -64,3 +64,11 @@ Feature: Rendering the verbose log
     Given a log entry by "Alice" titled "x" aged "now" at "/c"
     When I render the log entries
     Then the result does not contain "class="refs""
+
+  Scenario: the log page body wraps the commit blocks in the page chrome
+    Given a log entry by "Alice" titled "Add the thing" aged "3 days ago" at "/r/commit/abc"
+    When I render the log page
+    Then the result contains "class="page-header""
+    And the result contains "Log"
+    And the result contains "Add the thing"
+    And the result contains "class="page-footer""

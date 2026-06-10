@@ -66,3 +66,11 @@ Feature: Rendering the shortlog table
     Given a shortlog commit by "Alice" titled "x" dated "now" at "/c"
     When I render the shortlog table
     Then the result does not contain "class="refs""
+
+  Scenario: the shortlog page body wraps the table in the page chrome
+    Given a shortlog commit by "Alice" titled "Add the thing" dated "3 days ago" at "/r/commit/abc"
+    When I render the shortlog page
+    Then the result contains "class="page-header""
+    And the result contains "Shortlog"
+    And the result contains "Add the thing"
+    And the result contains "class="page-footer""

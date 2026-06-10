@@ -78,3 +78,13 @@ Feature: Rendering the projects-list table
     Then the result contains "<span title="0 forks">+</span>"
     And the result contains "<a href="/repo/forks">forks</a>"
     And the result does not contain ">+</a>"
+
+  # --- the page body wraps the table in the home-page chrome ---
+
+  Scenario: the project list page body wraps the table in the page chrome
+    Given a listed project "git.git" at "/git"
+    When I render the project list page sorted by "project"
+    Then the result contains "class="page-header""
+    And the result contains "Git Repositories"
+    And the result contains "git.git"
+    And the result contains "class="page-footer""

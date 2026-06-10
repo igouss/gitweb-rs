@@ -85,3 +85,11 @@ Feature: Rendering the per-path history table
     Given a history blob row by "Alice" titled "x" dated "now" at "/c"
     When I render the history table
     Then the result does not contain "class="refs""
+
+  Scenario: the history page body wraps the table in the page chrome
+    Given a history blob row by "Alice" titled "Add the thing" dated "3 days ago" at "/r/commit/abc"
+    When I render the history page
+    Then the result contains "class="page-header""
+    And the result contains "History"
+    And the result contains "Add the thing"
+    And the result contains "class="page-footer""

@@ -13,6 +13,7 @@ Feature: Rendering the commit view
     And the result contains "Linus Torvalds"
     And the result contains "(parent: "
     And the result contains "/r/commit/parent01"
+    And the result contains "<a href="/r/commitdiff/parent01">diff</a>"
     And the result contains "/r/tree/c0ffee"
     And the result contains ">tree<"
     And the result contains "Add the analytical engine"

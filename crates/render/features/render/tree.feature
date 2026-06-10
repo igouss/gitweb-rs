@@ -54,3 +54,11 @@ Feature: Rendering the tree (directory listing)
     When I render the tree table
     Then the result contains "/r/HEAD/src-up"
     And the result contains ">..<"
+
+  Scenario: the tree page body wraps the table in the page chrome
+    Given a tree file row "README" sized "12" at "/r/HEAD/README"
+    When I render the tree page
+    Then the result contains "class="page-header""
+    And the result contains "main tree"
+    And the result contains ">README</a>"
+    And the result contains "class="page-footer""

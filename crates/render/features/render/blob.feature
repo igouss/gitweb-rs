@@ -33,3 +33,11 @@ Feature: Rendering one file (blob)
     Then the result contains "/r/HEAD/data.bin/raw"
     And the result contains "Download raw"
     And the result does not contain "<table"
+
+  Scenario: the blob page body wraps the content in the page chrome
+    Given a blob line 1 reading "fn main() {}"
+    When I render the blob page
+    Then the result contains "class="page-header""
+    And the result contains "readme.txt"
+    And the result contains "fn main() {}"
+    And the result contains "class="page-footer""

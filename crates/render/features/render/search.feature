@@ -13,6 +13,7 @@ Feature: Rendering the search-results table
     Given a search result by "Ada" titled "Add the thing" dated "3 days ago" at "/r/commit/abc"
     When I render the search page
     Then the result contains "3 days ago"
+    And the result contains "<td class="author">Ada</td>"
     And the result contains "Add the thing"
     And the result contains "/r/commit/abc"
     And the result contains "commitdiff"
