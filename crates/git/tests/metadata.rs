@@ -23,6 +23,9 @@ struct MetadataWorld {
     /// directory's owning uid, exercising gitweb's `get_file_owner` fallback.
     /// Absent means the host has no passwd entry for the uid.
     dir_owner: Option<String>,
+    /// The configured `extra-branch-refs` feature options injected into the
+    /// store, so last activity can span branch directories beyond `refs/heads/`.
+    extra_branch_refs: Vec<String>,
     info: Option<Result<ProjectInfo, DomainError>>,
 }
 
@@ -124,6 +127,16 @@ fn given_tag_at(world: &mut MetadataWorld, name: String, tag: String, epoch: i64
     root(world).add_tag_at(&name, &tag, epoch);
 }
 
+#[given(regex = r#"^"([^"]*)" has a ref "([^"]*)" committed at (\d+)$"#)]
+fn given_ref_at(world: &mut MetadataWorld, name: String, full_ref: String, epoch: i64) {
+    root(world).add_ref_at(&name, &full_ref, epoch);
+}
+
+#[given(regex = r#"^the "extra-branch-refs" feature lists "([^"]*)"$"#)]
+fn given_extra_branch_refs(world: &mut MetadataWorld, dir: String) {
+    world.extra_branch_refs.push(dir);
+}
+
 // --- When --------------------------------------------------------------------
 
 #[when(regex = r#"^I read the metadata of "([^"]*)"$"#)]
@@ -131,8 +144,9 @@ fn read_metadata(world: &mut MetadataWorld, name: String) {
     let users: Box<dyn UserDirectory> = Box::new(FakeUserDirectory {
         name: world.dir_owner.clone(),
     });
-    let store: GixProjectStore =
-        GixProjectStore::new(root(world).path().to_path_buf()).with_user_directory(users);
+    let store: GixProjectStore = GixProjectStore::new(root(world).path().to_path_buf())
+        .with_user_directory(users)
+        .with_extra_branch_refs(world.extra_branch_refs.clone());
     world.info = Some(store.info(&name));
 }
 

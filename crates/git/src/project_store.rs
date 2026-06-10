@@ -14,6 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use gitweb_domain::error::DomainError;
+use gitweb_domain::model::branch_refs::get_branch_refs;
 use gitweb_domain::model::project::Project;
 use gitweb_domain::model::project_filter::ProjectFilter;
 use gitweb_domain::model::project_info::ProjectInfo;
@@ -42,6 +43,12 @@ pub struct GixProjectStore {
     /// passwd database; a conformance spec injects a pinned one via
     /// [`with_user_directory`](Self::with_user_directory).
     users: Box<dyn UserDirectory>,
+    /// The configured `extra-branch-refs` feature options (gitweb's
+    /// `@extra_branch_refs`, the raw entries — one ref directory each), resolved
+    /// to the full branch-directory set by [`get_branch_refs`] when last activity
+    /// is computed. Empty by default (heads-only); the composition root injects
+    /// the deployment's value via [`with_extra_branch_refs`](Self::with_extra_branch_refs).
+    extra_branch_refs: Vec<String>,
 }
 
 impl GixProjectStore {
@@ -52,6 +59,7 @@ impl GixProjectStore {
             root,
             list_file: None,
             users: Box::new(SystemUserDirectory),
+            extra_branch_refs: Vec::new(),
         }
     }
 
@@ -63,6 +71,7 @@ impl GixProjectStore {
             root,
             list_file: Some(list_file),
             users: Box::new(SystemUserDirectory),
+            extra_branch_refs: Vec::new(),
         }
     }
 
@@ -72,6 +81,16 @@ impl GixProjectStore {
     #[must_use]
     pub fn with_user_directory(mut self, users: Box<dyn UserDirectory>) -> Self {
         self.users = users;
+        self
+    }
+
+    /// Sets the `extra-branch-refs` feature options (gitweb's `@extra_branch_refs`)
+    /// so the last-activity scan spans every branch directory `get_branch_refs`
+    /// reports, not just `refs/heads/`. The composition root resolves the option
+    /// list from the global settings and injects it here.
+    #[must_use]
+    pub fn with_extra_branch_refs(mut self, extra_branch_refs: Vec<String>) -> Self {
+        self.extra_branch_refs = extra_branch_refs;
         self
     }
 
@@ -203,8 +222,12 @@ impl ProjectStore for GixProjectStore {
             info = info.with_clone_url(url);
         }
         // gitweb's git_get_last_activity: the committer time of the most recent
-        // branch. Absent for an unborn/empty repo, so the field stays unset.
-        if let Some(when) = most_recent_branch_time(&repo)? {
+        // branch, scanned over `map { "refs/$_" } get_branch_refs()` — heads plus
+        // the validated extra-branch-refs directories (a malformed entry is
+        // gitweb's die_error(500), surfaced here). Absent for an unborn/empty
+        // repo, so the field stays unset.
+        let branch_refs: Vec<String> = get_branch_refs(&self.extra_branch_refs)?;
+        if let Some(when) = most_recent_branch_time(&repo, &branch_refs)? {
             info = info.with_last_activity(when);
         }
         Ok(info)
@@ -234,18 +257,22 @@ fn read_nonempty(path: &Path) -> Option<String> {
 
 /// gitweb's `git_get_last_activity`: the committer timestamp (Unix epoch seconds)
 /// of the project's most recently updated branch. gitweb runs `git for-each-ref
-/// --sort=-committerdate --count=1 refs/heads` and reads the committer time off
-/// the winning ref; here we take the maximum committer time over the branch heads
-/// (`refs/heads/`, the default `get_branch_refs`). Tags and other refs are not
-/// branches, so they never count. A repository with no branch commits — unborn or
-/// empty — has no activity, so the result is `None`.
-fn most_recent_branch_time(repo: &gix::Repository) -> Result<Option<i64>, DomainError> {
+/// --sort=-committerdate --count=1` over `map { "refs/$_" } get_branch_refs()`
+/// and reads the committer time off the winning ref; here we take the maximum
+/// committer time over the refs under every branch directory in `branch_refs`
+/// (`heads`, plus the validated extra-branch-refs entries). Tags and other refs
+/// are not branches, so they never count. A repository with no branch commits —
+/// unborn or empty — has no activity, so the result is `None`.
+fn most_recent_branch_time(
+    repo: &gix::Repository,
+    branch_refs: &[String],
+) -> Result<Option<i64>, DomainError> {
     let platform: gix::reference::iter::Platform<'_> = repo.references().map_err(backend)?;
     let mut latest: Option<i64> = None;
     for item in platform.all().map_err(backend)? {
         let reference: gix::Reference<'_> = item.map_err(backend)?;
         let full: String = reference.name().as_bstr().to_string();
-        if !full.starts_with("refs/heads/") {
+        if !is_branch_ref(&full, branch_refs) {
             continue;
         }
         let commit: gix::Commit<'_> = reference
@@ -262,6 +289,16 @@ fn most_recent_branch_time(repo: &gix::Repository) -> Result<Option<i64>, Domain
         latest = Some(latest.map_or(when, |best: i64| best.max(when)));
     }
     Ok(latest)
+}
+
+/// Whether the fully-qualified ref `full` lives directly under one of the branch
+/// directories in `branch_refs` — gitweb's `map { "refs/$_/" } get_branch_refs()`
+/// membership test. `refs/heads/main` with `heads` listed matches; a tag or a ref
+/// under an unlisted directory does not.
+fn is_branch_ref(full: &str, branch_refs: &[String]) -> bool {
+    branch_refs
+        .iter()
+        .any(|dir: &String| full.starts_with(&format!("refs/{dir}/")))
 }
 
 /// gitweb's `git_get_file_or_project_config`: the first line of the repository

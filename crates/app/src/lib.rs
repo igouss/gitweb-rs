@@ -21,7 +21,7 @@ use axum::Router;
 use gitweb_config::ConfigError;
 use gitweb_domain::model::action::Action;
 use gitweb_domain::model::config_chain::{ConfigChain, ConfigSlot};
-use gitweb_domain::model::settings::Settings;
+use gitweb_domain::model::settings::{FeatureName, Settings};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_git::GixProjectStore;
 use gitweb_web::{
@@ -45,7 +45,15 @@ const DEFAULT_GIT_VERSION: &str = "2.54.0";
 /// serves, and the web boundary wrapped around them. The binary binds a listener
 /// around the returned [`Router`]; the BDD harness drives it in-process.
 pub fn build_router(projectroot: PathBuf, settings: Arc<Settings>) -> Router {
-    let store: Arc<dyn ProjectStore + Send + Sync> = Arc::new(GixProjectStore::new(projectroot));
+    // gitweb's git_get_last_activity scans every get_branch_refs directory; the
+    // store resolves that set lazily but needs the deployment's extra-branch-refs
+    // options, so inject them here where the settings are known.
+    let extra_branch_refs: Vec<String> = settings
+        .feature(FeatureName::ExtraBranchRefs)
+        .default_options()
+        .to_vec();
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(projectroot).with_extra_branch_refs(extra_branch_refs));
     let dispatcher: Arc<Dispatcher> = Arc::new(build_dispatcher(Arc::clone(&store), settings));
     mount_vendor_assets(router(store, dispatcher))
 }

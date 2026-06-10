@@ -134,6 +134,25 @@ Feature: Per-project metadata through the gix ProjectStore adapter
     When I read the metadata of "tagged.git"
     Then the last activity timestamp is 1700000000
 
+  # gitweb's git_get_last_activity scans `map { "refs/$_" } get_branch_refs()`,
+  # so a commit on a configured extra-branch-refs directory moves last activity,
+  # but a ref under a directory the feature does not list never counts.
+
+  Scenario: a newer commit on a configured extra branch directory wins
+    Given a project root containing an empty repository "extra.git"
+    And the "extra-branch-refs" feature lists "sandbox"
+    And "extra.git" has a branch "main" committed at 1700000000
+    And "extra.git" has a ref "refs/sandbox/wip" committed at 1700005000
+    When I read the metadata of "extra.git"
+    Then the last activity timestamp is 1700005000
+
+  Scenario: a ref under an unlisted directory does not move the last activity
+    Given a project root containing an empty repository "plain.git"
+    And "plain.git" has a branch "main" committed at 1700000000
+    And "plain.git" has a ref "refs/sandbox/wip" committed at 1700005000
+    When I read the metadata of "plain.git"
+    Then the last activity timestamp is 1700000000
+
   # --- the missing and unsafe edges, shared with open() ---
 
   Scenario: reading metadata for a name that does not exist fails as not found
