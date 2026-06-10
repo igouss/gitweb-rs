@@ -96,3 +96,24 @@ Feature: Detecting forks among projects
   Scenario: the bare .git repository itself can never parent forks
     Given the project ".git"
     Then it has no fork container
+
+  # --- the fork affordance and count (gitweb's $pr->{forks}) ---
+  # is_forkable mirrors gitweb's truthy `$pr->{forks}` — the `+` and `| forks`
+  # affordance — present for an empty container and a forked project, absent only
+  # when the project cannot parent forks. The count is `scalar @{$pr->{forks}}`,
+  # zero for both fork-less states.
+
+  Scenario: a not-forkable state offers no fork affordance and counts nothing
+    Given a not-forkable project state
+    Then the state offers no fork affordance
+    And the state counts 0 forks
+
+  Scenario: an empty-container state offers the affordance but counts nothing
+    Given an empty-container project state
+    Then the state offers a fork affordance
+    And the state counts 0 forks
+
+  Scenario: a forked state offers the affordance and counts its forks
+    Given a project state forked 3 times
+    Then the state offers a fork affordance
+    And the state counts 3 forks

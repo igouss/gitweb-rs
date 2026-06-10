@@ -3,6 +3,8 @@
 //! Runs every `.feature` under `features/domain`. cucumber supplies its own
 //! `main`, so this test target sets `harness = false` in Cargo.toml.
 
+use std::num::NonZeroUsize;
+
 use cucumber::gherkin::Step;
 use cucumber::{World, given, then, when};
 use gitweb_domain::error::DomainError;
@@ -32,7 +34,7 @@ use gitweb_domain::model::feed::{comment_lines, feed_title, feed_window};
 use gitweb_domain::model::file_change::FileChangeNote;
 use gitweb_domain::model::file_mode::FileMode;
 use gitweb_domain::model::forks::{
-    ProjectGroup, fork_container, forks_subdirectory, partition_forks,
+    ForkState, ProjectGroup, fork_container, forks_subdirectory, partition_forks,
 };
 use gitweb_domain::model::format_patch::{FormatPatch, PatchEntry};
 use gitweb_domain::model::grep::{GrepMatch, file_matches};
@@ -161,6 +163,7 @@ struct DomainWorld {
     fork_input: Vec<String>,
     fork_groups: Option<Vec<ProjectGroup>>,
     fork_project: Option<String>,
+    fork_state: Option<ForkState>,
     project_filter: Option<ProjectFilter>,
     subject_project: Option<ProjectInfo>,
     short_description: Option<String>,
@@ -2569,6 +2572,41 @@ fn has_no_fork_container(world: &mut DomainWorld) {
         .as_deref()
         .expect("name the project first");
     assert_eq!(fork_container(project), None);
+}
+
+fn fork_state(world: &DomainWorld) -> ForkState {
+    world.fork_state.expect("set the fork state first")
+}
+
+#[given("a not-forkable project state")]
+fn given_not_forkable_state(world: &mut DomainWorld) {
+    world.fork_state = Some(ForkState::NotForkable);
+}
+
+#[given("an empty-container project state")]
+fn given_empty_container_state(world: &mut DomainWorld) {
+    world.fork_state = Some(ForkState::EmptyContainer);
+}
+
+#[given(regex = r"^a project state forked (\d+) times$")]
+fn given_forked_state(world: &mut DomainWorld, count: usize) {
+    let forks: NonZeroUsize = NonZeroUsize::new(count).expect("a forked state holds at least one");
+    world.fork_state = Some(ForkState::Forked(forks));
+}
+
+#[then("the state offers a fork affordance")]
+fn state_offers_affordance(world: &mut DomainWorld) {
+    assert!(fork_state(world).is_forkable());
+}
+
+#[then("the state offers no fork affordance")]
+fn state_offers_no_affordance(world: &mut DomainWorld) {
+    assert!(!fork_state(world).is_forkable());
+}
+
+#[then(regex = r"^the state counts (\d+) forks?$")]
+fn state_counts_forks(world: &mut DomainWorld, count: usize) {
+    assert_eq!(fork_state(world).fork_count(), count);
 }
 
 // --- Project filter (pf subdirectory scoping) --------------------------------
