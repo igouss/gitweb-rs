@@ -17,6 +17,7 @@ pub mod assets;
 pub mod clock;
 pub mod diff_text;
 pub mod dispatch;
+pub mod feed_meta;
 pub mod handlers;
 pub mod request;
 pub mod response;

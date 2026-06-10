@@ -28,14 +28,15 @@ use gitweb_domain::model::settings::{FeatureName, Settings};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::commit::{AuthorLine, CommitView, assemble_commit};
-use gitweb_render::chrome::{Crumb, DocumentHead, FormatLink, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, FormatLink, NavItem, document};
 use gitweb_render::commit::{AuthorRow, ParentNavLink};
 use gitweb_render::commitdiff::{CommitdiffNav, CommitdiffPage, commitdiff_body};
 use gitweb_render::markup::Markup;
 
-use crate::assets::{DIFF_VIEWER_PATH, FAVICON_PATH, STYLESHEET_PATH};
+use crate::assets::DIFF_VIEWER_PATH;
 use crate::diff_text::diff_text_href;
 use crate::dispatch::Handler;
+use crate::feed_meta::{document_head, page_feeds};
 use crate::handlers::changed_files::{self, Context};
 use crate::response::View;
 use crate::url::href;
@@ -76,12 +77,14 @@ impl Handler for CommitdiffHandler {
         let blame_on: bool = self.settings.feature(FeatureName::Blame).enabled();
         // gitweb's `$hash =~ /^$oid_regex$/` (after `$hash ||= $hash_base || "HEAD"`):
         // a commitdiff addressed by a literal oid is immutable and cacheable for a day.
+        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,
             &view,
             explicit,
             blame_on,
+            feeds,
         ))
         .with_expiry(Expiry::for_hash(revision)))
     }
@@ -94,6 +97,7 @@ fn render_page(
     view: &CommitView,
     explicit: Option<&str>,
     blame_on: bool,
+    feeds: Vec<FeedLink>,
 ) -> Markup {
     let hash: &str = view.id().as_str();
     let page: CommitdiffPage = CommitdiffPage {
@@ -109,12 +113,8 @@ fn render_page(
         diff_url: diff_url(project, hash, explicit),
         viewer_module_src: DIFF_VIEWER_PATH.to_owned(),
     };
-    let head: DocumentHead = DocumentHead {
-        title: format!("{project} / commitdiff / {}", view.title()),
-        stylesheet_href: STYLESHEET_PATH.to_owned(),
-        favicon_href: Some(FAVICON_PATH.to_owned()),
-        feeds: Vec::new(),
-    };
+    let head: DocumentHead =
+        document_head(format!("{project} / commitdiff / {}", view.title()), feeds);
     document(&head, commitdiff_body(&page))
 }
 

@@ -18,12 +18,12 @@ use gitweb_domain::model::settings::{FeatureName, Settings};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::tree::{TreeRow, TreeView, assemble_tree};
-use gitweb_render::chrome::{Crumb, DocumentHead, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, NavItem, document};
 use gitweb_render::markup::Markup;
 use gitweb_render::tree::{TreeLink, TreePage, TreeParentRow, TreeRowView, TreeTable, tree_body};
 
-use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::dispatch::Handler;
+use crate::feed_meta::{document_head, page_feeds};
 use crate::response::View;
 use crate::url::href;
 
@@ -53,13 +53,26 @@ impl Handler for TreeHandler {
         let path: Option<&str> = request.file_name.as_ref().map(SafePath::as_str);
         let show_sizes: bool = self.settings.feature(FeatureName::ShowSizes).enabled();
         let view: TreeView = assemble_tree(repository.as_ref(), rev, path, show_sizes)?;
-        Ok(View::html(render_page(&self.settings, project, rev, &view)))
+        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        Ok(View::html(render_page(
+            &self.settings,
+            project,
+            rev,
+            &view,
+            feeds,
+        )))
     }
 }
 
 /// Maps the use-case view to the render view-model and wraps the assembled body
 /// in the document chrome — the boundary owns the asset URLs and every link.
-fn render_page(settings: &Settings, project: &str, rev: Option<&str>, view: &TreeView) -> Markup {
+fn render_page(
+    settings: &Settings,
+    project: &str,
+    rev: Option<&str>,
+    view: &TreeView,
+    feeds: Vec<FeedLink>,
+) -> Markup {
     let path: Option<&str> = view.path();
     let page: TreePage = TreePage {
         crumbs: crumbs(settings.site_name(), project),
@@ -81,12 +94,7 @@ fn render_page(settings: &Settings, project: &str, rev: Option<&str>, view: &Tre
                 .collect(),
         },
     };
-    let head: DocumentHead = DocumentHead {
-        title: tree_title(project, path),
-        stylesheet_href: STYLESHEET_PATH.to_owned(),
-        favicon_href: Some(FAVICON_PATH.to_owned()),
-        feeds: Vec::new(),
-    };
+    let head: DocumentHead = document_head(tree_title(project, path), feeds);
     document(&head, tree_body(&page))
 }
 

@@ -21,11 +21,11 @@ use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::blob::{BlobView, assemble_blob};
 use gitweb_render::blob::{BlobContent, BlobLine, BlobPage, blob_body};
-use gitweb_render::chrome::{Crumb, DocumentHead, FormatLink, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, FormatLink, NavItem, document};
 use gitweb_render::markup::Markup;
 
-use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::dispatch::Handler;
+use crate::feed_meta::{document_head, page_feeds};
 use crate::response::View;
 use crate::url::href;
 
@@ -64,10 +64,16 @@ impl Handler for BlobHandler {
         // gitweb's `$hash =~ /^$oid_regex$/`: a blob addressed by a literal oid is
         // immutable and cacheable for a day; one resolved through a file name is
         // not (`$hash` is then undefined when the expires check runs).
-        Ok(
-            View::html(render_page(&self.settings, project, base, file, &view))
-                .with_expiry(Expiry::for_hash(hash)),
-        )
+        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        Ok(View::html(render_page(
+            &self.settings,
+            project,
+            base,
+            file,
+            &view,
+            feeds,
+        ))
+        .with_expiry(Expiry::for_hash(hash)))
     }
 }
 
@@ -79,6 +85,7 @@ fn render_page(
     base: Option<&str>,
     file: Option<&str>,
     view: &BlobView,
+    feeds: Vec<FeedLink>,
 ) -> Markup {
     let page: BlobPage = BlobPage {
         crumbs: crumbs(settings.site_name(), project),
@@ -91,12 +98,7 @@ fn render_page(
         path: file.map(str::to_owned),
         content: content(project, base, file, view),
     };
-    let head: DocumentHead = DocumentHead {
-        title: blob_title(project, file),
-        stylesheet_href: STYLESHEET_PATH.to_owned(),
-        favicon_href: Some(FAVICON_PATH.to_owned()),
-        feeds: Vec::new(),
-    };
+    let head: DocumentHead = document_head(blob_title(project, file), feeds);
     document(&head, blob_body(&page))
 }
 

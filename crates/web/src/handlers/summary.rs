@@ -18,7 +18,7 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::summary::{SummaryView, assemble_summary};
-use gitweb_render::chrome::{Crumb, DocumentHead, MoreLink, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, MoreLink, NavItem, document};
 use gitweb_render::heads::HeadsTable;
 use gitweb_render::markup::Markup;
 use gitweb_render::shortlog::ShortlogTable;
@@ -27,9 +27,9 @@ use gitweb_render::summary::{
 };
 use gitweb_render::tags::TagsTable;
 
-use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
+use crate::feed_meta::{document_head, page_feeds};
 use crate::handlers::heads::head_entry;
 use crate::handlers::shortlog::shortlog_entry;
 use crate::handlers::tags::tag_entry;
@@ -68,13 +68,24 @@ impl Handler for SummaryHandler {
             &self.settings,
             now_epoch(),
         )?;
-        Ok(View::html(render_page(&self.settings, project, &view)))
+        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        Ok(View::html(render_page(
+            &self.settings,
+            project,
+            &view,
+            feeds,
+        )))
     }
 }
 
 /// Maps the use-case view to the render view-model and wraps the assembled body
 /// in the document chrome — the boundary owns the asset URLs and every link.
-fn render_page(settings: &Settings, project: &str, view: &SummaryView) -> Markup {
+fn render_page(
+    settings: &Settings,
+    project: &str,
+    view: &SummaryView,
+    feeds: Vec<FeedLink>,
+) -> Markup {
     let page: SummaryPage = SummaryPage {
         crumbs: crumbs(settings.site_name(), project),
         nav: nav(project),
@@ -84,12 +95,7 @@ fn render_page(settings: &Settings, project: &str, view: &SummaryView) -> Markup
         tags: tags_section(project, view),
         heads: heads_section(project, view),
     };
-    let head: DocumentHead = DocumentHead {
-        title: project.to_owned(),
-        stylesheet_href: STYLESHEET_PATH.to_owned(),
-        favicon_href: Some(FAVICON_PATH.to_owned()),
-        feeds: Vec::new(),
-    };
+    let head: DocumentHead = document_head(project.to_owned(), feeds);
     document(&head, summary_body(&page))
 }
 

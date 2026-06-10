@@ -31,15 +31,15 @@ use gitweb_domain::port::repository::{Page, Repository, SearchKind};
 use gitweb_domain::usecase::grep::{GrepFileView, GrepLine, GrepRow, GrepView, assemble_grep};
 use gitweb_domain::usecase::pickaxe::{PickaxeFile, PickaxeRow, PickaxeView, assemble_pickaxe};
 use gitweb_domain::usecase::search::{SearchCriteria, SearchRow, SearchView, assemble_search};
-use gitweb_render::chrome::{Crumb, DocumentHead, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, NavItem, document};
 use gitweb_render::grep::{GrepFileBlock, GrepLineView, GrepPage, GrepRowView, grep_body};
 use gitweb_render::markup::Markup;
 use gitweb_render::pickaxe::{PickaxeEntryView, PickaxeFileLink, PickaxePage, pickaxe_body};
 use gitweb_render::search::{SearchEntryView, SearchPage, SearchPaging, SnippetView, search_body};
 
-use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
+use crate::feed_meta::{document_head, page_feeds};
 use crate::response::View;
 use crate::url::href;
 
@@ -80,6 +80,7 @@ impl SearchHandler {
         rev: Option<&str>,
         text: &str,
         use_regexp: bool,
+        feeds: Vec<FeedLink>,
     ) -> Result<View, DomainError> {
         let search_enabled: bool = self.settings.feature(FeatureName::Search).enabled();
         let grep_enabled: bool = self.settings.feature(FeatureName::Grep).enabled();
@@ -96,6 +97,7 @@ impl SearchHandler {
             project,
             rev,
             &view,
+            feeds,
         )))
     }
 
@@ -111,6 +113,7 @@ impl SearchHandler {
         rev: Option<&str>,
         text: &str,
         use_regexp: bool,
+        feeds: Vec<FeedLink>,
     ) -> Result<View, DomainError> {
         let search_enabled: bool = self.settings.feature(FeatureName::Search).enabled();
         let pickaxe_enabled: bool = self.settings.feature(FeatureName::Pickaxe).enabled();
@@ -128,6 +131,7 @@ impl SearchHandler {
             project,
             rev,
             &view,
+            feeds,
         )))
     }
 }
@@ -146,16 +150,17 @@ impl Handler for SearchHandler {
         let searchtype: &str = request.search_type.as_deref().unwrap_or(DEFAULT_SEARCHTYPE);
         let use_regexp: bool = request.search_use_regexp;
         let rev: Option<&str> = request.hash.as_ref().map(SafeRef::as_str);
+        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
 
         // gitweb's git_search dispatches `grep` and `pickaxe` to their own subs —
         // each a different result shape (a per-file line table; a commit list with
         // changed files), not a commit-message SearchKind — so each routes before
         // the message facets.
         if searchtype == GREP_SEARCHTYPE {
-            return self.handle_grep(project, repository.as_ref(), rev, text, use_regexp);
+            return self.handle_grep(project, repository.as_ref(), rev, text, use_regexp, feeds);
         }
         if searchtype == PICKAXE_SEARCHTYPE {
-            return self.handle_pickaxe(project, repository.as_ref(), rev, text, use_regexp);
+            return self.handle_pickaxe(project, repository.as_ref(), rev, text, use_regexp, feeds);
         }
 
         let kind: SearchKind = search_kind(searchtype)?;
@@ -188,6 +193,7 @@ impl Handler for SearchHandler {
             &params,
             page_num,
             &view,
+            feeds,
         )))
     }
 }
@@ -221,6 +227,7 @@ fn render_page(
     params: &SearchParams<'_>,
     page_num: usize,
     view: &SearchView,
+    feeds: Vec<FeedLink>,
 ) -> Markup {
     let project: &str = params.project;
     let page: SearchPage = SearchPage {
@@ -235,12 +242,7 @@ fn render_page(
             .collect(),
         no_match: page_num == 0 && view.rows().is_empty(),
     };
-    let head: DocumentHead = DocumentHead {
-        title: format!("{project} / search"),
-        stylesheet_href: STYLESHEET_PATH.to_owned(),
-        favicon_href: Some(FAVICON_PATH.to_owned()),
-        feeds: Vec::new(),
-    };
+    let head: DocumentHead = document_head(format!("{project} / search"), feeds);
     document(&head, search_body(&page))
 }
 
@@ -362,6 +364,7 @@ fn render_grep_page(
     project: &str,
     rev: Option<&str>,
     view: &GrepView,
+    feeds: Vec<FeedLink>,
 ) -> Markup {
     let page: GrepPage = GrepPage {
         crumbs: crumbs(settings.site_name(), project),
@@ -375,12 +378,7 @@ fn render_grep_page(
         no_match: view.files().is_empty(),
         trimmed: view.trimmed(),
     };
-    let head: DocumentHead = DocumentHead {
-        title: format!("{project} / search"),
-        stylesheet_href: STYLESHEET_PATH.to_owned(),
-        favicon_href: Some(FAVICON_PATH.to_owned()),
-        feeds: Vec::new(),
-    };
+    let head: DocumentHead = document_head(format!("{project} / search"), feeds);
     document(&head, grep_body(&page))
 }
 
@@ -438,6 +436,7 @@ fn render_pickaxe_page(
     project: &str,
     rev: Option<&str>,
     view: &PickaxeView,
+    feeds: Vec<FeedLink>,
 ) -> Markup {
     let page: PickaxePage = PickaxePage {
         crumbs: crumbs(settings.site_name(), project),
@@ -449,12 +448,7 @@ fn render_pickaxe_page(
             .map(|row: &PickaxeRow| pickaxe_entry(project, row))
             .collect(),
     };
-    let head: DocumentHead = DocumentHead {
-        title: format!("{project} / search"),
-        stylesheet_href: STYLESHEET_PATH.to_owned(),
-        favicon_href: Some(FAVICON_PATH.to_owned()),
-        feeds: Vec::new(),
-    };
+    let head: DocumentHead = document_head(format!("{project} / search"), feeds);
     document(&head, pickaxe_body(&page))
 }
 

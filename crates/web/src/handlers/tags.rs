@@ -17,13 +17,13 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::tags::{TagRow, TagsView, assemble_tags};
-use gitweb_render::chrome::{Crumb, DocumentHead, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, document};
 use gitweb_render::markup::Markup;
 use gitweb_render::tags::{TagEntryView, TagReftype, TagsPage, TagsTable, tags_body};
 
-use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
+use crate::feed_meta::{document_head, page_feeds};
 use crate::handlers::refs::{CurrentRef, ref_views};
 use crate::response::View;
 use crate::url::href;
@@ -51,13 +51,24 @@ impl Handler for TagsHandler {
             .ok_or_else(|| DomainError::Invalid("Project needed".to_owned()))?;
         let repository: Box<dyn Repository> = self.store.open(project)?;
         let view: TagsView = assemble_tags(repository.as_ref(), now_epoch())?;
-        Ok(View::html(render_page(&self.settings, project, &view)))
+        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        Ok(View::html(render_page(
+            &self.settings,
+            project,
+            &view,
+            feeds,
+        )))
     }
 }
 
 /// Maps the use-case view to the render view-model and wraps the assembled body
 /// in the document chrome — the boundary owns the asset URLs and every link.
-fn render_page(settings: &Settings, project: &str, view: &TagsView) -> Markup {
+fn render_page(
+    settings: &Settings,
+    project: &str,
+    view: &TagsView,
+    feeds: Vec<FeedLink>,
+) -> Markup {
     let page: TagsPage = TagsPage {
         crumbs: crumbs(settings.site_name(), project),
         ref_views: ref_views(project, settings, CurrentRef::Tags),
@@ -71,12 +82,7 @@ fn render_page(settings: &Settings, project: &str, view: &TagsView) -> Markup {
             more: None,
         },
     };
-    let head: DocumentHead = DocumentHead {
-        title: format!("{project} / tags"),
-        stylesheet_href: STYLESHEET_PATH.to_owned(),
-        favicon_href: Some(FAVICON_PATH.to_owned()),
-        feeds: Vec::new(),
-    };
+    let head: DocumentHead = document_head(format!("{project} / tags"), feeds);
     document(&head, tags_body(&page))
 }
 

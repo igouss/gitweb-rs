@@ -17,13 +17,13 @@ use gitweb_domain::model::settings::{FeatureName, Settings};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::heads::{HeadRow, HeadsView, assemble_heads};
-use gitweb_render::chrome::{Crumb, DocumentHead, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, document};
 use gitweb_render::heads::{HeadEntryView, HeadsPage, HeadsTable, heads_body};
 use gitweb_render::markup::Markup;
 
-use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
+use crate::feed_meta::{document_head, page_feeds};
 use crate::handlers::refs::{CurrentRef, ref_views};
 use crate::response::View;
 use crate::url::href;
@@ -60,13 +60,24 @@ impl Handler for HeadsHandler {
         let branch_refs: Vec<String> = get_branch_refs(extra_branch_refs)?;
         let branch_refs: Vec<&str> = branch_refs.iter().map(String::as_str).collect();
         let view: HeadsView = assemble_heads(repository.as_ref(), now_epoch(), &branch_refs)?;
-        Ok(View::html(render_page(&self.settings, project, &view)))
+        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        Ok(View::html(render_page(
+            &self.settings,
+            project,
+            &view,
+            feeds,
+        )))
     }
 }
 
 /// Maps the use-case view to the render view-model and wraps the assembled body
 /// in the document chrome — the boundary owns the asset URLs and every link.
-fn render_page(settings: &Settings, project: &str, view: &HeadsView) -> Markup {
+fn render_page(
+    settings: &Settings,
+    project: &str,
+    view: &HeadsView,
+    feeds: Vec<FeedLink>,
+) -> Markup {
     let page: HeadsPage = HeadsPage {
         crumbs: crumbs(settings.site_name(), project),
         ref_views: ref_views(project, settings, CurrentRef::Heads),
@@ -80,12 +91,7 @@ fn render_page(settings: &Settings, project: &str, view: &HeadsView) -> Markup {
             more: None,
         },
     };
-    let head: DocumentHead = DocumentHead {
-        title: format!("{project} / heads"),
-        stylesheet_href: STYLESHEET_PATH.to_owned(),
-        favicon_href: Some(FAVICON_PATH.to_owned()),
-        feeds: Vec::new(),
-    };
+    let head: DocumentHead = document_head(format!("{project} / heads"), feeds);
     document(&head, heads_body(&page))
 }
 

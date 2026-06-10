@@ -18,15 +18,15 @@ use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::usecase::project_list::{
     ProjectListRow, ProjectListView, assemble_project_list,
 };
-use gitweb_render::chrome::{DocumentHead, document};
+use gitweb_render::chrome::{DocumentHead, FeedLink, document};
 use gitweb_render::markup::Markup;
 use gitweb_render::project_list::{
     ProjectLinks, ProjectList, ProjectListPage, ProjectRow, SortHeader, project_list_body,
 };
 
-use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
+use crate::feed_meta::{document_head, page_feeds};
 use crate::response::View;
 use crate::url::href;
 
@@ -56,25 +56,21 @@ impl Handler for ProjectListHandler {
             filter.as_ref(),
             now_epoch(),
         )?;
-        Ok(View::html(render_page(&self.settings, &view)))
+        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        Ok(View::html(render_page(&self.settings, &view, feeds)))
     }
 }
 
 /// Maps the use-case view to the render view-model and wraps the assembled body
 /// in the document chrome — the boundary owns the asset URLs that go in the head.
-fn render_page(settings: &Settings, view: &ProjectListView) -> Markup {
+fn render_page(settings: &Settings, view: &ProjectListView, feeds: Vec<FeedLink>) -> Markup {
     let page: ProjectListPage = ProjectListPage {
         site_name: settings.site_name().to_owned(),
         // The landing page's sort headers replay the bare request (no action), so
         // their re-sort base is empty: `?o=<key>`.
         list: project_table(view, &[]),
     };
-    let head: DocumentHead = DocumentHead {
-        title: settings.site_name().to_owned(),
-        stylesheet_href: STYLESHEET_PATH.to_owned(),
-        favicon_href: Some(FAVICON_PATH.to_owned()),
-        feeds: Vec::new(),
-    };
+    let head: DocumentHead = document_head(settings.site_name().to_owned(), feeds);
     document(&head, project_list_body(&page))
 }
 

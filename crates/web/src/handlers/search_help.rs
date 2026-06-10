@@ -21,12 +21,12 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::search_help::{SearchHelpView, assemble_search_help};
-use gitweb_render::chrome::{Crumb, DocumentHead, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, NavItem, document};
 use gitweb_render::markup::Markup;
 use gitweb_render::search_help::{SearchHelpPage, search_help_body};
 
-use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::dispatch::Handler;
+use crate::feed_meta::{document_head, page_feeds};
 use crate::response::View;
 use crate::url::href;
 
@@ -58,7 +58,14 @@ impl Handler for SearchHelpHandler {
         let _repository: Box<dyn Repository> = self.store.open(project)?;
         let view: SearchHelpView = assemble_search_help(&self.settings);
         let rev: Option<&str> = request.hash.as_ref().map(SafeRef::as_str);
-        Ok(View::html(render_page(&self.settings, project, rev, &view)))
+        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        Ok(View::html(render_page(
+            &self.settings,
+            project,
+            rev,
+            &view,
+            feeds,
+        )))
     }
 }
 
@@ -69,18 +76,14 @@ fn render_page(
     project: &str,
     rev: Option<&str>,
     view: &SearchHelpView,
+    feeds: Vec<FeedLink>,
 ) -> Markup {
     let page: SearchHelpPage = SearchHelpPage {
         crumbs: crumbs(settings.site_name(), project),
         nav: nav(project, rev),
         topics: view.topics().to_vec(),
     };
-    let head: DocumentHead = DocumentHead {
-        title: format!("{project} / search help"),
-        stylesheet_href: STYLESHEET_PATH.to_owned(),
-        favicon_href: Some(FAVICON_PATH.to_owned()),
-        feeds: Vec::new(),
-    };
+    let head: DocumentHead = document_head(format!("{project} / search help"), feeds);
     document(&head, search_help_body(&page))
 }
 

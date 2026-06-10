@@ -18,13 +18,13 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::usecase::forks::assemble_forks;
 use gitweb_domain::usecase::project_list::ProjectListView;
-use gitweb_render::chrome::{Crumb, DocumentHead, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, NavItem, document};
 use gitweb_render::forks::{ForksPage, forks_body};
 use gitweb_render::markup::Markup;
 
-use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
+use crate::feed_meta::{document_head, page_feeds};
 use crate::handlers::project_list::project_table;
 use crate::response::View;
 use crate::url::href;
@@ -57,13 +57,24 @@ impl Handler for ForksHandler {
             request.order.as_deref(),
             now_epoch(),
         )?;
-        Ok(View::html(render_page(&self.settings, project, &view)))
+        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        Ok(View::html(render_page(
+            &self.settings,
+            project,
+            &view,
+            feeds,
+        )))
     }
 }
 
 /// Maps the use-case view to the render view-model and wraps the assembled body
 /// in the document chrome — the boundary owns the asset URLs and every link.
-fn render_page(settings: &Settings, project: &str, view: &ProjectListView) -> Markup {
+fn render_page(
+    settings: &Settings,
+    project: &str,
+    view: &ProjectListView,
+    feeds: Vec<FeedLink>,
+) -> Markup {
     let page: ForksPage = ForksPage {
         crumbs: crumbs(settings.site_name(), project),
         nav: nav(project),
@@ -71,12 +82,7 @@ fn render_page(settings: &Settings, project: &str, view: &ProjectListView) -> Ma
         // The forks page's sort headers replay the forks action.
         list: project_table(view, &[("p", project), ("a", "forks")]),
     };
-    let head: DocumentHead = DocumentHead {
-        title: format!("{project} / forks"),
-        stylesheet_href: STYLESHEET_PATH.to_owned(),
-        favicon_href: Some(FAVICON_PATH.to_owned()),
-        feeds: Vec::new(),
-    };
+    let head: DocumentHead = document_head(format!("{project} / forks"), feeds);
     document(&head, forks_body(&page))
 }
 

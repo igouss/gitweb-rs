@@ -22,14 +22,14 @@ use gitweb_domain::model::settings::{FeatureName, Settings};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::commit::{AuthorLine, CommitView, assemble_commit};
-use gitweb_render::chrome::{Crumb, DocumentHead, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, NavItem, document};
 use gitweb_render::commit::{
     AuthorRow, CommitPage, LinkedId, ParentNav, ParentNavLink, ParentRow, commit_body,
 };
 use gitweb_render::markup::Markup;
 
-use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::dispatch::Handler;
+use crate::feed_meta::{document_head, page_feeds};
 use crate::handlers::changed_files::{self, Context};
 use crate::response::View;
 use crate::url::href;
@@ -69,8 +69,9 @@ impl Handler for CommitHandler {
         let blame_on: bool = self.settings.feature(FeatureName::Blame).enabled();
         // gitweb's `$hash =~ /^$oid_regex$/` (after `$hash ||= $hash_base || "HEAD"`):
         // a commit addressed by a literal oid is immutable and cacheable for a day.
+        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
         Ok(
-            View::html(render_page(&self.settings, project, &view, blame_on))
+            View::html(render_page(&self.settings, project, &view, blame_on, feeds))
                 .with_expiry(Expiry::for_hash(revision)),
         )
     }
@@ -78,7 +79,13 @@ impl Handler for CommitHandler {
 
 /// Maps the use-case view to the render view-model and wraps the assembled body
 /// in the document chrome — the boundary owns the asset URLs and every link.
-fn render_page(settings: &Settings, project: &str, view: &CommitView, blame_on: bool) -> Markup {
+fn render_page(
+    settings: &Settings,
+    project: &str,
+    view: &CommitView,
+    blame_on: bool,
+    feeds: Vec<FeedLink>,
+) -> Markup {
     let hash: &str = view.id().as_str();
     let tree: &str = view.tree().as_str();
     let page: CommitPage = CommitPage {
@@ -97,12 +104,7 @@ fn render_page(settings: &Settings, project: &str, view: &CommitView, blame_on: 
         comment: view.comment().to_vec(),
         changed: changed_files::rows(Context::Commit, project, view, blame_on),
     };
-    let head: DocumentHead = DocumentHead {
-        title: format!("{project} / commit / {}", view.title()),
-        stylesheet_href: STYLESHEET_PATH.to_owned(),
-        favicon_href: Some(FAVICON_PATH.to_owned()),
-        feeds: Vec::new(),
-    };
+    let head: DocumentHead = document_head(format!("{project} / commit / {}", view.title()), feeds);
     document(&head, commit_body(&page))
 }
 
