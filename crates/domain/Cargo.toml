@@ -17,6 +17,14 @@ unsafe_code = "forbid"
 # manifest for the rationale.
 regex = { workspace = true }
 
+# git's `GIT binary patch` body (model::binary_patch) deflates each block with
+# zlib level 1; matching git's stream byte-for-byte demands the zlib backend (not
+# miniz_oxide). zlib is a codec — a library, not a framework, crossing no port — so
+# the binary-patch FORMAT rule owns it here, exactly as model::delta owns git's
+# binary delta encoder. flate2's zlib-rs backend is pure safe Rust; its internal
+# unsafe never crosses this crate's `forbid(unsafe_code)`.
+flate2 = { version = "1", features = ["zlib-rs"] }
+
 [dev-dependencies]
 cucumber = { workspace = true }
 tokio = { workspace = true }

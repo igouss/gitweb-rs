@@ -3,7 +3,9 @@
 pub mod accept;
 pub mod action;
 pub mod age;
+pub mod base85;
 pub mod binary;
+pub mod binary_patch;
 pub mod blame;
 pub mod blob;
 pub mod blobdiff_plain;

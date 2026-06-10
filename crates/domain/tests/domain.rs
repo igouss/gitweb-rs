@@ -11,7 +11,9 @@ use gitweb_domain::error::DomainError;
 use gitweb_domain::model::accept::prefer_text_xml_feed;
 use gitweb_domain::model::action::Action;
 use gitweb_domain::model::age::{Age, AgeClass};
+use gitweb_domain::model::base85::encode_framed;
 use gitweb_domain::model::binary::is_binary;
+use gitweb_domain::model::binary_patch;
 use gitweb_domain::model::blob::{Blob, BlobDisplay};
 use gitweb_domain::model::blobdiff_plain::BlobdiffPlain;
 use gitweb_domain::model::branch_refs::get_branch_refs;
@@ -24,7 +26,7 @@ use gitweb_domain::model::commitdiff_plain::CommitdiffPlain;
 use gitweb_domain::model::conditional::{Freshness, freshness, parse_http_date};
 use gitweb_domain::model::config_chain::{ConfigChain, ConfigSlot};
 use gitweb_domain::model::content_type::PlainHeaders;
-use gitweb_domain::model::delta::diff_delta;
+use gitweb_domain::model::delta::{diff_delta, diff_delta_bounded};
 use gitweb_domain::model::diff::{CombinedDiffEntry, CombinedParent};
 use gitweb_domain::model::diffstat::{Diffstat, DiffstatEntry, StatChange};
 use gitweb_domain::model::email_privacy::redact;
@@ -102,6 +104,11 @@ struct DomainWorld {
     delta_source: Vec<u8>,
     delta_target: Vec<u8>,
     delta_result: Option<Option<Vec<u8>>>,
+    base85_input: Vec<u8>,
+    base85_output: Option<String>,
+    binary_source: Vec<u8>,
+    binary_target: Vec<u8>,
+    binary_patch_body: Option<String>,
     blob_display: Option<BlobDisplay>,
     plain_headers: Option<PlainHeaders>,
     commit: Option<Commit>,
@@ -4370,6 +4377,15 @@ fn compute_binary_delta(world: &mut DomainWorld) {
     world.delta_result = Some(diff_delta(&world.delta_source, &world.delta_target));
 }
 
+#[when(regex = r"^I compute the binary delta capped at (\d+) bytes$")]
+fn compute_binary_delta_capped(world: &mut DomainWorld, max_size: usize) {
+    world.delta_result = Some(diff_delta_bounded(
+        &world.delta_source,
+        &world.delta_target,
+        max_size,
+    ));
+}
+
 #[then(regex = r#"^the delta is bytes "([0-9a-fA-F ]*)"$"#)]
 fn delta_is_bytes(world: &mut DomainWorld, hex: String) {
     let expected: Vec<u8> = parse_hex_bytes(&hex);
@@ -4387,6 +4403,99 @@ fn there_is_no_delta(world: &mut DomainWorld) {
         .as_ref()
         .expect("compute the binary delta first");
     assert_eq!(actual.as_deref(), None);
+}
+
+// --- git base85 encoding (model::base85) ---
+
+#[given(regex = r#"^base85 input bytes "([0-9a-fA-F ]*)"$"#)]
+fn given_base85_input(world: &mut DomainWorld, hex: String) {
+    world.base85_input = parse_hex_bytes(&hex);
+}
+
+#[when("I base85-encode them")]
+fn base85_encode(world: &mut DomainWorld) {
+    world.base85_output = Some(encode_framed(&world.base85_input));
+}
+
+#[then(regex = r#"^the base85 framing is "(.*)"$"#)]
+fn base85_framing_is(world: &mut DomainWorld, expected: String) {
+    let actual: &str = world.base85_output.as_deref().expect("base85-encode first");
+    assert_eq!(actual, format!("{expected}\n"));
+}
+
+#[then("the base85 framing has lines:")]
+fn base85_framing_lines(world: &mut DomainWorld, step: &Step) {
+    let expected: String = step
+        .docstring
+        .clone()
+        .expect("scenario must supply a docstring of expected lines");
+    let actual: &str = world.base85_output.as_deref().expect("base85-encode first");
+    assert_eq!(actual, format!("{}\n", expected.trim_matches('\n')));
+}
+
+// --- git GIT binary patch body (model::binary_patch) ---
+
+/// The pre-image of the delta-wins scenario: 600 bytes of a low-period ramp (so it
+/// compresses well, making the deflated literal large) with the first byte zeroed.
+/// The target is this with one interior byte bumped, so the binary delta is a tiny
+/// copy/insert/copy — far smaller than the deflated literal, the case that proves
+/// the diff-delta.c arm. Built identically here and in the git-captured golden.
+fn delta_wins_source() -> Vec<u8> {
+    let mut source: Vec<u8> = (0..600u32)
+        .map(|index: u32| ((index * 7 + 3) & 0xff) as u8)
+        .collect();
+    source[0] = 0;
+    source
+}
+
+#[given(regex = r#"^a binary pre-image of bytes "([0-9a-fA-F ]*)"$"#)]
+fn given_binary_source(world: &mut DomainWorld, hex: String) {
+    world.binary_source = parse_hex_bytes(&hex);
+}
+
+#[given(regex = r#"^a binary post-image of bytes "([0-9a-fA-F ]*)"$"#)]
+fn given_binary_target(world: &mut DomainWorld, hex: String) {
+    world.binary_target = parse_hex_bytes(&hex);
+}
+
+#[given("a binary pre-image of the delta-wins source")]
+fn given_delta_wins_source(world: &mut DomainWorld) {
+    world.binary_source = delta_wins_source();
+}
+
+#[given("a binary post-image of the delta-wins target")]
+fn given_delta_wins_target(world: &mut DomainWorld) {
+    let mut target: Vec<u8> = delta_wins_source();
+    target[300] = target[300].wrapping_add(1);
+    world.binary_target = target;
+}
+
+#[when("I render the binary patch body")]
+fn render_binary_patch_body(world: &mut DomainWorld) {
+    world.binary_patch_body = Some(binary_patch::render(
+        &world.binary_source,
+        &world.binary_target,
+    ));
+}
+
+#[then("the binary patch body is:")]
+fn binary_patch_body_is(world: &mut DomainWorld, step: &Step) {
+    let expected: String = step
+        .docstring
+        .clone()
+        .expect("scenario must supply a docstring of the expected body");
+    let actual: &str = world
+        .binary_patch_body
+        .as_deref()
+        .expect("render the binary patch body first");
+    // The docstring brackets the body with delimiter newlines (a leading one, and
+    // the footer blank trimmed off); strip both ends and re-assert the footer blank
+    // line separately. Full byte-exactness is pinned end-to-end by the parity golden.
+    assert_eq!(actual.trim_matches('\n'), expected.trim_matches('\n'));
+    assert!(
+        actual.ends_with("\n\n"),
+        "the body must close with the footer blank line"
+    );
 }
 
 #[tokio::main]

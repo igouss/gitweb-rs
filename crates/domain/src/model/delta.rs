@@ -70,6 +70,27 @@ pub fn diff_delta(source: &[u8], target: &[u8]) -> Option<Vec<u8>> {
     Some(create_delta(&index, source, target))
 }
 
+/// Builds a size-bounded delta — git's `diff_delta(..., max_size)`, the form the
+/// `GIT binary patch` body calls with `max_size` set to the deflated literal's
+/// size. Identical to [`diff_delta`] but yields `None` when the finished delta
+/// would exceed `max_size` bytes, exactly as git's `create_delta` abandons a delta
+/// that outgrows its cap and falls back to a literal. A `max_size` of `0` means
+/// unbounded (git's sentinel), so [`diff_delta`] is this with `max_size == 0`.
+///
+/// git enforces the cap incrementally, bailing out the instant the output passes
+/// `max_size`; because the output only grows, that early bail and a single check
+/// on the finished length pick the same outcome — `None` iff the complete delta
+/// exceeds `max_size` — so building the whole delta then comparing its length is
+/// byte-exact with git (the abandoned bytes are discarded either way).
+#[must_use]
+pub fn diff_delta_bounded(source: &[u8], target: &[u8], max_size: usize) -> Option<Vec<u8>> {
+    let delta: Vec<u8> = diff_delta(source, target)?;
+    if max_size != 0 && delta.len() > max_size {
+        return None;
+    }
+    Some(delta)
+}
+
 /// Appends `value` as a little-endian LEB128 varint (`diff-delta.c` header form).
 fn write_varint(out: &mut Vec<u8>, mut value: usize) {
     while value >= 0x80 {

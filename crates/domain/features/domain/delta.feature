@@ -90,3 +90,26 @@ Feature: git binary delta encoding (diff-delta.c)
     And a delta target of text ""
     When I compute the binary delta
     Then there is no delta
+
+  # --- size-bounded delta: git's diff_delta(max_size), the GIT binary patch cap ---
+  # The binary patch body computes a delta capped at the deflated literal's size,
+  # and keeps it only if it (deflated) still wins — so the encoder must abandon a
+  # delta that outgrows the cap exactly as git does.
+
+  Scenario: a delta within the size cap is returned
+    Given a delta source of text "The quick brown fox jumps over!!"
+    And the delta target equals the delta source
+    When I compute the binary delta capped at 4 bytes
+    Then the delta is bytes "20 20 90 20"
+
+  Scenario: a delta that outgrows the size cap is abandoned
+    Given a delta source of text "The quick brown fox jumps over!!"
+    And the delta target equals the delta source
+    When I compute the binary delta capped at 3 bytes
+    Then there is no delta
+
+  Scenario: a zero cap means unbounded
+    Given a delta source of text "The quick brown fox jumps over!!"
+    And the delta target equals the delta source
+    When I compute the binary delta capped at 0 bytes
+    Then the delta is bytes "20 20 90 20"
