@@ -1,82 +1,84 @@
 # Handoff
 
-## Last session: gitweb_in_rust-12k DONE (forks empty-container state)
+## Last session: gitweb_in_rust-d7s DONE (extra-branch-refs threaded into every consumer)
 
-**What shipped** — gitweb's `forks` field is a tri-state (undef / `[]` / `[N>0]`)
-and the listing collapsed it to a fork count, so a fork-capable project with a
-real-but-fork-less sibling directory (`repo.git` next to an empty `repo/`) was
-indistinguishable from one that can't parent forks. Now all three states render
-faithfully. Built red→green through every layer (each layer's new behavior was
-seen RED first, then made green):
+**What shipped** — `get_branch_refs` (the `heads` + validated extra-branch-refs
+directory set, from cp4) was only honoured by the snapshot handler. d7s threaded
+it into every remaining gitweb consumer. Built red→green, one consumer at a time;
+each behavioural change was seen RED on an assertion first.
 
-- **domain** `model::forks::ForkState` = NotForkable / EmptyContainer /
-  Forked(NonZeroUsize), with `fork_count()` + `is_forkable()` (gitweb's
-  `scalar @{forks}` and truthy `$pr->{forks}`). `fork_container(name)->Option<&str>`
-  = the name-side `-d` guard (strip one `.git`, reject non-bare `repo/.git` and
-  the bare `.git`); `partition_forks` reuses it (old `container_path` deleted).
-- **port** `ProjectStore::container_exists(subdir)->bool` = gitweb's infallible
-  `-d`; gix adapter = `SafePath::parse` + `root.join().is_dir()`.
-- **usecase** resolves each surviving project's state: Forked from the fold
-  count, else EmptyContainer iff `fork_container` is Some AND `container_exists`,
-  else NotForkable. The `-d` is consulted only for the 0-fork case (a forked
-  project always owns its container). `fork_count()` kept as a derived row
-  accessor so existing count assertions are untouched.
-- **render** `fork_cell` matches the tri-state (linked `+` / unlinked
-  `<span title="0 forks">+</span>` / empty); `| forks` quick link gated on
-  `is_forkable()`.
-- **web** maps `row.fork_state()`; handler wiring was already in place (6i5).
-- **fixture** `ProjectRoot::add_dir` lays the empty sibling container; web e2e
-  proves state-2 over the real gix store.
+- **heads listing** (`usecase::heads::assemble_heads`): now takes
+  `branch_refs: &[&str]` and lists each directory through the references port via
+  a new `branch_references` helper (gitweb's `map { "refs/$_" } get_branch_refs()`,
+  concatenated; the existing `assemble_head_rows` sort restores gitweb's global
+  `--sort=-HEAD --sort=-committerdate`). The ` (dir)` name-suffix for non-heads/
+  remotes dirs was ALREADY done by `RefName::short()` (covered by the `ref_name`
+  domain feature), so only listing *breadth* was missing. Heads handler resolves
+  `get_branch_refs(settings…)` and passes it (lazy 500 on a malformed entry).
+- **summary heads section** (`usecase::summary::assemble_summary`): already took
+  `&Settings`, so it resolves `get_branch_refs` internally and feeds
+  `assemble_heads`; the summary *handler* is unchanged.
+- **last activity** (`crates/git project_store`): `GixProjectStore` gained
+  `extra_branch_refs: Vec<String>` + a `with_extra_branch_refs` wither (mirrors the
+  o09 `with_user_directory` injection). `build_router` reads
+  `settings.feature(ExtraBranchRefs).default_options()` and injects it (infallible).
+  `info()` resolves `get_branch_refs(&self.extra_branch_refs)?` (LAZY 500 kept,
+  consistent with heads/summary/snapshot) and feeds a new `is_branch_ref(full, dirs)`
+  membership test in `most_recent_branch_time(repo, branch_refs)`.
+- **feed branch-title = N/A** (confirmed, not skipped): gitweb's `git_feed`
+  `<title>` (gitweb.perl 8230-8247) uses the RAW `$hash` — our
+  `model::feed::feed_title` already matches it. The `get_branch_refs` branch
+  classification lives only in `get_feed_info`/`print_feed_meta` (the HTML `<head>`
+  feed AUTO-DISCOVERY `<link rel="alternate">` tags), which are UNIMPLEMENTED here
+  (every web handler passes `feeds: Vec::new()`). Filed as **gitweb_in_rust-38y**
+  (whole print_feed_meta feature; it carries the get_branch_refs requirement).
 
-**Commits**: 3789098 (fork_container) - db4e374 (container_exists port+adapters)
-- e855f87 (usecase) - 01a1f58 (render+web) - b164c2a (web e2e) - a3dc7d2
-(is_forkable domain coverage, mutation strengthen).
+**Commits** (interleaved on a SHARED tree with a concurrent agent — my commits use
+targeted `git add <paths>`, never `-A`; each was diff-stat-verified to touch only
+my files): `ffa9dc4` (usecase heads breadth) → `933b693` (heads handler + web e2e)
+→ `fefea96` (summary heads section) → `6fcdd57` (last-activity adapter + composition
+wiring) → `4236f27` (project-list age column web e2e).
 
-**Gates**: fmt --check clean; clippy --workspace --all-targets clean; full
-workspace suite green (1574 cucumber scenarios, exit 0). cargo-mutants scoped to
-the 6 changed prod fns: 14 caught + 2 unviable (`Default::default()` on ForkState,
-which has no Default) + 3 is_forkable survivors that were then KILLED by adding
-domain coverage (re-run: 3 caught). CRAP: every changed fn is CC<=4 and fully
-covered → far under 30 (not mechanically run; whole-workspace llvm-cov).
+**Gates**: full `cargo test --workspace --no-fail-fast` green (exit 0, 0 failure
+markers); `cargo fmt --all --check` clean; `cargo clippy --workspace --all-targets`
+clean. cargo-mutants (TMPDIR=$HOME/.cache/cargo-mutants, scoped by `-F` to the new
+functions — there is still no `.fn-hashes.jsonl` baseline, so `--file`/`-F` is the
+scoping): domain `branch_references`/`assemble_heads`/`assemble_summary` = 1 caught
+(branch_references empty-Vec, killed by the "listed with dir" usecase scenario), 3
+unviable (`Ok(Default::default())` on non-Default `HeadsView`/`SummaryView`/`Reference`),
+**0 survivors**. git `is_branch_ref`/`most_recent_branch_time`/`with_extra_branch_refs`
+= 9 caught, 1 unviable, **0 survivors** (the conformance scenarios kill `is_branch_ref`'s
+true/false mutants and the `most_recent_branch_time` variants). Both runs reported 0
+missed.
 
-### TWO THINGS THE NEXT SESSION MUST KNOW
+### THREE THINGS THE NEXT SESSION MUST KNOW
 
-1. **cargo-mutants MUST run with `TMPDIR=$HOME/.cache/cargo-mutants`.** The
-   default `/tmp` is a 16 GB tmpfs; cargo-mutants copies the whole `target/` per
-   mutant and overflows it → `Disk quota exceeded` → EVERY mutant falsely
-   "unviable" (a false green). Now documented in CLAUDE.md step 4 +
-   verification-ratchet skill (commit 28a097e). See memory
-   `cargo-mutants-tmpfs-trap`.
+1. **The tree is SHARED with a concurrent agent** committing as the same git author.
+   This session it landed `67514c6` (hex-arch role tags — "hex-lint green"), `6b2022e`
+   (hooks: PreToolUse guard + Stop check-guard), `35909a8` (check-change scripts),
+   `49e405d` (the CLAUDE.md "Running tests" doc), all interleaved between my commits.
+   It is ALSO running cargo-mutants in this workspace, so `mutants.out/` is polluted
+   with its scope — trust each run's OWN stdout summary, not the shared `mutants.out/`.
+   Use targeted `git add <paths>`; never `git add -A`.
 
-2. **`db4e374` is contaminated (NOT cleaned up).** A concurrent session
-   (committing as the same git author) was editing `.claude/skills/*` in the
-   working tree; my `git add -A` for db4e374 swept NINE skill files
-   (quality-gates, refactoring-campaign, verification-ratchet, slice-workflow,
-   …) into my forks commit. Content is preserved in git, just misattributed and
-   bundled. I did NOT rewrite history — another agent was actively committing
-   (interleaved commits 0acbf03, 57cb6cf) and a rebase would clobber its work.
-   Lesson applied: use targeted `git add <paths>`, never `git add -A`, on this
-   shared tree. If the human wants db4e374 split, that's a deliberate,
-   coordinated history edit.
+2. **cargo-mutants MUST run with `TMPDIR=$HOME/.cache/cargo-mutants`** (the /tmp
+   tmpfs trap → every mutant falsely "unviable"). See memory `cargo-mutants-tmpfs-trap`.
+
+3. **The branch_refs lazy-500 contract**: `get_branch_refs` is resolved lazily at
+   each consumer (heads/summary handlers, the store's `info()`), surfacing the same
+   `die_error(500)` per-request rather than at config load. Keep new consumers on
+   that pattern. See memory `branch-refs-seam` (updated this session).
 
 ## Next session
 
-Baseline is green. Suggested ready beads (handoff carried over from last
-session, still valid):
-- **d7s** (P3): thread `get_branch_refs` into the heads listing (' (dir)'
-  suffix) + last-activity. The meatiest; needs `references` to take multiple
-  prefixes. See memory `branch-refs-seam`.
-- **e5l** / **him**: golden-parity beads (need brew perl+CGI to regenerate
-  gitweb refs).
-- Pre-existing, unenforced: hex-lint reports every package missing
-  `package.metadata.hex-arch.role`; `fn-hash` has no `.fn-hashes.jsonl`
-  baseline; and the spec/REQ traceability machinery (`specs/` + `REQ-AREA-NNN`
-  comments) is unbuilt repo-wide (zero REQ refs exist). Likely belongs with the
-  CI bead 9uc.
-
-### Exact next test if picking d7s
-Add to `crates/domain/features/domain/` a heads-name scenario: a ref under a
-non-`heads`/`remotes` branch dir (e.g. `refs/sandbox/wip`) renders as
-`wip (sandbox)` (the ` ($ref_dir)` suffix), watched red against the current
-heads use case (which calls `references("refs/heads/")`, a single prefix), then
-thread `branch_refs` + multi-prefix `references` through `assemble_heads`.
+Baseline is green. Ready beads (`br ready --json`), concrete picks:
+- **gitweb_in_rust-38y** (P3, just filed): feed auto-discovery `<link rel=alternate>`
+  meta (gitweb's `print_feed_meta` + `get_feed_info`), populating the always-empty
+  `DocumentHead.feeds`; honours extra-branch-refs via the now-established seam.
+- **gitweb_in_rust-2os.13** (P3): real combined `--cc` merge diff — the big one.
+- **gitweb_in_rust-h2t** (P2): client-side JavaScript (blame_incremental, tz, actions);
+  sprawling, would want decomposing into per-feature children first.
+- **e5l / him** (P4): golden-parity beads (need brew perl+CGI to regenerate refs).
+- Infra (likely the concurrent agent's lane now): CI bead `9uc`; `fn-hash` still has
+  no `.fn-hashes.jsonl` baseline; spec/REQ traceability machinery still unbuilt
+  (zero REQ refs repo-wide).
