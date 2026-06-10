@@ -68,8 +68,11 @@ impl Handler for CommitdiffHandler {
             .as_ref()
             .or(request.hash_base.as_ref())
             .map(SafeRef::as_str);
-        let view: CommitView = assemble_commit(repository.as_ref(), revision)?;
+        // gitweb's `$hash_parent`: a chosen parent makes the changed-files table
+        // (and the viewer URL and parentage) an ordinary two-tree diff against it,
+        // rather than the merge's combined diff or a non-merge's first-parent diff.
         let explicit: Option<&str> = request.hash_parent.as_ref().map(SafeRef::as_str);
+        let view: CommitView = assemble_commit(repository.as_ref(), revision, explicit)?;
         let blame_on: bool = self.settings.feature(FeatureName::Blame).enabled();
         // gitweb's `$hash =~ /^$oid_regex$/` (after `$hash ||= $hash_base || "HEAD"`):
         // a commitdiff addressed by a literal oid is immutable and cacheable for a day.

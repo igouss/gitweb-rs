@@ -62,7 +62,10 @@ impl Handler for CommitHandler {
             .as_ref()
             .or(request.hash_base.as_ref())
             .map(SafeRef::as_str);
-        let view: CommitView = assemble_commit(repository.as_ref(), revision)?;
+        // The `commit` view never diffs against a chosen parent (gitweb's
+        // git_commit passes no `$hash_parent`): the table is the first-parent /
+        // combined diff.
+        let view: CommitView = assemble_commit(repository.as_ref(), revision, None)?;
         let blame_on: bool = self.settings.feature(FeatureName::Blame).enabled();
         // gitweb's `$hash =~ /^$oid_regex$/` (after `$hash ||= $hash_base || "HEAD"`):
         // a commit addressed by a literal oid is immutable and cacheable for a day.

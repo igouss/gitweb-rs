@@ -16,7 +16,7 @@ use gitweb_domain::model::change::ChangeStatus;
 use gitweb_domain::model::chop::{ChopMode, chop_str};
 use gitweb_domain::model::commit::Commit;
 use gitweb_domain::model::commit_date::CommitDate;
-use gitweb_domain::model::commitdiff::{DiffBase, diff_base};
+use gitweb_domain::model::commitdiff::{ChangedFilesBase, DiffBase, changed_files_base, diff_base};
 use gitweb_domain::model::commitdiff_plain::CommitdiffPlain;
 use gitweb_domain::model::conditional::{Freshness, freshness};
 use gitweb_domain::model::config_chain::{ConfigChain, ConfigSlot};
@@ -152,6 +152,7 @@ struct DomainWorld {
     commitdiff_parents: Vec<ObjectId>,
     commitdiff_explicit: Option<ObjectId>,
     commitdiff_base: Option<DiffBase>,
+    changed_files_base: Option<ChangedFilesBase>,
     encoded_token: String,
     decoded_token: Option<String>,
     fork_input: Vec<String>,
@@ -2303,6 +2304,49 @@ fn then_commitdiff_base_commit(world: &mut DomainWorld, label: String) {
     assert_eq!(
         world.commitdiff_base.as_ref().expect("a base was picked"),
         &DiffBase::Commit(commitdiff_oid(&label))
+    );
+}
+
+#[when("I pick the changed-files base")]
+fn pick_changed_files_base(world: &mut DomainWorld) {
+    world.changed_files_base = Some(changed_files_base(
+        &world.commitdiff_parents,
+        world.commitdiff_explicit.as_ref(),
+    ));
+}
+
+#[then("the changed-files table is combined")]
+fn then_changed_files_combined(world: &mut DomainWorld) {
+    assert_eq!(
+        world
+            .changed_files_base
+            .as_ref()
+            .expect("a base was picked"),
+        &ChangedFilesBase::Combined
+    );
+}
+
+#[then("the changed-files table is ordinary against the empty tree")]
+fn then_changed_files_ordinary_empty(world: &mut DomainWorld) {
+    assert_eq!(
+        world
+            .changed_files_base
+            .as_ref()
+            .expect("a base was picked"),
+        &ChangedFilesBase::Ordinary { base: None }
+    );
+}
+
+#[then(regex = r#"^the changed-files table is ordinary against commit "([^"]*)"$"#)]
+fn then_changed_files_ordinary_commit(world: &mut DomainWorld, label: String) {
+    assert_eq!(
+        world
+            .changed_files_base
+            .as_ref()
+            .expect("a base was picked"),
+        &ChangedFilesBase::Ordinary {
+            base: Some(commitdiff_oid(&label))
+        }
     );
 }
 

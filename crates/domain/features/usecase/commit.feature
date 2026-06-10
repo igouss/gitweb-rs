@@ -59,6 +59,21 @@ Feature: The commit use case
     And the changed files are combined
     And combined change 1 has 3 parent sides
 
+  Scenario: A merge against an explicit non-first parent shows that parent's ordinary diff
+    Given a commit "mer9e" with author "Tester <t@example.com> 9 +0000"
+    And the commit message is "Merge branch topic"
+    And the commit has parent "p1"
+    And the commit has parent "p2"
+    And the merge changes "conflict.txt"
+    And the commit changes "vs-p2.rs" with status "M"
+    When I assemble the commit view for "HEAD" against parent "p2"
+    Then the commit has 2 parents
+    And the commit is a merge
+    And the changed files are ordinary
+    And the ordinary base is "p2"
+    And there are 1 changed files
+    And ordinary change 1 is "vs-p2.rs"
+
   Scenario: A revision that is not a commit is unknown
     Given a commit "b10b" with author "Tester <t@example.com> 1 +0000"
     And the commit object kind is "blob"

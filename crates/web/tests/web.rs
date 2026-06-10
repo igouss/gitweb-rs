@@ -1066,6 +1066,28 @@ fn head_and_parent(world: &WebWorld, project: &str) -> (String, String) {
     (head.as_str().to_owned(), parent.as_str().to_owned())
 }
 
+/// Resolves the merge's HEAD commit and its SECOND parent, so a commitdiff can be
+/// addressed against an explicit non-first parent (gitweb's "from parent 2"
+/// link) — the base-aware changed-files case.
+fn head_and_second_parent(world: &WebWorld, project: &str) -> (String, String) {
+    let store: GixProjectStore = GixProjectStore::new(root(world).path().to_path_buf());
+    let repository: Box<dyn Repository> = store.open(project).expect("open the project");
+    let head: ObjectId = repository.resolve("HEAD").expect("resolve HEAD");
+    let commit: Commit = repository.find_commit(&head).expect("read the HEAD commit");
+    let parent: &ObjectId = commit
+        .parents()
+        .get(1)
+        .expect("the HEAD merge has a second parent");
+    (head.as_str().to_owned(), parent.as_str().to_owned())
+}
+
+#[when(regex = r#"^I GET the commitdiff of "([^"]*)" against its second parent$"#)]
+async fn when_get_commitdiff_second_parent(world: &mut WebWorld, project: String) {
+    let (head, parent): (String, String) = head_and_second_parent(world, &project);
+    let uri: String = format!("/?p={project}&a=commitdiff&h={head}&hp={parent}");
+    dispatch_capture(world, uri).await;
+}
+
 #[when(regex = r#"^I GET the blobdiff_plain of "([^"]*)" in "([^"]*)"$"#)]
 async fn when_get_blobdiff_plain(world: &mut WebWorld, file: String, project: String) {
     let (head, parent): (String, String) = head_and_parent(world, &project);

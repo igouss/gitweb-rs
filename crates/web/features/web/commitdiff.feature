@@ -38,7 +38,19 @@ Feature: Serving a commit's diff (commitdiff action + clean-diff endpoint)
     Then the response status is 200
     And the response body contains "(merge: "
     And the response body contains "file.txt"
+    And the response body contains "diff2"
     And the response body does not contain "a=patch"
+
+  Scenario: a merge commitdiff against an explicit non-first parent shows that parent's two-tree diff
+    Given a project root containing a merge repository "m.git"
+    And the commitdiff action is served
+    When I GET the commitdiff of "m.git" against its second parent
+    Then the response status is 200
+    And the response body contains "(from parent 2"
+    And the response body contains "file.txt"
+    And the response body contains "hp="
+    And the response body does not contain "diff2"
+    And the response body does not contain "(merge: "
 
   Scenario: a commitdiff for a revision that resolves to nothing is not found
     Given a project root containing a commit repository "c.git"

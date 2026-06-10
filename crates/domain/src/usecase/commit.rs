@@ -3,22 +3,25 @@
 //! `git_commit` resolves a commit-ish (defaulting `$hash ||= $hash_base ||
 //! "HEAD"`), reads the commit, and renders its metadata (authorship, the tree
 //! and parent links), its message, and the changed-files table
-//! (`git_difftree_body`). The diff it shows is the commit against its parent —
-//! an ordinary single-parent diff, the empty-tree diff for a root commit, or the
-//! combined `-c` diff for a merge.
+//! (`git_difftree_body`). The diff it shows is the commit against the base the
+//! [`changed_files_base`] rule picks: the chosen explicit parent (gitweb's
+//! `$hash_parent`, only the `commitdiff` view passes one), else the combined
+//! `-c` diff for a merge, else an ordinary single-parent diff — or the empty-tree
+//! diff for a root commit.
 //!
 //! This is the orchestration over the [`Repository`] port: resolve, classify (a
 //! non-commit is gitweb's `die_error(404, "Unknown commit object")`), read the
-//! commit, then build the changed-files set — [`Repository::diff`] against the
-//! first parent (or the empty tree) for `≤ 1` parents, or
-//! [`Repository::combined_diff`] for a merge. Each ordinary row carries its
-//! [`FileChangeNote`]; the per-file links and the parent/tree URLs are the
+//! commit, resolve any explicit parent, then build the changed-files set per the
+//! base rule — [`Repository::combined_diff`] for a merge with no explicit parent,
+//! else [`Repository::diff`] against the chosen base. Each ordinary row carries
+//! its [`FileChangeNote`]; the per-file links and the parent/tree URLs are the
 //! boundary's job. Authorship dates are the commit's own absolute timestamps
 //! ([`Timestamp`]), so this use case needs no clock.
 
 use crate::error::DomainError;
 use crate::model::change::ChangeStatus;
 use crate::model::commit::Commit;
+use crate::model::commitdiff::{ChangedFilesBase, changed_files_base};
 use crate::model::diff::{CombinedDiff, CombinedDiffEntry, Diff, DiffEntry};
 use crate::model::file_change::FileChangeNote;
 use crate::model::file_mode::FileMode;
@@ -208,12 +211,22 @@ impl CombinedChange {
     }
 }
 
-/// The changed-files set of a commit: an ordinary single-parent/root diff, or a
-/// combined diff against every parent of a merge.
+/// The changed-files set of a commit: an ordinary two-tree diff against a single
+/// base, or a combined diff against every parent of a merge.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChangedFiles {
-    /// A single-parent or root commit's diff against its (one or zero) parent.
-    Ordinary(Vec<OrdinaryChange>),
+    /// A two-tree diff against a single `base` — the chosen explicit parent, the
+    /// first parent, or `None` for the empty tree of a root commit. `base` is the
+    /// revision the per-row `blob` / `blame` / `history` links are taken at
+    /// (gitweb's `$parent = $parents[0]` in `git_difftree_body`), so the boundary
+    /// reads it from here rather than re-deriving the commit's first parent.
+    Ordinary {
+        /// The base the diff and its per-row links are taken against, or `None`
+        /// for the empty tree of a root commit.
+        base: Option<ObjectId>,
+        /// The changed paths.
+        changes: Vec<OrdinaryChange>,
+    },
     /// A merge's combined diff against all its parents at once.
     Combined(Vec<CombinedChange>),
 }
@@ -223,7 +236,7 @@ impl ChangedFiles {
     #[must_use]
     pub fn len(&self) -> usize {
         match self {
-            Self::Ordinary(rows) => rows.len(),
+            Self::Ordinary { changes, .. } => changes.len(),
             Self::Combined(rows) => rows.len(),
         }
     }
@@ -314,22 +327,33 @@ const DETECTION: RenameDetection = RenameDetection::RenamesOnly;
 
 /// Resolves `revision` (defaulting to `HEAD`) to a commit and assembles its view.
 ///
+/// `explicit_parent` is gitweb's `$hash_parent`: when given, the changed-files
+/// table is the ordinary two-tree diff against that parent (the `commit` view
+/// never passes one; the `commitdiff` view passes the chosen parent). With no
+/// explicit parent a merge's table is the combined diff and a non-merge's is the
+/// diff against its first parent — [`changed_files_base`].
+///
 /// # Errors
 ///
 /// Returns [`DomainError::NotFound`] with gitweb's `Unknown commit object`
 /// message when the revision names something that is not a commit, and propagates
-/// the repository's not-found when the revision resolves to nothing — both
-/// gitweb's `die_error(404)`.
+/// the repository's not-found when the revision (or `explicit_parent`) resolves to
+/// nothing — both gitweb's `die_error(404)`.
 pub fn assemble_commit(
     repo: &dyn Repository,
     revision: Option<&str>,
+    explicit_parent: Option<&str>,
 ) -> Result<CommitView, DomainError> {
     let oid: ObjectId = repo.resolve(revision.unwrap_or("HEAD"))?;
     if repo.object_kind(&oid)? != ObjectKind::Commit {
         return Err(DomainError::NotFound("Unknown commit object".to_owned()));
     }
     let commit: Commit = repo.find_commit(&oid)?;
-    let changes: ChangedFiles = changed_files(repo, &commit)?;
+    let explicit: Option<ObjectId> = match explicit_parent {
+        Some(rev) => Some(repo.resolve(rev)?),
+        None => None,
+    };
+    let changes: ChangedFiles = changed_files(repo, &commit, explicit.as_ref())?;
     Ok(CommitView {
         id: commit.id().clone(),
         tree: commit.tree().clone(),
@@ -342,21 +366,30 @@ pub fn assemble_commit(
     })
 }
 
-/// Reads the commit's changed-files set: a combined diff for a merge (gitweb's
-/// `-c`), otherwise an ordinary diff against the first parent — or the empty tree
-/// for a root commit (gitweb's `--root`).
-fn changed_files(repo: &dyn Repository, commit: &Commit) -> Result<ChangedFiles, DomainError> {
-    if commit.is_merge() {
-        let combined: CombinedDiff = repo.combined_diff(commit.id())?;
-        return Ok(ChangedFiles::Combined(
-            combined.entries().iter().map(combined_change).collect(),
-        ));
+/// Reads the commit's changed-files set for the chosen base ([`changed_files_base`]):
+/// a combined diff for a merge with no explicit parent (gitweb's `-c`), otherwise
+/// an ordinary two-tree diff against the explicit parent, the first parent, or the
+/// empty tree of a root commit (gitweb's `--root`).
+fn changed_files(
+    repo: &dyn Repository,
+    commit: &Commit,
+    explicit: Option<&ObjectId>,
+) -> Result<ChangedFiles, DomainError> {
+    match changed_files_base(commit.parents(), explicit) {
+        ChangedFilesBase::Combined => {
+            let combined: CombinedDiff = repo.combined_diff(commit.id())?;
+            Ok(ChangedFiles::Combined(
+                combined.entries().iter().map(combined_change).collect(),
+            ))
+        }
+        ChangedFilesBase::Ordinary { base } => {
+            let diff: Diff = repo.diff(base.as_ref(), commit.id(), DETECTION)?;
+            Ok(ChangedFiles::Ordinary {
+                base,
+                changes: diff.entries().iter().map(ordinary_change).collect(),
+            })
+        }
     }
-    let parent: Option<&ObjectId> = commit.parents().first();
-    let diff: Diff = repo.diff(parent, commit.id(), DETECTION)?;
-    Ok(ChangedFiles::Ordinary(
-        diff.entries().iter().map(ordinary_change).collect(),
-    ))
 }
 
 /// Maps a parsed identity to a view authorship line carrying its own absolute

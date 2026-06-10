@@ -820,6 +820,11 @@ impl Repository for FakeRepository {
         {
             return Ok(branch.tip.clone());
         }
+        // A full object id resolves to itself, the way `git rev-parse <oid>` does
+        // — how the commit use case resolves an explicit parent passed as an oid.
+        if let Some(oid) = ObjectId::parse(rev) {
+            return Ok(oid);
+        }
         Err(DomainError::NotFound(rev.to_owned()))
     }
 
@@ -4296,7 +4301,16 @@ fn given_merge_changes(world: &mut UsecaseWorld, path: String) {
 #[when(regex = r#"^I assemble the commit view for "([^"]*)"$"#)]
 fn assemble_commit_view(world: &mut UsecaseWorld, rev: String) {
     let repo: FakeRepository = fake_repo(world);
-    world.commit_result = Some(assemble_commit(&repo, Some(&rev)));
+    world.commit_result = Some(assemble_commit(&repo, Some(&rev), None));
+}
+
+#[when(regex = r#"^I assemble the commit view for "([^"]*)" against parent "([^"]*)"$"#)]
+fn assemble_commit_view_against(world: &mut UsecaseWorld, rev: String, parent: String) {
+    let repo: FakeRepository = fake_repo(world);
+    // The fixture's parents are `fake_oid(label)`; resolve passes a full oid
+    // through to itself, the way `git rev-parse <oid>` does.
+    let explicit: ObjectId = fake_oid(&parent);
+    world.commit_result = Some(assemble_commit(&repo, Some(&rev), Some(explicit.as_str())));
 }
 
 /// A single-file create patch for `path`: the `FilePatch` a `--root` (or
@@ -4915,7 +4929,16 @@ fn commit_view(world: &UsecaseWorld) -> &CommitView {
 /// The ordinary changed-files rows (asserting the diff is an ordinary one).
 fn ordinary_changes(world: &UsecaseWorld) -> &[gitweb_domain::usecase::commit::OrdinaryChange] {
     match commit_view(world).changes() {
-        ChangedFiles::Ordinary(rows) => rows,
+        ChangedFiles::Ordinary { changes, .. } => changes,
+        ChangedFiles::Combined(_) => panic!("expected an ordinary diff, got a combined one"),
+    }
+}
+
+/// The base the ordinary changed-files were diffed against (asserting the diff is
+/// an ordinary one).
+fn ordinary_base(world: &UsecaseWorld) -> Option<&ObjectId> {
+    match commit_view(world).changes() {
+        ChangedFiles::Ordinary { base, .. } => base.as_ref(),
         ChangedFiles::Combined(_) => panic!("expected an ordinary diff, got a combined one"),
     }
 }
@@ -4924,7 +4947,7 @@ fn ordinary_changes(world: &UsecaseWorld) -> &[gitweb_domain::usecase::commit::O
 fn combined_changes(world: &UsecaseWorld) -> &[gitweb_domain::usecase::commit::CombinedChange] {
     match commit_view(world).changes() {
         ChangedFiles::Combined(rows) => rows,
-        ChangedFiles::Ordinary(_) => panic!("expected a combined diff, got an ordinary one"),
+        ChangedFiles::Ordinary { .. } => panic!("expected a combined diff, got an ordinary one"),
     }
 }
 
@@ -4970,8 +4993,13 @@ fn commit_is_not_a_merge(world: &mut UsecaseWorld) {
 fn changed_files_are_ordinary(world: &mut UsecaseWorld) {
     assert!(matches!(
         commit_view(world).changes(),
-        ChangedFiles::Ordinary(_)
+        ChangedFiles::Ordinary { .. }
     ));
+}
+
+#[then(regex = r#"^the ordinary base is "([^"]*)"$"#)]
+fn the_ordinary_base_is(world: &mut UsecaseWorld, label: String) {
+    assert_eq!(ordinary_base(world), Some(&fake_oid(&label)));
 }
 
 #[then("the changed files are combined")]

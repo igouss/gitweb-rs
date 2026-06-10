@@ -39,8 +39,11 @@ pub(crate) fn rows(
 ) -> Vec<ChangedRow> {
     let hash: &str = view.id().as_str();
     match view.changes() {
-        ChangedFiles::Ordinary(changes) => {
-            let parent: Option<&str> = view.parents().first().map(ObjectId::as_str);
+        ChangedFiles::Ordinary { base, changes } => {
+            // gitweb's `$parent = $parents[0]`: the chosen base of the two-tree
+            // diff — the explicit parent for a commitdiff, else the first parent —
+            // is the revision the per-row blob/blame/history links are taken at.
+            let parent: Option<&str> = base.as_ref().map(ObjectId::as_str);
             changes
                 .iter()
                 .enumerate()
