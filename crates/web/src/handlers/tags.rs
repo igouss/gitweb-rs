@@ -17,13 +17,13 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::tags::{TagRow, TagsView, assemble_tags};
-use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, document};
 use gitweb_render::markup::Markup;
 use gitweb_render::tags::{TagEntryView, TagReftype, TagsPage, TagsTable, tags_body};
 
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
-use crate::feed_meta::{document_head, page_feeds};
+use crate::feed_meta::{PageChrome, document_head, page_chrome};
 use crate::handlers::refs::{CurrentRef, ref_views};
 use crate::response::View;
 use crate::url::href;
@@ -51,24 +51,19 @@ impl Handler for TagsHandler {
             .ok_or_else(|| DomainError::Invalid("Project needed".to_owned()))?;
         let repository: Box<dyn Repository> = self.store.open(project)?;
         let view: TagsView = assemble_tags(repository.as_ref(), now_epoch())?;
-        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(&self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,
             &view,
-            feeds,
+            chrome,
         )))
     }
 }
 
 /// Maps the use-case view to the render view-model and wraps the assembled body
 /// in the document chrome — the boundary owns the asset URLs and every link.
-fn render_page(
-    settings: &Settings,
-    project: &str,
-    view: &TagsView,
-    feeds: Vec<FeedLink>,
-) -> Markup {
+fn render_page(settings: &Settings, project: &str, view: &TagsView, chrome: PageChrome) -> Markup {
     let page: TagsPage = TagsPage {
         crumbs: crumbs(settings.site_name(), project),
         ref_views: ref_views(project, settings, CurrentRef::Tags),
@@ -82,8 +77,8 @@ fn render_page(
             more: None,
         },
     };
-    let head: DocumentHead = document_head(format!("{project} / tags"), feeds);
-    document(&head, tags_body(&page))
+    let head: DocumentHead = document_head(format!("{project} / tags"), chrome.feeds);
+    document(&head, &chrome.foot, tags_body(&page))
 }
 
 /// The breadcrumb trail: home, the project (linking to its summary), then the

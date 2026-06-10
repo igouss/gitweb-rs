@@ -18,7 +18,7 @@ use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::usecase::project_list::{
     ProjectListRow, ProjectListView, assemble_project_list,
 };
-use gitweb_render::chrome::{DocumentHead, FeedLink, document};
+use gitweb_render::chrome::{DocumentHead, document};
 use gitweb_render::markup::Markup;
 use gitweb_render::project_list::{
     ProjectLinks, ProjectList, ProjectListPage, ProjectRow, SortHeader, project_list_body,
@@ -26,7 +26,7 @@ use gitweb_render::project_list::{
 
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
-use crate::feed_meta::{document_head, page_feeds};
+use crate::feed_meta::{PageChrome, document_head, page_chrome};
 use crate::response::View;
 use crate::url::href;
 
@@ -56,22 +56,22 @@ impl Handler for ProjectListHandler {
             filter.as_ref(),
             now_epoch(),
         )?;
-        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
-        Ok(View::html(render_page(&self.settings, &view, feeds)))
+        let chrome: PageChrome = page_chrome(&self.settings, request)?;
+        Ok(View::html(render_page(&self.settings, &view, chrome)))
     }
 }
 
 /// Maps the use-case view to the render view-model and wraps the assembled body
 /// in the document chrome — the boundary owns the asset URLs that go in the head.
-fn render_page(settings: &Settings, view: &ProjectListView, feeds: Vec<FeedLink>) -> Markup {
+fn render_page(settings: &Settings, view: &ProjectListView, chrome: PageChrome) -> Markup {
     let page: ProjectListPage = ProjectListPage {
         site_name: settings.site_name().to_owned(),
         // The landing page's sort headers replay the bare request (no action), so
         // their re-sort base is empty: `?o=<key>`.
         list: project_table(view, &[]),
     };
-    let head: DocumentHead = document_head(settings.site_name().to_owned(), feeds);
-    document(&head, project_list_body(&page))
+    let head: DocumentHead = document_head(settings.site_name().to_owned(), chrome.feeds);
+    document(&head, &chrome.foot, project_list_body(&page))
 }
 
 /// Maps a use-case view to the render table, shared by the landing page and the

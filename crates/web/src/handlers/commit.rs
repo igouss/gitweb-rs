@@ -22,14 +22,14 @@ use gitweb_domain::model::settings::{FeatureName, Settings};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::commit::{AuthorLine, CommitView, assemble_commit};
-use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, NavItem, document};
 use gitweb_render::commit::{
     AuthorRow, CommitPage, LinkedId, ParentNav, ParentNavLink, ParentRow, commit_body,
 };
 use gitweb_render::markup::Markup;
 
 use crate::dispatch::Handler;
-use crate::feed_meta::{document_head, page_feeds};
+use crate::feed_meta::{PageChrome, document_head, page_chrome};
 use crate::handlers::changed_files::{self, Context};
 use crate::response::View;
 use crate::url::href;
@@ -69,11 +69,15 @@ impl Handler for CommitHandler {
         let blame_on: bool = self.settings.feature(FeatureName::Blame).enabled();
         // gitweb's `$hash =~ /^$oid_regex$/` (after `$hash ||= $hash_base || "HEAD"`):
         // a commit addressed by a literal oid is immutable and cacheable for a day.
-        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
-        Ok(
-            View::html(render_page(&self.settings, project, &view, blame_on, feeds))
-                .with_expiry(Expiry::for_hash(revision)),
-        )
+        let chrome: PageChrome = page_chrome(&self.settings, request)?;
+        Ok(View::html(render_page(
+            &self.settings,
+            project,
+            &view,
+            blame_on,
+            chrome,
+        ))
+        .with_expiry(Expiry::for_hash(revision)))
     }
 }
 
@@ -84,7 +88,7 @@ fn render_page(
     project: &str,
     view: &CommitView,
     blame_on: bool,
-    feeds: Vec<FeedLink>,
+    chrome: PageChrome,
 ) -> Markup {
     let hash: &str = view.id().as_str();
     let tree: &str = view.tree().as_str();
@@ -104,8 +108,11 @@ fn render_page(
         comment: view.comment().to_vec(),
         changed: changed_files::rows(Context::Commit, project, view, blame_on),
     };
-    let head: DocumentHead = document_head(format!("{project} / commit / {}", view.title()), feeds);
-    document(&head, commit_body(&page))
+    let head: DocumentHead = document_head(
+        format!("{project} / commit / {}", view.title()),
+        chrome.feeds,
+    );
+    document(&head, &chrome.foot, commit_body(&page))
 }
 
 /// The breadcrumb trail: home, the project (linking to its summary), then commit.

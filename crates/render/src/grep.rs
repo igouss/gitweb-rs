@@ -14,7 +14,7 @@
 //! template engine like every other interpolation, and the line cell is
 //! white-space-preserving so the untabified columns line up.
 
-use crate::chrome::{Crumb, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, NavItem, page_header, page_nav};
 use crate::markup::{Markup, html};
 
 /// One matching line's display text: split around the highlighted span, or shown
@@ -101,7 +101,6 @@ pub fn grep_body(page: &GrepPage) -> Markup {
                 }
             }
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

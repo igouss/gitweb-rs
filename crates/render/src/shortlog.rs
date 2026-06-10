@@ -19,7 +19,7 @@
 //! view). The avatar and the search-author link are their own features and are
 //! not wired here.
 
-use crate::chrome::{Crumb, MoreLink, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, MoreLink, NavItem, page_header, page_nav};
 use crate::markup::{Markup, html};
 use crate::refs::{RefMarkerView, ref_markers};
 
@@ -90,7 +90,6 @@ pub fn shortlog_body(page: &ShortlogPage) -> Markup {
                 (shortlog_table(&page.table))
             }
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

@@ -20,9 +20,7 @@
 //! the `diff_url` the viewer fetches and the `viewer_module_src` of the boot
 //! module. Every value is escaped by maud.
 
-use crate::chrome::{
-    Crumb, FormatLink, NavItem, PageFooter, footer, formats_nav, page_header, page_nav,
-};
+use crate::chrome::{Crumb, FormatLink, NavItem, formats_nav, page_header, page_nav};
 use crate::markup::{Markup, html};
 
 /// The whole diff-viewer host page: the breadcrumb header, the action
@@ -64,7 +62,6 @@ pub fn diff_host_body(page: &DiffHostPage) -> Markup {
             }
             (diff_root(&page.diff_url, &page.viewer_module_src))
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

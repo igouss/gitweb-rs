@@ -21,11 +21,11 @@ use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::blob::{BlobView, assemble_blob};
 use gitweb_render::blob::{BlobContent, BlobLine, BlobPage, blob_body};
-use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, FormatLink, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, FormatLink, NavItem, document};
 use gitweb_render::markup::Markup;
 
 use crate::dispatch::Handler;
-use crate::feed_meta::{document_head, page_feeds};
+use crate::feed_meta::{PageChrome, document_head, page_chrome};
 use crate::response::View;
 use crate::url::href;
 
@@ -64,14 +64,14 @@ impl Handler for BlobHandler {
         // gitweb's `$hash =~ /^$oid_regex$/`: a blob addressed by a literal oid is
         // immutable and cacheable for a day; one resolved through a file name is
         // not (`$hash` is then undefined when the expires check runs).
-        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(&self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,
             base,
             file,
             &view,
-            feeds,
+            chrome,
         ))
         .with_expiry(Expiry::for_hash(hash)))
     }
@@ -85,7 +85,7 @@ fn render_page(
     base: Option<&str>,
     file: Option<&str>,
     view: &BlobView,
-    feeds: Vec<FeedLink>,
+    chrome: PageChrome,
 ) -> Markup {
     let page: BlobPage = BlobPage {
         crumbs: crumbs(settings.site_name(), project),
@@ -98,8 +98,8 @@ fn render_page(
         path: file.map(str::to_owned),
         content: content(project, base, file, view),
     };
-    let head: DocumentHead = document_head(blob_title(project, file), feeds);
-    document(&head, blob_body(&page))
+    let head: DocumentHead = document_head(blob_title(project, file), chrome.feeds);
+    document(&head, &chrome.foot, blob_body(&page))
 }
 
 /// The document `<title>`: `project / blob / file`, or `project / blob` for a

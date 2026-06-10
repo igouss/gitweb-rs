@@ -30,6 +30,13 @@ Feature: Site chrome
     When I render a document with an RSS feed "/?p=r;a=rss" titled "r - log - RSS feed"
     Then the result contains "<link rel="alternate" type="application/rss+xml" title="r - log - RSS feed" href="/?p=r;a=rss">"
 
+  Scenario: the document closes the body with the footer chrome below the content
+    Given a footer link "RSS" to "/?p=r;a=rss" titled "log RSS feed"
+    When I render a document titled "x" with stylesheet "/s.css" and body "<main>hi</main>"
+    Then the result contains "<main>hi</main>"
+    And the result contains "<footer class="page-footer">"
+    And the result contains "<a class="feed" href="/?p=r;a=rss" title="log RSS feed">RSS</a>"
+
   # ---- breadcrumbs ----------------------------------------------------------
 
   Scenario: an empty breadcrumb trail renders the nav element only

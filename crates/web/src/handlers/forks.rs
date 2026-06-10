@@ -18,13 +18,13 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::usecase::forks::assemble_forks;
 use gitweb_domain::usecase::project_list::ProjectListView;
-use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, NavItem, document};
 use gitweb_render::forks::{ForksPage, forks_body};
 use gitweb_render::markup::Markup;
 
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
-use crate::feed_meta::{document_head, page_feeds};
+use crate::feed_meta::{PageChrome, document_head, page_chrome};
 use crate::handlers::project_list::project_table;
 use crate::response::View;
 use crate::url::href;
@@ -57,12 +57,12 @@ impl Handler for ForksHandler {
             request.order.as_deref(),
             now_epoch(),
         )?;
-        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(&self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,
             &view,
-            feeds,
+            chrome,
         )))
     }
 }
@@ -73,7 +73,7 @@ fn render_page(
     settings: &Settings,
     project: &str,
     view: &ProjectListView,
-    feeds: Vec<FeedLink>,
+    chrome: PageChrome,
 ) -> Markup {
     let page: ForksPage = ForksPage {
         crumbs: crumbs(settings.site_name(), project),
@@ -82,8 +82,8 @@ fn render_page(
         // The forks page's sort headers replay the forks action.
         list: project_table(view, &[("p", project), ("a", "forks")]),
     };
-    let head: DocumentHead = document_head(format!("{project} / forks"), feeds);
-    document(&head, forks_body(&page))
+    let head: DocumentHead = document_head(format!("{project} / forks"), chrome.feeds);
+    document(&head, &chrome.foot, forks_body(&page))
 }
 
 /// The breadcrumb trail: home, the project (linking to its summary), then the

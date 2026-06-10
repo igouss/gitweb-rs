@@ -17,7 +17,7 @@
 
 use gitweb_domain::model::timestamp::Timestamp;
 
-use crate::chrome::{Crumb, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, NavItem, page_header, page_nav};
 use crate::heads::{HeadsTable, heads_table};
 use crate::markup::{Markup, html, raw};
 use crate::shortlog::{ShortlogTable, shortlog_table};
@@ -115,7 +115,6 @@ pub fn summary_body(page: &SummaryPage) -> Markup {
                 (heads_table(&section.table))
             }
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

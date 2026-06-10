@@ -10,7 +10,7 @@
 
 use gitweb_domain::model::timestamp::Timestamp;
 
-use crate::chrome::{Crumb, PageFooter, footer, page_header};
+use crate::chrome::{Crumb, page_header};
 use crate::markup::{Markup, html};
 use crate::timestamp::timestamp_badge;
 
@@ -76,7 +76,6 @@ pub fn tag_body(page: &TagPage) -> Markup {
             }
             (message_body(&page.message_lines))
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

@@ -19,13 +19,13 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::{Page, Repository};
 use gitweb_domain::usecase::log::{LogRow, LogView, assemble_log};
-use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, MoreLink, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, MoreLink, NavItem, document};
 use gitweb_render::log::{LogEntryView, LogPage, log_body};
 use gitweb_render::markup::Markup;
 
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
-use crate::feed_meta::{document_head, page_feeds};
+use crate::feed_meta::{PageChrome, document_head, page_chrome};
 use crate::handlers::ref_markers::marker_view;
 use crate::response::View;
 use crate::url::href;
@@ -60,14 +60,14 @@ impl Handler for LogHandler {
         let page_num: usize = request.page.unwrap_or(0) as usize;
         let page: Page = Page::from_page(page_num, PAGE_SIZE);
         let view: LogView = assemble_log(repository.as_ref(), rev, now_epoch(), page)?;
-        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(&self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,
             rev,
             page_num,
             &view,
-            feeds,
+            chrome,
         )))
     }
 }
@@ -80,7 +80,7 @@ fn render_page(
     rev: Option<&str>,
     page_num: usize,
     view: &LogView,
-    feeds: Vec<FeedLink>,
+    chrome: PageChrome,
 ) -> Markup {
     let page: LogPage = LogPage {
         crumbs: crumbs(settings.site_name(), project),
@@ -92,8 +92,8 @@ fn render_page(
             .collect(),
         more: view.has_more().then(|| more_link(project, rev, page_num)),
     };
-    let head: DocumentHead = document_head(format!("{project} / log"), feeds);
-    document(&head, log_body(&page))
+    let head: DocumentHead = document_head(format!("{project} / log"), chrome.feeds);
+    document(&head, &chrome.foot, log_body(&page))
 }
 
 /// The breadcrumb trail: home, the project (linking to its summary), then the

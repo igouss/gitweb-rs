@@ -13,7 +13,7 @@
 //! match span is the one deliberate highlight; every other interpolation is
 //! auto-escaped by the template engine.
 
-use crate::chrome::{Crumb, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, NavItem, page_header, page_nav};
 use crate::markup::{Markup, html};
 
 /// One changed file under a matching commit: its path and the blob URL the path
@@ -80,7 +80,6 @@ pub fn pickaxe_body(page: &PickaxePage) -> Markup {
                 }
             }
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

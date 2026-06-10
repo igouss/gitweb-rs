@@ -23,7 +23,7 @@ use gitweb_domain::model::expiry::Expiry;
 use gitweb_domain::model::timestamp::Timestamp;
 
 use crate::clock::now_epoch;
-use gitweb_render::chrome::{DocumentHead, document};
+use gitweb_render::chrome::{DocumentHead, PageFooter, document};
 use gitweb_render::error::{HttpStatus, error_page, status_for};
 use gitweb_render::markup::Markup;
 
@@ -416,7 +416,13 @@ fn error_page_response(status: HttpStatus, main: Markup) -> Response {
         favicon_href: Some(FAVICON_PATH.to_owned()),
         feeds: Vec::new(),
     };
-    let page: Markup = document(&head, main);
+    // gitweb's die_error closes with git_footer_html too; the error path has no
+    // request context, so it carries the generic empty footer.
+    let foot: PageFooter = PageFooter {
+        description: None,
+        links: Vec::new(),
+    };
+    let page: Markup = document(&head, &foot, main);
     let code: StatusCode =
         StatusCode::from_u16(status.code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     (

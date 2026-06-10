@@ -13,7 +13,7 @@ use gitweb_domain::model::chop::{ChopMode, chop_str};
 use gitweb_domain::model::tag_age::TagAge;
 
 use crate::age::age_class_name;
-use crate::chrome::{Crumb, MoreLink, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, MoreLink, NavItem, page_header, page_nav};
 use crate::markup::{Markup, html};
 
 /// gitweb chops a tag's subject to 30 characters with 5 of slack (`chop_str
@@ -119,7 +119,6 @@ pub fn tags_body(page: &TagsPage) -> Markup {
                 (tags_table(&page.table))
             }
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

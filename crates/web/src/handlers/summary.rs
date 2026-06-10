@@ -18,7 +18,7 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::summary::{SummaryView, assemble_summary};
-use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, MoreLink, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, MoreLink, NavItem, document};
 use gitweb_render::heads::HeadsTable;
 use gitweb_render::markup::Markup;
 use gitweb_render::shortlog::ShortlogTable;
@@ -29,7 +29,7 @@ use gitweb_render::tags::TagsTable;
 
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
-use crate::feed_meta::{document_head, page_feeds};
+use crate::feed_meta::{PageChrome, document_head, page_chrome};
 use crate::handlers::heads::head_entry;
 use crate::handlers::shortlog::shortlog_entry;
 use crate::handlers::tags::tag_entry;
@@ -68,12 +68,12 @@ impl Handler for SummaryHandler {
             &self.settings,
             now_epoch(),
         )?;
-        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(&self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,
             &view,
-            feeds,
+            chrome,
         )))
     }
 }
@@ -84,7 +84,7 @@ fn render_page(
     settings: &Settings,
     project: &str,
     view: &SummaryView,
-    feeds: Vec<FeedLink>,
+    chrome: PageChrome,
 ) -> Markup {
     let page: SummaryPage = SummaryPage {
         crumbs: crumbs(settings.site_name(), project),
@@ -95,8 +95,8 @@ fn render_page(
         tags: tags_section(project, view),
         heads: heads_section(project, view),
     };
-    let head: DocumentHead = document_head(project.to_owned(), feeds);
-    document(&head, summary_body(&page))
+    let head: DocumentHead = document_head(project.to_owned(), chrome.feeds);
+    document(&head, &chrome.foot, summary_body(&page))
 }
 
 /// The breadcrumb trail: home, then the project itself (the current page).

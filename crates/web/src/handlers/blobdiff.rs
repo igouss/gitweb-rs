@@ -31,14 +31,14 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::blobdiff::{BlobdiffView, assemble_blobdiff};
-use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, FormatLink, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, FormatLink, NavItem, document};
 use gitweb_render::diff_host::{DiffHostPage, diff_host_body};
 use gitweb_render::markup::Markup;
 
 use crate::assets::DIFF_VIEWER_PATH;
 use crate::diff_text::diff_text_href;
 use crate::dispatch::Handler;
-use crate::feed_meta::{document_head, page_feeds};
+use crate::feed_meta::{PageChrome, document_head, page_chrome};
 use crate::response::View;
 use crate::url::href;
 
@@ -94,14 +94,14 @@ impl Handler for BlobdiffHandler {
         )?;
         // gitweb's git_blobdiff dual-oid gate: a one-day window only when both
         // the base and the parent base are literal object ids.
-        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(&self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,
             hash_base,
             hash_parent_base,
             &view,
-            feeds,
+            chrome,
         ))
         .with_expiry(Expiry::for_hashes(&[
             Some(hash_base),
@@ -117,7 +117,7 @@ fn render_page(
     hash_base: &str,
     hash_parent_base: &str,
     view: &BlobdiffView,
-    feeds: Vec<FeedLink>,
+    chrome: PageChrome,
 ) -> Markup {
     let file_name: &str = view.file_name();
     let page: DiffHostPage = DiffHostPage {
@@ -135,8 +135,9 @@ fn render_page(
         diff_url: diff_url(project, hash_base, hash_parent_base, file_name),
         viewer_module_src: DIFF_VIEWER_PATH.to_owned(),
     };
-    let head: DocumentHead = document_head(format!("{project} / blobdiff / {file_name}"), feeds);
-    document(&head, diff_host_body(&page))
+    let head: DocumentHead =
+        document_head(format!("{project} / blobdiff / {file_name}"), chrome.feeds);
+    document(&head, &chrome.foot, diff_host_body(&page))
 }
 
 /// The breadcrumb trail: home, the project (summary), then blobdiff.

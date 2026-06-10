@@ -21,12 +21,12 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::search_help::{SearchHelpView, assemble_search_help};
-use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, NavItem, document};
 use gitweb_render::markup::Markup;
 use gitweb_render::search_help::{SearchHelpPage, search_help_body};
 
 use crate::dispatch::Handler;
-use crate::feed_meta::{document_head, page_feeds};
+use crate::feed_meta::{PageChrome, document_head, page_chrome};
 use crate::response::View;
 use crate::url::href;
 
@@ -58,13 +58,13 @@ impl Handler for SearchHelpHandler {
         let _repository: Box<dyn Repository> = self.store.open(project)?;
         let view: SearchHelpView = assemble_search_help(&self.settings);
         let rev: Option<&str> = request.hash.as_ref().map(SafeRef::as_str);
-        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(&self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,
             rev,
             &view,
-            feeds,
+            chrome,
         )))
     }
 }
@@ -76,15 +76,15 @@ fn render_page(
     project: &str,
     rev: Option<&str>,
     view: &SearchHelpView,
-    feeds: Vec<FeedLink>,
+    chrome: PageChrome,
 ) -> Markup {
     let page: SearchHelpPage = SearchHelpPage {
         crumbs: crumbs(settings.site_name(), project),
         nav: nav(project, rev),
         topics: view.topics().to_vec(),
     };
-    let head: DocumentHead = document_head(format!("{project} / search help"), feeds);
-    document(&head, search_help_body(&page))
+    let head: DocumentHead = document_head(format!("{project} / search help"), chrome.feeds);
+    document(&head, &chrome.foot, search_help_body(&page))
 }
 
 /// The breadcrumb trail: home, the project (linking to its summary), then the

@@ -14,7 +14,7 @@ use gitweb_domain::model::age::Age;
 use gitweb_domain::model::forks::ForkState;
 
 use crate::age::age_class_name;
-use crate::chrome::{Crumb, PageFooter, footer, page_header};
+use crate::chrome::{Crumb, page_header};
 use crate::markup::{Markup, html};
 
 /// A sortable column header: its label and the link to re-sort by it. An absent
@@ -105,7 +105,6 @@ pub fn project_list_body(page: &ProjectListPage) -> Markup {
     html! {
         (page_header(None, &crumbs))
         main class="content" { (project_list(&page.list)) }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

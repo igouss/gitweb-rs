@@ -21,14 +21,14 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
 use gitweb_domain::usecase::remotes::{RemoteBlock, RemotesView, assemble_remotes};
-use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, document};
 use gitweb_render::heads::HeadsTable;
 use gitweb_render::markup::Markup;
 use gitweb_render::remotes::{RemoteBlockView, RemoteUrlLine, RemotesPage, remotes_body};
 
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
-use crate::feed_meta::{document_head, page_feeds};
+use crate::feed_meta::{PageChrome, document_head, page_chrome};
 use crate::handlers::heads::head_entry;
 use crate::handlers::refs::{CurrentRef, ref_views};
 use crate::response::View;
@@ -59,12 +59,12 @@ impl Handler for RemotesHandler {
         let repository: Box<dyn Repository> = self.store.open(project)?;
         let view: RemotesView =
             assemble_remotes(repository.as_ref(), &self.settings, selected, now_epoch())?;
-        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(&self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,
             &view,
-            feeds,
+            chrome,
         )))
     }
 }
@@ -75,7 +75,7 @@ fn render_page(
     settings: &Settings,
     project: &str,
     view: &RemotesView,
-    feeds: Vec<FeedLink>,
+    chrome: PageChrome,
 ) -> Markup {
     // The all-remotes view marks `remotes` current in the refs bar; the
     // single-remote view marks nothing (gitweb's `format_ref_views('')`), so its
@@ -95,8 +95,8 @@ fn render_page(
             .map(|block: &RemoteBlock| block_view(project, block, view.is_single()))
             .collect(),
     };
-    let head: DocumentHead = document_head(format!("{project} / remotes"), feeds);
-    document(&head, remotes_body(&page))
+    let head: DocumentHead = document_head(format!("{project} / remotes"), chrome.feeds);
+    document(&head, &chrome.foot, remotes_body(&page))
 }
 
 /// The breadcrumb trail: home, the project (linking to its summary), then the

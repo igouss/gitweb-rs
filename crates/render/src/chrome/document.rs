@@ -7,6 +7,7 @@
 //! nofollow` policy. Title/URL assembly is the web boundary's job; this takes
 //! finished strings.
 
+use super::footer::{PageFooter, footer};
 use crate::markup::{DOCTYPE, Markup, html};
 
 /// One `<link rel="alternate">` syndication feed advertised in the head
@@ -35,10 +36,13 @@ pub struct DocumentHead {
     pub feeds: Vec<FeedLink>,
 }
 
-/// Wraps a rendered page `body` in the full HTML5 document, with `head`'s
-/// title, stylesheet, optional favicon, and optional feed metadata in the head.
+/// Wraps a rendered page `body` in the full HTML5 document: `head`'s title,
+/// stylesheet, optional favicon, and optional feed metadata in the `<head>`,
+/// and `foot`'s footer chrome (gitweb's `git_footer_html`) closing the
+/// `<body>` below the content — the head and the footer bracket the page the
+/// same way.
 #[must_use]
-pub fn document(head: &DocumentHead, body: Markup) -> Markup {
+pub fn document(head: &DocumentHead, foot: &PageFooter, body: Markup) -> Markup {
     html! {
         (DOCTYPE)
         html lang="en" {
@@ -56,7 +60,7 @@ pub fn document(head: &DocumentHead, body: Markup) -> Markup {
                     link rel="alternate" type=(feed.mime) title=(feed.title) href=(feed.href);
                 }
             }
-            body { (body) }
+            body { (body) (footer(foot)) }
         }
     }
 }

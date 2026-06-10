@@ -16,7 +16,7 @@
 use gitweb_domain::model::message_body::LogLine;
 use gitweb_domain::model::timestamp::Timestamp;
 
-use crate::chrome::{Crumb, FormatLink, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, FormatLink, NavItem, page_header, page_nav};
 use crate::markup::{Markup, html};
 use crate::message::log_lines;
 use crate::timestamp::timestamp_badge;
@@ -183,7 +183,6 @@ pub fn commit_body(page: &CommitPage) -> Markup {
             div class="page_body log" { (log_lines(&page.comment)) }
             (changed_files(&page.changed))
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

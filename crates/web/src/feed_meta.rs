@@ -21,11 +21,41 @@ use gitweb_domain::model::request::Request;
 use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::settings::{FeatureName, Settings};
 use gitweb_render::chrome::{
-    DocumentHead, FeedHrefs, FeedLink, project_feed_links, project_list_feed_links,
+    DocumentHead, FeedHrefs, FeedLink, PageFooter, project_feed_links, project_list_feed_links,
 };
 
 use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
 use crate::url::href;
+
+/// A page's document chrome built from the request: the head's syndication
+/// feeds and the footer. The head and the footer bracket the page the same way,
+/// so they travel together — every HTML handler builds this once with
+/// [`page_chrome`] and threads it to its render helper, which turns `feeds`
+/// into the [`DocumentHead`] (with the page's title) and hands `foot` to
+/// [`document`](gitweb_render::chrome::document).
+#[derive(Debug, Clone)]
+pub struct PageChrome {
+    /// The head's feed auto-discovery links (gitweb's `print_feed_meta`).
+    pub feeds: Vec<FeedLink>,
+    /// The footer (gitweb's `git_footer_html`).
+    pub foot: PageFooter,
+}
+
+/// Builds a page's whole document chrome — the head's feeds and the footer —
+/// from the request, the boundary half of gitweb's `print_feed_meta` plus
+/// `git_footer_html`. One seam so the head and the footer are built and
+/// threaded identically.
+///
+/// # Errors
+/// [`DomainError::Backend`] when a malformed `extra-branch-refs` entry fails
+/// validation (gitweb's `die_error(500, ...)`), surfaced as it is at the other
+/// [`get_branch_refs`] consumers.
+pub fn page_chrome(settings: &Settings, request: &Request) -> Result<PageChrome, DomainError> {
+    Ok(PageChrome {
+        feeds: page_feeds(settings, request)?,
+        foot: page_footer(settings, request)?,
+    })
+}
 
 /// Builds a page's document `<head>` view-model: its title, the shared
 /// stylesheet and favicon, and the feed auto-discovery links. Every HTML
@@ -38,6 +68,27 @@ pub fn document_head(title: String, feeds: Vec<FeedLink>) -> DocumentHead {
         favicon_href: Some(FAVICON_PATH.to_owned()),
         feeds,
     }
+}
+
+/// Builds a page's footer view-model — the boundary half of gitweb's
+/// `git_footer_html`. The head and the footer bracket the page the same way:
+/// every HTML handler builds this from the request and hands it to
+/// [`document`](gitweb_render::chrome::document) alongside the head.
+///
+/// The footer's syndication links (RSS/Atom in project context, OPML/TXT on
+/// the projects list) are wired in a following commit; this seam threads the
+/// footer through every handler so the document renders it uniformly.
+///
+/// # Errors
+/// [`DomainError::Backend`] when building the links requires validating a
+/// malformed `extra-branch-refs` entry (gitweb's `die_error(500, ...)`), the
+/// same failure [`page_feeds`] surfaces.
+pub fn page_footer(settings: &Settings, request: &Request) -> Result<PageFooter, DomainError> {
+    let _ = (settings, request);
+    Ok(PageFooter {
+        description: None,
+        links: Vec::new(),
+    })
 }
 
 /// The `<link rel="alternate">` feeds a page advertises, mirroring gitweb's

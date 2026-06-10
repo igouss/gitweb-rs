@@ -11,9 +11,7 @@
 //! lines (including tabs) is preserved by the stylesheet, not by rewriting the
 //! text here.
 
-use crate::chrome::{
-    Crumb, FormatLink, NavItem, PageFooter, footer, formats_nav, page_header, page_nav,
-};
+use crate::chrome::{Crumb, FormatLink, NavItem, formats_nav, page_header, page_nav};
 use crate::markup::{Markup, html};
 
 /// One source line: its 1-based number (the `lN` anchor) and its text.
@@ -82,7 +80,6 @@ pub fn blob_body(page: &BlobPage) -> Markup {
             }
             (blob_content(&page.content))
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

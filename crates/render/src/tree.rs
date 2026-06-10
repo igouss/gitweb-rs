@@ -11,7 +11,7 @@
 //! URLs are built by the web boundary, so this layer takes finished hrefs and
 //! only places them; every value is escaped by maud.
 
-use crate::chrome::{Crumb, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, NavItem, page_header, page_nav};
 use crate::markup::{Markup, html};
 
 /// One action link in an entry's links cell: a label and the href it points at.
@@ -100,7 +100,6 @@ pub fn tree_body(page: &TreePage) -> Markup {
                 (tree_table(&page.table))
             }
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

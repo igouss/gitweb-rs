@@ -15,7 +15,7 @@
 //! fragment is the one deliberate highlight; the surrounding text is
 //! auto-escaped by the template engine like every other interpolation.
 
-use crate::chrome::{Crumb, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, NavItem, page_header, page_nav};
 use crate::markup::{Markup, html};
 
 /// One highlighted message-line fragment of a matching commit: the trimmed text
@@ -101,7 +101,6 @@ pub fn search_body(page: &SearchPage) -> Markup {
                 (results_table(&page.rows))
             }
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

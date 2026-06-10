@@ -7,7 +7,7 @@
 //! furniture: the breadcrumb header, the project action bar, and the title.
 //! URLs arrive finished from the web boundary, so this layer only lays them out.
 
-use crate::chrome::{Crumb, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, NavItem, page_header, page_nav};
 use crate::markup::{Markup, html};
 use crate::project_list::{ProjectList, project_list};
 
@@ -37,6 +37,5 @@ pub fn forks_body(page: &ForksPage) -> Markup {
             div class="header" { span class="title" { (page.title) } }
             (project_list(&page.list))
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }

@@ -269,7 +269,11 @@ fn when_render_document(world: &mut RenderWorld, title: String, stylesheet: Stri
         favicon_href: None,
         feeds: Vec::new(),
     };
-    world.output = Some(document(&head, raw(body)).into_string());
+    let foot: PageFooter = PageFooter {
+        description: None,
+        links: std::mem::take(&mut world.footer_links),
+    };
+    world.output = Some(document(&head, &foot, raw(body)).into_string());
 }
 
 #[when(regex = r#"^I render a document with a favicon "(.*)"$"#)]
@@ -280,7 +284,11 @@ fn when_render_document_favicon(world: &mut RenderWorld, favicon: String) {
         favicon_href: Some(favicon),
         feeds: Vec::new(),
     };
-    world.output = Some(document(&head, raw("")).into_string());
+    let foot: PageFooter = PageFooter {
+        description: None,
+        links: Vec::new(),
+    };
+    world.output = Some(document(&head, &foot, raw("")).into_string());
 }
 
 #[when(regex = r#"^I render a document with an RSS feed "(.*)" titled "(.*)"$"#)]
@@ -296,7 +304,11 @@ fn when_render_document_feed(world: &mut RenderWorld, href: String, title: Strin
         favicon_href: None,
         feeds: vec![feed],
     };
-    world.output = Some(document(&head, raw("")).into_string());
+    let foot: PageFooter = PageFooter {
+        description: None,
+        links: Vec::new(),
+    };
+    world.output = Some(document(&head, &foot, raw("")).into_string());
 }
 
 // ---- Chrome: feed auto-discovery link assembly ------------------------------

@@ -24,13 +24,13 @@ use gitweb_domain::model::settings::Settings;
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::{Page, Repository};
 use gitweb_domain::usecase::history::{HistoryRow, HistoryView, assemble_history};
-use gitweb_render::chrome::{Crumb, DocumentHead, FeedLink, MoreLink, NavItem, document};
+use gitweb_render::chrome::{Crumb, DocumentHead, MoreLink, NavItem, document};
 use gitweb_render::history::{HistoryEntryView, HistoryPage, HistoryTable, history_body};
 use gitweb_render::markup::Markup;
 
 use crate::clock::now_epoch;
 use crate::dispatch::Handler;
-use crate::feed_meta::{document_head, page_feeds};
+use crate::feed_meta::{PageChrome, document_head, page_chrome};
 use crate::handlers::ref_markers::marker_view;
 use crate::response::View;
 use crate::url::href;
@@ -70,7 +70,7 @@ impl Handler for HistoryHandler {
         let page: Page = Page::from_page(page_num, PAGE_SIZE);
         let view: HistoryView =
             assemble_history(repository.as_ref(), rev, path, now_epoch(), page)?;
-        let feeds: Vec<FeedLink> = page_feeds(&self.settings, request)?;
+        let chrome: PageChrome = page_chrome(&self.settings, request)?;
         Ok(View::html(render_page(
             &self.settings,
             project,
@@ -78,7 +78,7 @@ impl Handler for HistoryHandler {
             path,
             page_num,
             &view,
-            feeds,
+            chrome,
         )))
     }
 }
@@ -92,7 +92,7 @@ fn render_page(
     path: &str,
     page_num: usize,
     view: &HistoryView,
-    feeds: Vec<FeedLink>,
+    chrome: PageChrome,
 ) -> Markup {
     let ftype: &str = view.file_type().as_str();
     let page: HistoryPage = HistoryPage {
@@ -111,8 +111,8 @@ fn render_page(
                 .then(|| more_link(project, rev, path, page_num)),
         },
     };
-    let head: DocumentHead = document_head(format!("{project} / history / {path}"), feeds);
-    document(&head, history_body(&page))
+    let head: DocumentHead = document_head(format!("{project} / history / {path}"), chrome.feeds);
+    document(&head, &chrome.foot, history_body(&page))
 }
 
 /// The breadcrumb trail: home, the project (linking to its summary), then the

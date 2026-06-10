@@ -17,7 +17,7 @@
 use gitweb_domain::model::message_body::LogLine;
 use gitweb_domain::model::timestamp::Timestamp;
 
-use crate::chrome::{Crumb, MoreLink, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, MoreLink, NavItem, page_header, page_nav};
 use crate::markup::{Markup, html};
 use crate::refs::{RefMarkerView, ref_markers};
 use crate::timestamp::timestamp_badge;
@@ -78,7 +78,6 @@ pub fn log_body(page: &LogPage) -> Markup {
                 (log_entries(&page.entries, page.more.as_ref()))
             }
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

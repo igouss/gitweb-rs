@@ -11,7 +11,7 @@
 use gitweb_domain::model::age::Age;
 
 use crate::age::age_class_name;
-use crate::chrome::{Crumb, MoreLink, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, MoreLink, NavItem, page_header, page_nav};
 use crate::markup::{Markup, html};
 
 /// One branch row: its name (linking to the branch shortlog), the per-branch
@@ -73,7 +73,6 @@ pub fn heads_body(page: &HeadsPage) -> Markup {
                 (heads_table(&page.table))
             }
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

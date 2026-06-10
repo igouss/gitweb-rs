@@ -22,7 +22,7 @@
 
 use gitweb_domain::model::message_body::LogLine;
 
-use crate::chrome::{Crumb, FormatLink, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, FormatLink, NavItem, page_header, page_nav};
 use crate::commit::{AuthorRow, ChangedRow, ParentNavLink, author_row, changed_files};
 use crate::diff_host::diff_root;
 use crate::markup::{Markup, html};
@@ -99,7 +99,6 @@ pub fn commitdiff_body(page: &CommitdiffPage) -> Markup {
             (changed_files(&page.changed))
             (diff_root(&page.diff_url, &page.viewer_module_src))
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

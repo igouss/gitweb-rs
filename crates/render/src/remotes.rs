@@ -13,7 +13,7 @@
 //! so every link and the URL-line labels arrive finished — this layer only lays
 //! them out and escapes them.
 
-use crate::chrome::{Crumb, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, NavItem, page_header, page_nav};
 use crate::heads::{HeadsTable, heads_table};
 use crate::markup::{Markup, html};
 
@@ -74,7 +74,6 @@ pub fn remotes_body(page: &RemotesPage) -> Markup {
                 (remote_block(block))
             }
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 

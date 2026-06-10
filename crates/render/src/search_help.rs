@@ -13,7 +13,7 @@
 
 use gitweb_domain::model::search_help::SearchHelpTopic;
 
-use crate::chrome::{Crumb, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, NavItem, page_header, page_nav};
 use crate::markup::{Markup, html};
 
 /// The search-help page: the breadcrumb header, the per-project action
@@ -55,10 +55,6 @@ pub fn search_help_body(page: &SearchHelpPage) -> Markup {
                 }
             }
         }
-        (footer(&PageFooter {
-            description: None,
-            links: Vec::new(),
-        }))
     }
 }
 

@@ -17,7 +17,7 @@
 //! after the subject are gitweb's `format_ref_marker` (the domain rule + the
 //! shared [`crate::refs`] view).
 
-use crate::chrome::{Crumb, MoreLink, NavItem, PageFooter, footer, page_header, page_nav};
+use crate::chrome::{Crumb, MoreLink, NavItem, page_header, page_nav};
 use crate::markup::{Markup, html};
 use crate::refs::{RefMarkerView, ref_markers};
 
@@ -98,7 +98,6 @@ pub fn history_body(page: &HistoryPage) -> Markup {
                 (history_table(&page.table))
             }
         }
-        (footer(&PageFooter { description: None, links: Vec::new() }))
     }
 }
 
