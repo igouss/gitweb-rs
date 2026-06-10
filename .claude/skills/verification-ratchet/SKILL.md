@@ -109,9 +109,9 @@ After implementation is green:
 # "unviable" — a false all-green that proves nothing. /home has the space.
 export TMPDIR="$HOME/.cache/cargo-mutants"; mkdir -p "$TMPDIR"
 
-# function-granular incremental scoping via fn-hash (preferred):
-fn-hash --changed-only | sed 's/ :: .*//' | sort -u \
-  | xargs -I{} cargo mutants --file {}
+# incremental scoping — only mutants in code your diff touches (fast feedback):
+cargo mutants --in-diff <(git diff)            # uncommitted work
+cargo mutants --in-diff <(git diff main...)    # whole branch vs its merge-base
 cargo mutants            # full run: CI on the dev branch / before merge
 ```
 
@@ -120,19 +120,17 @@ If a mutants run ends with "No mutants were viable" or every mutant is
 overflow above (check `mutants.out/log/*` for "Disk quota exceeded"). Re-run
 with `TMPDIR` on `/home` before trusting any result.
 
-fn-hash hashes every function over its normalized token stream (so `cargo
-fmt` is not a "change") against the committed `.fn-hashes.jsonl` snapshot,
-and prints only the units that moved. The snapshot advances via the
-pre-commit hook running `fn-hash` — it is NEVER hand-edited (protected
-check infrastructure; faking "unchanged" skips re-mutation of the code you
-just wrote, the canonical evasion).
+`--in-diff` reads a unified diff and restricts mutation to the lines it
+touches — finer than per-file and nothing to maintain. One caveat: it sees a
+raw diff, so a pure `cargo fmt` reflow reads as "changed" and re-mutates
+untouched logic; format, commit, then diff to avoid it.
 
 Two blind spots you must respect, neither excusable as evidence:
-- Hash-gated scoping is an approximation: a change in function A can alter
+- Diff scoping is an approximation: a change in function A can alter
   which mutants in UNCHANGED function B are caught (callers shift which
   paths tests exercise; generics/inlining couple units). Full runs in CI
   remain the proof; scoped runs are fast feedback only.
-- Scoped/`--in-diff` runs match changes against PRODUCTION code only — a
+- `--in-diff` runs match changes against PRODUCTION code only — a
   test-only change triggers zero mutants, so scoped mutation testing cannot
   detect test-weakening. That detection is check-guard.bb's job. Never cite
   a scoped mutants pass as evidence about a test-only change.

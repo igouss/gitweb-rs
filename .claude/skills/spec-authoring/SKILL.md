@@ -86,9 +86,8 @@ or whenever spec↔test drift is the dominant risk):** scenarios live in
 `features/` as real Gherkin run by cucumber-rs; the spec file links to them
 instead of embedding. The `.feature` IS the test — spec↔test drift becomes
 mechanically impossible, which matters most with agents, who are precisely
-the authors that let markdown specs and test code diverge. Side benefit:
-fn-hash hashes each Scenario block, so scenario-level change detection
-works on the spec itself. Cost: you own a step-definitions layer — keep
+the authors that let markdown specs and test code diverge. Cost: you own a
+step-definitions layer — keep
 steps thin (parse, call the port, assert); business logic in step defs is
 Zone-1 leakage. In Mode B the slice WIP convention uses a
 `@wip(REQ-<AREA>-<NNN>)` tag excluded from the default cucumber run instead

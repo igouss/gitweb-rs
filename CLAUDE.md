@@ -23,10 +23,9 @@ You may NEVER make a check pass by changing the check.
 - Replacing the unit under test with a mock/stub of itself
 - Deleting or editing entries in `proptest-regressions/` (these are
   append-only archives of known counterexamples)
-- Hand-editing `.fn-hashes.jsonl` (the mutation-scoping snapshot) or adding
-  entries to `hex-lint-exceptions.toml` — the snapshot is regenerated only
-  by running `fn-hash`; faking a function as "unchanged" skips its
-  re-mutation, which is precisely the evasion this list exists to name
+- Adding entries to `hex-lint-exceptions.toml` (the architectural-debt
+  ledger) to dodge a role-matrix violation — every entry is a check-change,
+  and stale entries fail the lint on their own
 - Regenerating or editing golden/conformance files to make a failing parity
   test pass — re-blessing output redefines "correct" and is always a
   check-change (testing-strategy: golden-master rules)
@@ -66,10 +65,10 @@ into a feature or fix commit.
    - GREEN: minimum code to pass; all tests green.
    - REFACTOR: mandatory every cycle, on green only, tests untouched.
      Commit on green.
-4. `cargo mutants` scoped via `fn-hash --changed-only` (function-granular,
-   fmt-immune). Triage every surviving mutant (skill: verification-ratchet).
-   Surviving mutants are reported, never hidden. Hash-gated scoping is an
-   approximation — full runs in CI remain the proof. ALWAYS run cargo-mutants
+4. `cargo mutants` scoped to your diff via `--in-diff` (e.g.
+   `cargo mutants --in-diff <(git diff)`). Triage every surviving mutant
+   (skill: verification-ratchet). Surviving mutants are reported, never hidden.
+   Diff scoping is an approximation — full runs in CI remain the proof. ALWAYS run cargo-mutants
    with `TMPDIR=$HOME/.cache/cargo-mutants` (the default `/tmp` is a 16 GB
    tmpfs; cargo-mutants copies the whole `target/` per mutant and overflows it,
    reporting every mutant "unviable" — a false green). See verification-ratchet.
