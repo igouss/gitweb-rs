@@ -1,0 +1,26 @@
+{
+  "_comment": "Spec-driven-kit hooks (kit templates/claude-hooks-settings.json, adapted). Stop hook deliberately omits trace-audit: this is a Mode B project (.feature files ARE the spec, no REQ IDs), so trace-audit would report findings on every turn end and block forever. check-guard blocks only on exit 1 (weakening found); exit >= 2 is environment/not-applicable and never blocks.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bb \"$CLAUDE_PROJECT_DIR/scripts/protect-checks-hook.bb\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && ./scripts/check-guard.bb; rc=$?; if [ $rc -eq 1 ]; then echo 'check-guard found check-weakening - resolve per CLAUDE.md (do not weaken checks) or report to the human.' >&2; exit 2; fi; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}
