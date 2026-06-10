@@ -37,3 +37,6 @@ tower = { workspace = true }
 [[test]]
 name = "web"
 harness = false
+
+[package.metadata.hex-arch]
+role = "driving-adapter"

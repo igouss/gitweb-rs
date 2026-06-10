@@ -44,3 +44,6 @@ path = "src/bin/build-corpus.rs"
 [[test]]
 name = "golden"
 harness = false
+
+[package.metadata.hex-arch]
+role = "infra"

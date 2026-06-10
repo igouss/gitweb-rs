@@ -131,3 +131,6 @@ harness = false
 [[test]]
 name = "refs"
 harness = false
+
+[package.metadata.hex-arch]
+role = "driven-adapter"

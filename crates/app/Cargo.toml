@@ -43,3 +43,6 @@ tower = { workspace = true }
 [[test]]
 name = "app"
 harness = false
+
+[package.metadata.hex-arch]
+role = "composition-root"

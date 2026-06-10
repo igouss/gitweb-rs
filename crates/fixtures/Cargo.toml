@@ -23,3 +23,6 @@ tokio = { workspace = true }
 [[test]]
 name = "fixtures"
 harness = false
+
+[package.metadata.hex-arch]
+role = "infra"
