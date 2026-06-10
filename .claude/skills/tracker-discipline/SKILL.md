@@ -38,9 +38,43 @@ in order:
 8. **Cross-links footer** — the conventions bead and the
    definition-of-done bead (below).
 
+Two sections a second field project proved out, worth adding when the
+work has design risk:
+
+- **Risk, with the mitigation pre-planned** — not "this is risky" but the
+  staged plan: "extract as a helper function first (no trait), prove both
+  call sites, THEN introduce the trait only if a third caller appears."
+- **DO NOT — the negative space.** Anti-over-abstraction guards written
+  into the bead: "do NOT abstract for a hypothetical third caller; two
+  adapters, one shared body — that is the actual shape." The cheapest
+  place to stop speculative generality is before the session starts.
+
+Code sketches in a bead are **illustrative, not binding**. The
+implementer may deviate — and must argue the deviation in the commit
+body ("heeded the bead's Risk guidance: helper functions, NOT a
+strategy trait; a closed shape in one place beats an open trait").
+
 A ~100-character bead is a backlog *stub*, not implementable work. Stubs
 are fine as markers; enrich to the anatomy above before pickup, never
 implement from a stub.
+
+## Bead text loses to the structure
+
+A bead that names a target location is making a structural claim, and
+structural claims get verified against the actual dependency graph —
+**twice**: by the author at writing time, and by the implementer at
+start time. When they conflict, the structural rule beats the bead text;
+override and document the deviation in the commit body, then correct the
+bead. Field cost of skipping the author-side check: a placement the
+dep-matrix lint forbade, discovered mid-epic, paid for with an unplanned
+"slice 1.5" relocation commit. Two specific checks before writing a
+placement into a bead:
+
+- Does the named crate's role permit the dependencies this code needs?
+- Do the types riding the new port's signature belong to an outer layer?
+  A port whose argument bundle carries an outer-layer type must live in
+  the outer layer — placement is decided by what types ride the
+  signature, not by what the port is "about".
 
 ## Two standing meta-beads (write once, link everywhere)
 
@@ -94,7 +128,13 @@ Three field-proven mechanisms:
   cost a correction commit, doc rewrites, and two new beads.
 - **Close-reasons are handoff reports**, not "done". Name what shipped
   (modules, decisions taken), follow-ups filed by id, and verification
-  status ("tests/clippy/fmt green; commit pending").
+  status ("tests/clippy/fmt green; commit pending"). For multi-slice
+  beads, the full landing report: the commit list with one-line
+  summaries, the acceptance criteria re-verified at close — including
+  which residual grep hits *remain* and why each is legitimately out of
+  scope — side artifacts named ("new crate X"), and any
+  fixed-inline-instead-of-filed choices justified with a pointer to the
+  commit that argues them.
 - **Decisions are revisable, and the correction is itself recorded.** When
   a bead's claim is disproven, correct it in writing with the evidence —
   never silently do the right thing while the bead still asserts the wrong
@@ -115,6 +155,16 @@ Three field-proven mechanisms:
 - Use the typed edges (`blocks`, `parent-child`, `discovered-from`) over
   prose provenance where the tracker supports them — prose works but is
   unqueryable. In practice `discovered-from` is the one everyone forgets.
+
+## Mechanical audit
+
+`templates/tracker-audit.bb [issues.jsonl]` checks the JSONL mirror
+directly (no tracker CLI needed): open epics whose children are all
+closed, closed deferrals whose close-reason cites no bead id (accepts
+short id suffixes — that's how close reasons actually cite), dangling
+dependency edges, and still-open stub beads. The deferral check has a
+known false-positive mode ("deferred to the render adapter" — placement,
+not work); triage by hand, don't tune it away.
 
 ## Tracker-state commits
 

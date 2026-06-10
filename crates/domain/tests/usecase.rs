@@ -90,9 +90,12 @@ use gitweb_domain::usecase::tree::{TreeRow, TreeView, assemble_tree};
 
 /// An in-memory [`ProjectStore`] over a fixed set of projects. It serves
 /// `list` and `info` from its metadata; `open` is never reached by the
-/// project-list use case, so it is left unimplemented.
+/// project-list use case, so it is left unimplemented. `containers` names the
+/// directories that exist on the notional filesystem, so `container_exists`
+/// (gitweb's `-d`) can answer for the fork empty-container state.
 struct FakeStore {
     projects: Vec<ProjectInfo>,
+    containers: Vec<String>,
 }
 
 impl ProjectStore for FakeStore {
@@ -109,6 +112,10 @@ impl ProjectStore for FakeStore {
 
     fn open(&self, _name: &str) -> Result<Box<dyn Repository>, DomainError> {
         unimplemented!("the project-list use case never opens a repository")
+    }
+
+    fn container_exists(&self, subdir: &str) -> bool {
+        self.containers.iter().any(|dir: &String| dir == subdir)
     }
 
     fn info(&self, name: &str) -> Result<ProjectInfo, DomainError> {
@@ -160,6 +167,10 @@ impl ProjectStore for FakeOpmlStore {
         Ok(Box::new(repository))
     }
 
+    fn container_exists(&self, _subdir: &str) -> bool {
+        unimplemented!("the opml use case never folds forks")
+    }
+
     fn info(&self, _name: &str) -> Result<ProjectInfo, DomainError> {
         unimplemented!("the opml use case never reads project metadata")
     }
@@ -172,6 +183,7 @@ impl ProjectStore for FakeOpmlStore {
 #[derive(Debug, Default, World)]
 struct UsecaseWorld {
     projects: Vec<ProjectInfo>,
+    containers: Vec<String>,
     now: i64,
     settings: Settings,
     result: Option<Result<ProjectListView, DomainError>>,
@@ -1347,6 +1359,7 @@ fn forks_feature_enabled(world: &mut UsecaseWorld) {
 fn assemble_default(world: &mut UsecaseWorld) {
     let store: FakeStore = FakeStore {
         projects: world.projects.clone(),
+        containers: world.containers.clone(),
     };
     world.result = Some(assemble_project_list(
         &store,
@@ -1361,6 +1374,7 @@ fn assemble_default(world: &mut UsecaseWorld) {
 fn assemble_ordered(world: &mut UsecaseWorld, order: String) {
     let store: FakeStore = FakeStore {
         projects: world.projects.clone(),
+        containers: world.containers.clone(),
     };
     world.result = Some(assemble_project_list(
         &store,
@@ -1375,6 +1389,7 @@ fn assemble_ordered(world: &mut UsecaseWorld, order: String) {
 fn assemble_filtered(world: &mut UsecaseWorld, subdir: String) {
     let store: FakeStore = FakeStore {
         projects: world.projects.clone(),
+        containers: world.containers.clone(),
     };
     let filter: ProjectFilter = ProjectFilter::new(subdir);
     world.result = Some(assemble_project_list(
@@ -1390,6 +1405,7 @@ fn assemble_filtered(world: &mut UsecaseWorld, subdir: String) {
 fn assemble_the_forks(world: &mut UsecaseWorld, project: String) {
     let store: FakeStore = FakeStore {
         projects: world.projects.clone(),
+        containers: world.containers.clone(),
     };
     world.result = Some(assemble_forks(
         &store,
@@ -1475,6 +1491,7 @@ fn project_has_no_age(world: &mut UsecaseWorld, name: String) {
 fn assemble_index(world: &mut UsecaseWorld) {
     let store: FakeStore = FakeStore {
         projects: world.projects.clone(),
+        containers: world.containers.clone(),
     };
     world.index_result = Some(assemble_project_index(&store, None));
 }
@@ -1483,6 +1500,7 @@ fn assemble_index(world: &mut UsecaseWorld) {
 fn assemble_index_filtered(world: &mut UsecaseWorld, subdir: String) {
     let store: FakeStore = FakeStore {
         projects: world.projects.clone(),
+        containers: world.containers.clone(),
     };
     let filter: ProjectFilter = ProjectFilter::new(subdir);
     world.index_result = Some(assemble_project_index(&store, Some(&filter)));

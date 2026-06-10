@@ -36,6 +36,7 @@ struct DiscoveryWorld {
     store: Option<GixProjectStore>,
     listed: Option<Result<Vec<Project>, DomainError>>,
     opened: Option<Result<Opened, DomainError>>,
+    container: Option<bool>,
 }
 
 // --- fixture construction ----------------------------------------------------
@@ -124,6 +125,11 @@ fn open_project(world: &mut DiscoveryWorld, name: String) {
     world.opened = Some(result.map(Opened));
 }
 
+#[when(regex = r#"^I check whether the container "([^"]*)" exists$"#)]
+fn check_container(world: &mut DiscoveryWorld, subdir: String) {
+    world.container = Some(store(world).container_exists(&subdir));
+}
+
 // --- Thens: list -------------------------------------------------------------
 
 #[then(regex = r"^(\d+) projects? (?:is|are) listed$")]
@@ -162,6 +168,18 @@ fn opened_reference_count(world: &mut DiscoveryWorld, count: usize, prefix: Stri
         .references(&prefix)
         .expect("listing references on the opened repository succeeded");
     assert_eq!(refs.len(), count);
+}
+
+// --- Thens: container existence ----------------------------------------------
+
+#[then("the container exists")]
+fn container_does_exist(world: &mut DiscoveryWorld) {
+    assert_eq!(world.container, Some(true));
+}
+
+#[then("the container does not exist")]
+fn container_does_not_exist(world: &mut DiscoveryWorld) {
+    assert_eq!(world.container, Some(false));
 }
 
 #[then("opening fails as not found")]

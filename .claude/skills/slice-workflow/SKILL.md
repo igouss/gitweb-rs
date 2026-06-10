@@ -132,6 +132,19 @@ the skeleton is the one that may not.
   adapter*, with the real impl installed by default and a builder-style
   injection for tests — domain stays clean, existing call sites stay
   untouched.
+- **A capability only some implementations support is a supertrait with
+  NO default methods.** Default impls let every backend type-check into
+  the capability path and degrade silently at runtime; the no-default
+  split makes a wrong backend a compile error at the wiring site.
+- **Keep ports narrow; fake size is the metric.** If a use-case test
+  fake stubs 15 methods to exercise one, the port is fat — split it into
+  capability traits (a field ISP split shrank fakes from ~15 stubbed
+  methods to 1–5).
+- **Placement follows signature types.** A port whose arguments carry an
+  outer-layer type lives in the outer layer; a port carrying only
+  primitives/handles stays inward. Decided by what rides the signature,
+  not by topic — and verified against the dep matrix BEFORE the bead is
+  written (tracker-discipline).
 
 ## Seam memos (closing a slice)
 
@@ -144,6 +157,16 @@ wasn't there; the seam memo is the difference between reuse and
 reinvention. Shared-code extraction discovered mid-slice (two handlers
 growing the same row logic) happens in the REFACTOR step and goes in the
 memo too.
+
+## Migration slices (existing code, not greenfield)
+
+When the slice replaces something rather than adding it, the grammar
+changes: land the new code consumer-free, swap consumers one commit at a
+time, delete duplicates with the last swap; or expand–migrate–contract
+for data-shape changes. The full sequencing patterns, legacy-bridge
+labeling, and fractional-slice convention are in refactoring-campaign —
+use that skill the moment a slice's diff is mostly deletions of an old
+shape.
 
 ## Decomposing a fat capability
 

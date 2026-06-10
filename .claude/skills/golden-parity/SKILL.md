@@ -122,3 +122,8 @@ reproduce), the divergence is never silent. The pattern:
   (2) a volatility source — fix the capture, not the assertion,
   (3) a deliberate divergence missing from the divergence list — file it
   properly. "The golden is too strict" is not a diagnosis.
+- Mechanical hygiene: `templates/golden-audit.bb` checks golden↔test
+  linkage both directions (orphan goldens, references with no file on
+  disk — the must-panic case caught early), untracked captures, and the
+  `.gitattributes binary` rule. Run it after wiring a new endpoint and
+  after any re-capture.

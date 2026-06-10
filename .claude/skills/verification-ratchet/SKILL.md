@@ -8,7 +8,10 @@ description: Use when implementing a requirement, writing tests, deriving proper
 The ratchet only moves one direction: checks get stronger, never weaker.
 The check-modification boundary in CLAUDE.md overrides everything here.
 This skill defines WHAT the checks are; the tdd-cycle skill defines the
-red/green/refactor loop you walk while building them.
+red/green/refactor loop you walk while building them; the quality-gates
+skill defines the machinery that runs them — including the failure mode
+this skill's layers cannot see: a gate that silently stopped firing.
+A ratchet is only monotone if its *firing* is observable.
 
 ## Layer 0 — Types (cheapest, do first)
 
@@ -29,6 +32,16 @@ Every state the compiler forbids is a scenario you do not write and a mutant
 that cannot survive. If a candidate Gherkin scenario describes constructing an
 invalid value, the correct implementation is a type, and the scenario becomes
 a one-line constructor test.
+
+The same principle one level up: **prefer mechanisms where the wrong
+state is uncompilable over mechanisms where it is merely labeled.** A
+capability only some implementations support is a separate supertrait
+with NO default methods — a default impl lets every backend type-check
+into the path and degrade silently at runtime; the no-default split
+makes the wrong wiring a compile error. A metadata label ("this crate is
+domain") checked by a lint verifies only the structural consequence, not
+the premise — the type system is the one checker that verifies the
+premise (quality-gates skill).
 
 ## Layer 1 — Example tests (from anchor scenarios)
 
@@ -140,12 +153,48 @@ at zero coverage it explodes to CC² + CC. Threshold: **30**. Note the
 consequence: a function with CC ≥ 31 is over threshold even at 100%
 coverage — past that point the only fix is refactoring, by design.
 
-Run it after the mutation pass (see `scripts/quality-gate.bb`):
+Run it after the mutation pass (see `scripts/quality-gate.bb`).
+
+**Implementation — the kit ships the join** (`templates/crap-report.bb`,
+field-proven; no dependency on a young third-party scorer). CRAP needs
+per-function coverage × per-function complexity, and no single Rust tool
+emits both:
 
 ```bash
-cargo llvm-cov --lcov --output-path target/lcov.info   # coverage first
-cargo crap          # check `cargo crap --help` for flags/threshold config
+cargo llvm-cov nextest --workspace --json --output-path target/metrics/coverage.json
+./scripts/crap-report.bb --coverage target/metrics/coverage.json [--gate 30]
+# the fast pre-commit half (complexity only, staged files):
+./scripts/complexity-gate.bb
 ```
+
+The non-obvious rules, each paid for in the field:
+
+- **Join by file path + line-range overlap, never by function name.**
+  Rust name mangling means names do not line up between tools; a
+  coverage region counts for a function if its line range overlaps the
+  function's. Crude but honest — and it works.
+- **Exclude tests/benches/examples from the function set** — tests are
+  always "covered" and skew the distribution.
+- **Uninstrumented functions score as 0% coverage** (pessimistic), but
+  are counted and surfaced separately — they're usually cfg-gated code
+  the test target never compiled, which is its own finding.
+- **Two speeds, never one**: a fast pre-commit gate checks ONLY
+  complexity on staged files (deliberately loose thresholds — it exists
+  to catch egregious cases, not to nag every refactor; documented
+  override env-var, not `--no-verify`). The full coverage×complexity
+  CRAP report is slow and lives behind an explicit recipe
+  (`just metrics`), run before merge/release — never in a hook.
+- **Trend, not just threshold**: each full run appends one summary row
+  (date, commit, total functions, mean/median/max CRAP, mean coverage,
+  worst function) to a **committed** `metrics/history.csv`. The ratchet
+  direction becomes reviewable: max-CRAP and mean must not drift up
+  across the history. Make the append idempotent per (date, commit) —
+  the field version wasn't, and duplicate rows got committed.
+- **The report teaches**: embed the triage playbook in the generated
+  report itself ("1. split or simplify — reduce CC; 2. cover the
+  branches; 3. if neither is feasible, note it and move on — don't
+  chase the tail"), so the agent reading the report doesn't need this
+  skill open.
 
 For every function over threshold, exactly two legal outcomes (mirror of
 mutant triage):

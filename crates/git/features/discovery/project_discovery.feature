@@ -108,3 +108,26 @@ Feature: Discovering and opening projects through the gix ProjectStore adapter
     Given a project root containing repository "group/alpha.git"
     When I list the projects under "elsewhere"
     Then 0 projects are listed
+
+  # --- container_exists(): gitweb's -d fork-capability test ---
+
+  Scenario: a fork container directory that exists is reported as existing
+    Given a project root containing repository "repo.git"
+    And the root also contains a plain directory "repo"
+    When I check whether the container "repo" exists
+    Then the container exists
+
+  Scenario: an absent fork container directory is reported as missing
+    Given a project root containing repository "repo.git"
+    When I check whether the container "repo" exists
+    Then the container does not exist
+
+  Scenario: a container that resolves to a repository's parent still exists
+    Given a project root containing repository "group/nested.git"
+    When I check whether the container "group" exists
+    Then the container exists
+
+  Scenario: a path-traversal container name never escapes the root
+    Given a project root containing repository "repo.git"
+    When I check whether the container "../etc" exists
+    Then the container does not exist

@@ -78,7 +78,10 @@ Memories are falsifiable. When a saved claim is disproven:
 - **Verify links.** Even a disciplined corpus shipped a dangling index
   entry pointing at a file that was never written. Treat the index as
   derived: after writing a memory, check every `[[link]]` and index line
-  resolves to a real file.
+  resolves to a real file. Mechanical: `templates/memory-lint.bb
+  <memory-dir>` checks dangling wiki-links, dangling/missing index
+  entries, unindexed files, frontmatter, and oversize — run against the
+  field corpus it found two dangling links nobody had spotted.
 - **Split files that accrete.** A single-topic gotcha file grew to 28KB;
   past ~10KB recall pulls in mostly-irrelevant bulk. Section it or split
   by sub-topic before it gets there.

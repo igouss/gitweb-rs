@@ -62,6 +62,15 @@ problems, contradict accepted ADRs, and duplicate half-finished work.
   `--robot`, `--no-pager`, `-y`); if a tool has no non-interactive mode,
   report it instead of running it.
 - Pipe pagers away (`git --no-pager`, `| cat`) and never run watch modes.
+- **A timeout is not a failure signal.** Compile-heavy commands (build,
+  full test suite, the verify recipe) on slow machines routinely outlive
+  default tool timeouts. Set a generous timeout up front; if it still
+  trips, give the same run more clock — do NOT relaunch from scratch,
+  which discards the partial build progress that was the slow part.
+- **Invalidate the narrowest cache that could be at fault.** Never wipe
+  whole-workspace build caches as a debugging move (`cargo clean` on a
+  large workspace throws away tens of GB and hours of rebuilds); clean
+  the one package, or the one fingerprint, first.
 
 ## After context compaction (mid-session amnesia)
 
@@ -76,6 +85,12 @@ that pre-compaction "you" had read.
 1. **Never end mid-red.** Either reach green and commit, or revert to the
    last green commit and record why in the handoff. A dirty tree or a red
    bar is a trap left for an amnesiac — i.e., for you.
+   The floor below that floor: **never end compile-broken.** A
+   deliberately-incomplete handoff (a hole left for the human) must
+   still build — `todo!()` bodies or stub types, never missing
+   functions. A repo with a Stop hook running the compiler makes this
+   mechanical: a compile-red turn-end traps the session in a hook loop
+   re-reporting the same error (quality-gates).
 2. Run the gates: tests, `check-guard.bb`, `trace-audit.bb`, and the
    quality gate if production code changed. (The Stop hook enforces this;
    don't make it fire.)

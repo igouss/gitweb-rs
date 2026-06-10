@@ -164,6 +164,15 @@ impl ProjectStore for GixProjectStore {
         Ok(Box::new(repo))
     }
 
+    fn container_exists(&self, subdir: &str) -> bool {
+        // gitweb's `-d "$projectroot/$path"`. Validate the name first so the join
+        // can never escape the root — an unsafe name is simply not a container —
+        // then test that the join is a directory (following symlinks, as Perl's
+        // `-d` does). Any non-directory, missing, or unreadable path answers
+        // false, never an error.
+        SafePath::parse(subdir).is_some_and(|safe: SafePath| self.root.join(safe.as_str()).is_dir())
+    }
+
     fn info(&self, name: &str) -> Result<ProjectInfo, DomainError> {
         let git_dir: PathBuf = self.locate(name)?;
         let repo: gix::Repository = gix::open(&git_dir).map_err(backend)?;

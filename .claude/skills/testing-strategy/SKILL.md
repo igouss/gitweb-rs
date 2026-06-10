@@ -160,6 +160,37 @@ panic, never skip.
   they prove parity, not internal design; zones 1–4 still carry the
   unit/property/contract load.
 
+## Vacuous green — tests that pass without running
+
+A suite can be green because nothing ran. Field incident: 11 smoke tests
+guarded by a skip-if-dependency-missing probe that checked a filesystem
+path; the dependency lived elsewhere, every test silently skipped for
+weeks, and the adapter was broken in two ways against the real binary
+the whole time. Rules:
+
+- **A skip-guard is test logic.** Verify it fires: probe for the
+  dependency the way the dependency actually presents (ask the tool
+  where it lives), never via a path assumption.
+- **Skips are loud or fatal.** Count and report skips in normal runs;
+  in gated contexts (CI, the canonical verify recipe), fail on skip.
+  In executable-Gherkin suites this is `fail_on_skipped`: an undefined
+  step — i.e., spec wording that drifted from the step definitions —
+  is a red build, which is the entire anti-drift point of Mode B.
+- "Tests pass" is not evidence the adapter works if the tests can
+  self-skip; once doubted, verify with one real invocation against the
+  real dependency.
+
+## Extracting testability: functional core, imperative shell
+
+When a decision lives inside an IO loop (async watch loops, retry
+drivers, schedulers), don't test it through the loop — extract the
+decision table into a pure function (`next_step(&Event) -> Step`) and
+the loop becomes a thin shell that calls it. The full termination/
+decision table is then Zone-1 testable synchronously: no runtime, no
+fake channels, no sleeps. If a Zone-3/4 test needs a fake clock AND a
+fake channel AND a timeout to assert one decision, the decision is in
+the wrong zone — extract it.
+
 ## Anti-patterns (each is a report-worthy smell)
 
 - Property test whose body re-implements the algorithm under test

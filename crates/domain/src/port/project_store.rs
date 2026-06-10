@@ -21,6 +21,19 @@ pub trait ProjectStore {
     /// Opens one project by name for reading.
     fn open(&self, name: &str) -> Result<Box<dyn Repository>, DomainError>;
 
+    /// Whether `subdir` exists as a directory under the project root — gitweb's
+    /// `-d "$projectroot/$path"` guard in `filter_forks_from_projects_list`,
+    /// where `$path` is a project's [`fork_container`]. A fork-capable project
+    /// whose sibling container directory exists, even with zero forks inside,
+    /// earns gitweb's `forks => []` empty-container state on the listing.
+    ///
+    /// Like gitweb's `-d`, this is an infallible predicate: a missing directory,
+    /// an unreadable one, or a path that is not a directory all answer `false`
+    /// rather than failing the request.
+    ///
+    /// [`fork_container`]: crate::model::forks::fork_container
+    fn container_exists(&self, subdir: &str) -> bool;
+
     /// The display metadata for one project — description, owner, category, and
     /// clone URLs — resolved from its filesystem files and `gitweb.*` config
     /// (gitweb's `git_get_project_*` family). A name that does not resolve to a
