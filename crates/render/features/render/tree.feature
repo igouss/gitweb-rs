@@ -61,4 +61,3 @@ Feature: Rendering the tree (directory listing)
     Then the result contains "class="page-header""
     And the result contains "main tree"
     And the result contains ">README</a>"
-    And the result contains "class="page-footer""

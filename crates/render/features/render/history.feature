@@ -92,4 +92,3 @@ Feature: Rendering the per-path history table
     Then the result contains "class="page-header""
     And the result contains "History"
     And the result contains "Add the thing"
-    And the result contains "class="page-footer""

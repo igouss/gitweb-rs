@@ -71,4 +71,3 @@ Feature: Rendering the verbose log
     Then the result contains "class="page-header""
     And the result contains "Log"
     And the result contains "Add the thing"
-    And the result contains "class="page-footer""

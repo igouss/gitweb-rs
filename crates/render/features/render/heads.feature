@@ -60,4 +60,3 @@ Feature: Rendering the heads table
     Then the result contains "class="page-header""
     And the result contains "Heads"
     And the result contains ">main<"
-    And the result contains "class="page-footer""

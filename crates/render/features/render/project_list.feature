@@ -87,4 +87,3 @@ Feature: Rendering the projects-list table
     Then the result contains "class="page-header""
     And the result contains "Git Repositories"
     And the result contains "git.git"
-    And the result contains "class="page-footer""

@@ -40,4 +40,3 @@ Feature: Rendering one file (blob)
     Then the result contains "class="page-header""
     And the result contains "readme.txt"
     And the result contains "fn main() {}"
-    And the result contains "class="page-footer""

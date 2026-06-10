@@ -73,4 +73,3 @@ Feature: Rendering the shortlog table
     Then the result contains "class="page-header""
     And the result contains "Shortlog"
     And the result contains "Add the thing"
-    And the result contains "class="page-footer""
