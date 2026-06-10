@@ -46,3 +46,12 @@ Feature: The page footer links a project's feeds and the projects list's index (
     Then the response status is 200
     And the response body contains "<a class="feed" href="/?a=opml" title="OPML">OPML</a>"
     And the response body contains "<a class="feed" href="/?a=project_index" title="TXT">TXT</a>"
+
+  Scenario: a project-filtered footer scopes its OPML and index links to the subdirectory
+    Given a project root containing repository "group/alpha.git"
+    And the root also contains repository "other/beta.git"
+    And the project-list landing page is served
+    When I GET "/?pf=group"
+    Then the response status is 200
+    And the response body contains "<a class="feed" href="/?a=opml&amp;pf=group" title="OPML">OPML</a>"
+    And the response body contains "<a class="feed" href="/?a=project_index&amp;pf=group" title="TXT">TXT</a>"

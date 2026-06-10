@@ -103,15 +103,14 @@ pub fn page_footer(
     request: &Request,
 ) -> Result<PageFooter, DomainError> {
     let Some(project) = request.project.as_deref() else {
-        // gitweb's projects-list branch: the OPML feed and the plain-text index.
-        // Like the head feeds (page_feeds), these are not scoped to the
-        // project_filter — head and footer stay in step. No project, no
-        // description.
+        // gitweb's projects-list branch: the OPML feed and the plain-text index,
+        // scoped to the active project_filter when one is set (see
+        // [`list_feed_href`]). No project, no description.
         return Ok(PageFooter {
             description: None,
             links: project_list_footer_links(
-                &href(&[("a", "opml")]),
-                &href(&[("a", "project_index")]),
+                &list_feed_href("opml", request),
+                &list_feed_href("project_index", request),
             ),
         });
     };
@@ -136,11 +135,13 @@ pub fn page_footer(
 /// other [`get_branch_refs`] consumers.
 pub fn page_feeds(settings: &Settings, request: &Request) -> Result<Vec<FeedLink>, DomainError> {
     let Some(project) = request.project.as_deref() else {
-        // gitweb's projects-list branch: the plain-text index and the OPML feed.
+        // gitweb's projects-list branch: the plain-text index and the OPML feed,
+        // scoped to the active project_filter when one is set (see
+        // [`list_feed_href`]) — kept in step with the footer.
         return Ok(project_list_feed_links(
             settings.site_name(),
-            &href(&[("a", "project_index")]),
-            &href(&[("a", "opml")]),
+            &list_feed_href("project_index", request),
+            &list_feed_href("opml", request),
         ));
     };
     let info: FeedInfo = project_feed_info(settings, request)?;
@@ -177,6 +178,22 @@ fn project_feed_info(settings: &Settings, request: &Request) -> Result<FeedInfo,
         request.file_name.as_ref().map(SafePath::as_str),
         &branch_refs,
     ))
+}
+
+/// One projects-list feed URL (`project_index` or `opml`), scoped to the active
+/// project filter (gitweb's `project_filter => $project_filter`) when one is set.
+///
+/// gitweb is internally inconsistent here: its footer (`git_footer_html`) scopes
+/// these links to the filter but its head (`print_feed_meta`) does not. We scope
+/// both — the head's `<link>` feeds and the footer's anchors stay in step (the
+/// user directive: header and footer behave the same way), so a `pf`-filtered
+/// projects list keeps its syndication links inside the filtered view.
+fn list_feed_href(action: &str, request: &Request) -> String {
+    let mut params: Vec<(&str, &str)> = vec![("a", action)];
+    if let Some(filter) = request.project_filter.as_deref() {
+        params.push(("pf", filter));
+    }
+    href(&params)
 }
 
 /// The four feed URLs for a project page (gitweb's `href(action => rss/atom,

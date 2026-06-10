@@ -37,3 +37,12 @@ Feature: Advertising feed auto-discovery links in the page head (print_feed_meta
     Then the response status is 200
     And the response body contains "<link rel="alternate" type="text/plain; charset=utf-8" title="Untitled Git projects list" href="/?a=project_index">"
     And the response body contains "<link rel="alternate" type="text/x-opml" title="Untitled Git projects feeds" href="/?a=opml">"
+
+  Scenario: a project-filtered projects list scopes its index and OPML feeds to the subdirectory
+    Given a project root containing repository "group/alpha.git"
+    And the root also contains repository "other/beta.git"
+    And the project-list landing page is served
+    When I GET "/?pf=group"
+    Then the response status is 200
+    And the response body contains "<link rel="alternate" type="text/plain; charset=utf-8" title="Untitled Git projects list" href="/?a=project_index&amp;pf=group">"
+    And the response body contains "<link rel="alternate" type="text/x-opml" title="Untitled Git projects feeds" href="/?a=opml&amp;pf=group">"
