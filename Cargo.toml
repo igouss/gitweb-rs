@@ -58,3 +58,12 @@ toml = "0.9"
 # It is a library, not a framework, and depends on nothing of ours, so it lives in
 # the domain alongside the other pure primitives (it never crosses a port).
 regex = "1"
+
+# Build profile for cargo-mutants. Mutants rebuild the affected crate once per
+# mutant; debuginfo generation and linking is a large slice of that, and a
+# survived/killed verdict never needs line numbers. Drop it for the mutation run
+# only, so normal `cargo test` backtraces keep their debuginfo. Use with:
+#   TMPDIR=$HOME/.cache/cargo-mutants cargo mutants --profile mutants --in-diff <(git diff)
+[profile.mutants]
+inherits = "test"
+debug = false

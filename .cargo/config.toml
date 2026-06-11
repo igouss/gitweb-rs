@@ -1,0 +1,6 @@
+# Link with mold instead of GNU ld. Linking dominates incremental rebuild time,
+# and cargo-mutants rebuilds the affected crate once per mutant, so a faster
+# linker speeds the whole mutation run (and every other build). gcc on this host
+# understands -fuse-ld=mold directly; no clang shim needed.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
