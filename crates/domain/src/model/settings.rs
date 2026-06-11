@@ -171,6 +171,7 @@ impl FeatureName {
             | Self::Highlight
             | Self::RemoteHeads => Some(OverrideRule::Bool),
             Self::Snapshot => Some(OverrideRule::SnapshotList),
+            Self::Patches => Some(OverrideRule::Int),
             _ => None,
         }
     }
@@ -502,6 +503,9 @@ enum OverrideRule {
     /// gitweb's `feature_snapshot`: a `,`/whitespace list of formats, `none` for
     /// none; a falsy value keeps the site default (`gitweb.snapshot`).
     SnapshotList,
+    /// gitweb's `feature_patches` over `config_to_int`: an integer with optional
+    /// git k/m/g unit; an absent key keeps the site default (`gitweb.patches`).
+    Int,
 }
 
 /// Re-reads one overridable feature's options from the repository's raw
@@ -518,6 +522,12 @@ fn apply_override(feature: &Feature, rule: OverrideRule, raw: Option<&str>) -> F
             // anything else splits; a falsy value falls through to the default.
             Some(value) if perl_truthy(value) => snapshot_formats(value),
             _ => feature.default_options().to_vec(),
+        },
+        OverrideRule::Int => match raw {
+            // gitweb's `if (@val)` gate: a present key is read as an int; an
+            // absent (or valueless) key falls through to the default.
+            Some(value) => vec![config_to_int(value)],
+            None => feature.default_options().to_vec(),
         },
     };
     Feature::new(default, feature.is_overridable())
@@ -543,6 +553,29 @@ fn snapshot_formats(value: &str) -> Vec<String> {
 /// single character `0` (gitweb's bare `if ($val)` over a config scalar).
 fn perl_truthy(value: &str) -> bool {
     !value.is_empty() && value != "0"
+}
+
+/// gitweb's `config_to_int`: a trimmed integer, applying git's `k`/`m`/`g`
+/// (1024/1048576/1073741824) unit suffix when the value is `[0-9]*[kmg]`
+/// (an empty number part counts as zero); any other value is returned as-is.
+fn config_to_int(value: &str) -> String {
+    let value: &str = value.trim();
+    if let Some(unit) = value.chars().last() {
+        let multiplier: Option<i64> = match unit.to_ascii_lowercase() {
+            'k' => Some(1024),
+            'm' => Some(1_048_576),
+            'g' => Some(1_073_741_824),
+            _ => None,
+        };
+        if let Some(multiplier) = multiplier {
+            let number: &str = &value[..value.len() - unit.len_utf8()];
+            if number.bytes().all(|byte: u8| byte.is_ascii_digit()) {
+                let parsed: i64 = number.parse().unwrap_or(0);
+                return (parsed * multiplier).to_string();
+            }
+        }
+    }
+    value.to_owned()
 }
 
 /// gitweb's `config_to_bool`: how a `--bool` config value reads. A valueless key

@@ -253,3 +253,28 @@ Feature: Global gitweb settings value precedence
     And the repository sets gitweb."snapshot" to ""
     When I resolve the settings for the project
     Then the project "snapshot" feature default is "tgz"
+
+  # patches is an integer feature (gitweb feature_patches over config_to_int): the
+  # repository value is read as an integer, honouring git's k/m/g unit suffixes.
+  # Site default is "16".
+
+  Scenario: An overridable patches takes the repository's count
+    Given a config source
+    And it makes the "patches" feature overridable
+    And the repository sets gitweb."patches" to "100"
+    When I resolve the settings for the project
+    Then the project "patches" feature default is "100"
+
+  Scenario: An overridable patches set to zero disables the link
+    Given a config source
+    And it makes the "patches" feature overridable
+    And the repository sets gitweb."patches" to "0"
+    When I resolve the settings for the project
+    Then the project "patches" feature default is "0"
+
+  Scenario: An overridable patches honours a git k/m/g unit suffix
+    Given a config source
+    And it makes the "patches" feature overridable
+    And the repository sets gitweb."patches" to "2k"
+    When I resolve the settings for the project
+    Then the project "patches" feature default is "2048"
