@@ -4,14 +4,14 @@
 
 **git's `gitweb` web interface, rewritten in Rust as a single static daemon — no Perl, no CGI, no `git` binary.**
 
-[![CI](https://github.com/elendal/gitweb_in_rust/actions/workflows/ci.yml/badge.svg)](https://github.com/elendal/gitweb_in_rust/actions/workflows/ci.yml)
+[![CI](https://github.com/igouss/gitweb-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/igouss/gitweb-rs/actions/workflows/ci.yml)
 [![License: GPL-2.0-only](https://img.shields.io/badge/license-GPL--2.0--only-blue.svg)](#license)
 [![Rust 1.93+](https://img.shields.io/badge/rust-1.93%2B-orange.svg)](https://www.rust-lang.org)
 [![unsafe: forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](#design-philosophy)
 [![edition 2024](https://img.shields.io/badge/edition-2024-blue.svg)](https://doc.rust-lang.org/edition-guide/)
 
 ```sh
-cargo install --git https://github.com/elendal/gitweb_in_rust gitweb-rs
+cargo install --git https://github.com/igouss/gitweb-rs gitweb-rs
 GITWEB_PROJECTROOT=/srv/git gitweb-rs   # → http://127.0.0.1:8080
 ```
 
@@ -73,7 +73,7 @@ No web server to configure. No Perl. No `git` on `PATH`. One process.
 
 ```sh
 # Build and run against a directory full of bare repos
-cargo install --git https://github.com/elendal/gitweb_in_rust gitweb-rs
+cargo install --git https://github.com/igouss/gitweb-rs gitweb-rs
 GITWEB_PROJECTROOT=/srv/git gitweb-rs &
 
 # The project list (gitweb's default action)
@@ -133,7 +133,7 @@ This project has opinions. They are enforced mechanically, not by good intention
 ### From source with cargo (recommended)
 
 ```sh
-cargo install --git https://github.com/elendal/gitweb_in_rust gitweb-rs
+cargo install --git https://github.com/igouss/gitweb-rs gitweb-rs
 ```
 
 The binary is named `gitweb-rs`.
@@ -141,8 +141,8 @@ The binary is named `gitweb-rs`.
 ### Clone and build
 
 ```sh
-git clone https://github.com/elendal/gitweb_in_rust
-cd gitweb_in_rust
+git clone https://github.com/igouss/gitweb-rs
+cd gitweb-rs
 cargo build --release
 ./target/release/gitweb-rs
 ```
@@ -383,7 +383,7 @@ GPL-2.0-only, matching git and gitweb.
 ## Project Layout
 
 ```
-gitweb_in_rust/
+gitweb-rs/
 ├── crates/
 │   ├── domain/      # framework-free git entities, ports, use cases (the core)
 │   ├── web/         # axum driving adapter: request → action → response
