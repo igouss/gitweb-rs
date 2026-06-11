@@ -99,6 +99,13 @@ Rules:
 
 ## Layer 3 — Mutation testing (verifies the verification)
 
+> **SUSPENDED as of 2026-06-10 (human-authorized) — see CLAUDE.md "Order of
+> work" step 4.** Do not run `cargo mutants` / `scripts/mutation-run.bb` and do
+> not block work on a mutation pass for now. Layers 1, 2, and 4 still apply.
+> The commands below are kept for when the suspension is lifted; until then,
+> skip this layer. Do NOT instead lower a threshold, exclude a file, or edit
+> `mutants.toml` — that is a separate check-change, not what "suspended" means.
+
 After implementation is green:
 
 ```bash
