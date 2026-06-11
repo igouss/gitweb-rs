@@ -102,3 +102,11 @@ Feature: Walking commit history through the gix adapter
     And commit 2 is "p2"
     And commit 3 is "p1"
     And commit 4 is "r"
+
+  # --- timezone-less committer ident (gitweb degrades, never dies) ---
+
+  Scenario: a commit with a timezone-less committer ident still appears in history
+    Given a commit whose committer ident has no timezone
+    When I read the history from that commit
+    Then 1 commit is listed
+    And commit 0 has committer epoch 0

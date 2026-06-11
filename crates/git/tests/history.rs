@@ -27,6 +27,9 @@ struct HistoryWorld {
     repo: Option<GixRepository>,
     named: BTreeMap<String, ObjectId>,
     history: Option<Result<Vec<Commit>, DomainError>>,
+    /// The single "current" start oid set by a `Given` that builds exactly
+    /// one commit and needs a nameless `When` to read from it.
+    start: Option<ObjectId>,
 }
 
 // --- fixture construction ----------------------------------------------------
@@ -175,6 +178,17 @@ fn build_octopus(world: &mut HistoryWorld) {
     );
 }
 
+/// A single root commit whose committer ident has no timezone suffix.
+fn build_tzless_committer(world: &mut HistoryWorld) {
+    let builder: RepoBuilder = RepoBuilder::init();
+    let commit: FixtureOid = builder.commit_with_tzless_committer();
+    builder.branch("main", commit);
+    builder.set_head("main");
+    let start: ObjectId = to_domain(commit);
+    open_with(world, builder, &[("tzless", commit)]);
+    world.start = Some(start);
+}
+
 /// Opens the adapter over a freshly built fixture and records the named commits
 /// for assertions.
 fn open_with(world: &mut HistoryWorld, builder: RepoBuilder, names: &[(&str, FixtureOid)]) {
@@ -227,11 +241,25 @@ fn given_octopus(world: &mut HistoryWorld) {
     build_octopus(world);
 }
 
+#[given("a commit whose committer ident has no timezone")]
+fn given_tzless_committer(world: &mut HistoryWorld) {
+    build_tzless_committer(world);
+}
+
 // --- Whens -------------------------------------------------------------------
 
 #[when(regex = r#"^I read the history from "([^"]*)"$"#)]
 fn read_history(world: &mut HistoryWorld, start: String) {
     let start_oid: ObjectId = oid(world, &start);
+    world.history = Some(repo(world).history(&start_oid, None, Page::new(0, 100)));
+}
+
+#[when("I read the history from that commit")]
+fn read_history_from_start(world: &mut HistoryWorld) {
+    let start_oid: ObjectId = world
+        .start
+        .clone()
+        .expect("a start commit must be set by the Given");
     world.history = Some(repo(world).history(&start_oid, None, Page::new(0, 100)));
 }
 
@@ -268,6 +296,11 @@ fn commit_at_has_parents(world: &mut HistoryWorld, index: usize, count: usize) {
 #[then(regex = r"^commit (\d+) is a merge$")]
 fn commit_at_is_merge(world: &mut HistoryWorld, index: usize) {
     assert!(ok_history(world)[index].is_merge());
+}
+
+#[then(regex = r"^commit (\d+) has committer epoch (\-?\d+)$")]
+fn commit_at_has_committer_epoch(world: &mut HistoryWorld, index: usize, expected: i64) {
+    assert_eq!(ok_history(world)[index].committer().epoch(), expected);
 }
 
 #[tokio::main]

@@ -61,10 +61,18 @@ pub(crate) fn to_object_kind(kind: gix::object::Kind) -> ObjectKind {
 /// time string, so reassembling the canonical line and handing it to
 /// [`Signature::parse`] keeps identity parsing in exactly one place — the
 /// domain — instead of duplicating gitweb's quirks here.
+///
+/// When the ident lacks a parseable `<epoch> <tz>` suffix — e.g. a
+/// timezone-less committer line that git accepts on read — we degrade to
+/// epoch 0 and an empty timezone, matching gitweb's `parse_commit_text`
+/// behaviour: a line that doesn't match the author/committer regex simply
+/// leaves `*_epoch` undefined; the commit still parses and renders.
 pub(crate) fn to_signature(sig: gix::actor::SignatureRef<'_>) -> Result<Signature, DomainError> {
     let line: String = format!("{} <{}> {}", sig.name, sig.email, sig.time);
-    Signature::parse(&line)
-        .ok_or_else(|| DomainError::Backend(format!("unparseable identity: {line}")))
+    let degraded: String = format!("{} <{}> 0 +0000", sig.name, sig.email);
+    Ok(Signature::parse(&line)
+        .or_else(|| Signature::parse(&degraded))
+        .expect("degraded ident with epoch 0 and +0000 is always parseable"))
 }
 
 /// Translates a gix commit into the domain's, deriving the same fields gitweb
