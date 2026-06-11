@@ -10,6 +10,7 @@ use std::path::Path;
 use gix::ObjectId;
 use gix::objs::tree::{Entry, EntryKind};
 use gix::objs::{Commit, Tag, Tree};
+use gix::prelude::Write as _;
 use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
 use gix::refs::{FullName, Target, TargetRef};
 
@@ -282,6 +283,45 @@ impl RepoBuilder {
         };
         let inner: gix::Reference<'_> = self.repo.find_reference(name.as_bstr()).ok()?;
         inner.try_id().map(|id| id.detach())
+    }
+
+    /// Writes a raw commit object from caller-supplied bytes, bypassing gix's
+    /// structured commit builder. This is the only way to produce a commit whose
+    /// committer or author line deviates from gix's well-formed
+    /// `"<name> <email> <epoch> <tz>"` format — for example, a tz-less ident
+    /// that git itself accepts on read. Returns the commit's object id.
+    ///
+    /// `body` must be a complete commit object body (tree, parent, author,
+    /// committer, and message lines) without the git object header — gix adds
+    /// the `"commit <len>\0"` header when writing to the object database.
+    #[must_use]
+    pub fn raw_commit(&self, body: &[u8]) -> ObjectId {
+        self.repo
+            .write_buf(gix::object::Kind::Commit, body)
+            .expect("write a raw fixture commit")
+    }
+
+    /// Writes a commit whose committer line has no timezone suffix, returning
+    /// its id. The author line is well-formed. Both identities use
+    /// `"Ada <ada@example.com>"` at epoch `1700000000`. The tree is written as
+    /// a single blob `a.txt = "root"`.
+    ///
+    /// The resulting raw committer line is `"Ada <ada@example.com> 1700000000"`
+    /// — no `<tz>` token — which gix's structured builder cannot produce but
+    /// which git accepts on read.
+    #[must_use]
+    pub fn commit_with_tzless_committer(&self) -> ObjectId {
+        let tree_oid: ObjectId = self.blob(b"root");
+        let tree_entries: &[crate::spec::TreeEntry] = &[crate::spec::TreeEntry {
+            name: "a.txt".to_owned(),
+            mode: crate::spec::Mode::File,
+            oid: tree_oid,
+        }];
+        let tree: ObjectId = self.tree(tree_entries);
+        let body: String = format!(
+            "tree {tree}\nauthor Ada <ada@example.com> 1700000000 +0000\ncommitter Ada <ada@example.com> 1700000000\n\ntzless root\n"
+        );
+        self.raw_commit(body.as_bytes())
     }
 
     /// The bytes of the blob named by `oid`, for round-trip assertions.
