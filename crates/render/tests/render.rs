@@ -15,6 +15,10 @@ use gitweb_domain::model::search_help::SearchHelpTopic;
 use gitweb_domain::model::tag_age::TagAge;
 use gitweb_domain::model::timestamp::Timestamp;
 use gitweb_render::age::age_class_name;
+use gitweb_render::blame::{
+    BlameDataGroup, BlameIncrementalPage, BlameShellLine, BlameTableGroup, BlameTableLine,
+    blame_data, blame_incremental_body, blame_table,
+};
 use gitweb_render::blob::{BlobContent, BlobLine, BlobPage, blob_body, blob_content};
 use gitweb_render::chrome::{
     Crumb, DocumentHead, FeedHrefs, FeedLink, FooterFeedHrefs, FooterLink, FormatLink, HiddenField,
@@ -123,6 +127,12 @@ struct RenderWorld {
     diff_title: Option<String>,
     diff_path: Option<String>,
     diff_formats: Vec<FormatLink>,
+    blame_group_meta: Option<(String, String, String)>,
+    blame_group_lines: Vec<BlameTableLine>,
+    blame_shell_lines: Vec<BlameShellLine>,
+    blame_data_group: Option<BlameDataGroup>,
+    blame_data_url: Option<String>,
+    blame_project_url: Option<String>,
 }
 
 // ---- Given: the text under escaping -----------------------------------------
@@ -2627,6 +2637,158 @@ fn render_commitdiff_from_parent(world: &mut RenderWorld) {
         viewer_module_src: "/static/diff-viewer.js".to_owned(),
     };
     world.output = Some(commitdiff_body(&page).into_string());
+}
+
+// ---- Blame ------------------------------------------------------------------
+
+#[given(regex = r#"^a blame group of (\d+) lines? by "([^"]*)" dated "([^"]*)"$"#)]
+fn given_blame_group(world: &mut RenderWorld, _lines: usize, author: String, date: String) {
+    let tooltip: String = format!("{author}, {date}");
+    world.blame_group_meta = Some((String::new(), String::new(), tooltip));
+}
+
+#[given(regex = r#"^the group commit is "([^"]*)" linking to "([^"]*)"$"#)]
+fn given_blame_group_commit(world: &mut RenderWorld, short: String, href: String) {
+    let meta: &mut (String, String, String) = world
+        .blame_group_meta
+        .as_mut()
+        .expect("a blame group was declared");
+    meta.0 = short;
+    meta.1 = href;
+}
+
+#[given(regex = r#"^the group line (\d+) is final (\d+) reading "(.*)" linking to "([^"]*)"$"#)]
+fn given_blame_group_line(
+    world: &mut RenderWorld,
+    _index: usize,
+    final_lineno: usize,
+    text: String,
+    linenr_href: String,
+) {
+    world.blame_group_lines.push(BlameTableLine {
+        final_lineno,
+        orig_lineno: final_lineno,
+        linenr_href,
+        text,
+    });
+}
+
+#[when("I render the blame table")]
+fn when_render_blame_table(world: &mut RenderWorld) {
+    let (short_commit, commit_href, tooltip): (String, String, String) = world
+        .blame_group_meta
+        .clone()
+        .expect("a blame group was declared");
+    let group: BlameTableGroup = BlameTableGroup {
+        short_commit,
+        commit_href,
+        tooltip,
+        lines: std::mem::take(&mut world.blame_group_lines),
+    };
+    world.output = Some(blame_table(&[group]).into_string());
+}
+
+#[given(regex = r#"^an incremental blame line (\d+) reading "(.*)"$"#)]
+fn given_incremental_line(world: &mut RenderWorld, final_lineno: usize, text: String) {
+    world
+        .blame_shell_lines
+        .push(BlameShellLine { final_lineno, text });
+}
+
+#[given(regex = r#"^the blame data url is "([^"]*)"$"#)]
+fn given_blame_data_url(world: &mut RenderWorld, url: String) {
+    world.blame_data_url = Some(url);
+}
+
+#[given(regex = r#"^the blame project url is "([^"]*)"$"#)]
+fn given_blame_project_url(world: &mut RenderWorld, url: String) {
+    world.blame_project_url = Some(url);
+}
+
+#[when("I render the incremental blame shell")]
+fn when_render_incremental_shell(world: &mut RenderWorld) {
+    let page: BlameIncrementalPage = BlameIncrementalPage {
+        crumbs: Vec::new(),
+        nav: Vec::new(),
+        formats: Vec::new(),
+        title: "subject".to_owned(),
+        path: "f.txt".to_owned(),
+        lines: std::mem::take(&mut world.blame_shell_lines),
+        data_url: world.blame_data_url.clone().unwrap_or_default(),
+        project_url: world.blame_project_url.clone().unwrap_or_default(),
+        module_src: "/static/blame-incremental.js".to_owned(),
+    };
+    world.output = Some(blame_incremental_body(&page).into_string());
+}
+
+#[given(regex = r#"^a blame data group "([^"]*)" orig (\d+) final (\d+) span (\d+)$"#)]
+fn given_blame_data_group(
+    world: &mut RenderWorld,
+    commit: String,
+    orig: usize,
+    final_lineno: usize,
+    span: usize,
+) {
+    world.blame_data_group = Some(BlameDataGroup {
+        commit,
+        orig_lineno: orig,
+        final_lineno,
+        numlines: span,
+        author: String::new(),
+        author_time: 0,
+        author_tz: String::new(),
+        filename: String::new(),
+    });
+}
+
+#[given(regex = r#"^the data group author is "([^"]*)"$"#)]
+fn given_data_group_author(world: &mut RenderWorld, author: String) {
+    world
+        .blame_data_group
+        .as_mut()
+        .expect("a data group was declared")
+        .author = author;
+}
+
+#[given(regex = r#"^the data group author time is (\d+) zone "([^"]*)"$"#)]
+fn given_data_group_time(world: &mut RenderWorld, time: i64, zone: String) {
+    let group: &mut BlameDataGroup = world
+        .blame_data_group
+        .as_mut()
+        .expect("a data group was declared");
+    group.author_time = time;
+    group.author_tz = zone;
+}
+
+#[given(regex = r#"^the data group filename is "([^"]*)"$"#)]
+fn given_data_group_filename(world: &mut RenderWorld, filename: String) {
+    world
+        .blame_data_group
+        .as_mut()
+        .expect("a data group was declared")
+        .filename = filename;
+}
+
+#[when("I render the blame data")]
+fn when_render_blame_data(world: &mut RenderWorld) {
+    let group: BlameDataGroup = world
+        .blame_data_group
+        .clone()
+        .expect("a data group was declared");
+    world.output = Some(blame_data(&[group]));
+}
+
+#[then("the result ends after a filename line")]
+fn then_data_ends_after_filename(world: &mut RenderWorld) {
+    let output: &str = world.output.as_ref().expect("the data was rendered");
+    let last_record: &str = output.trim_end_matches("END\n").trim_end();
+    assert!(
+        last_record
+            .lines()
+            .next_back()
+            .is_some_and(|line: &str| line.starts_with("filename ")),
+        "expected the last record line to be a filename line, got: {last_record:?}"
+    );
 }
 
 #[tokio::main]

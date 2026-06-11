@@ -8,6 +8,7 @@
 //! HTTP, gix, or HTML — so the web and render adapters consume its output
 //! without the domain knowing they exist.
 
+pub mod blame;
 pub mod blob;
 pub mod blob_plain;
 pub mod blobdiff;

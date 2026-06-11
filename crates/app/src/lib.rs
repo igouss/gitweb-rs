@@ -25,12 +25,13 @@ use gitweb_domain::model::settings::{FeatureName, Settings};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_git::GixProjectStore;
 use gitweb_web::{
-    BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
-    CommitdiffHandler, CommitdiffPlainHandler, DefaultObjectResolver, Dispatcher, FeedHandler,
-    ForksHandler, Handler, HeadsHandler, HistoryHandler, LogHandler, ObjectHandler,
-    ObjectKindResolver, OpmlHandler, PatchHandler, PatchesHandler, ProjectIndexHandler,
-    ProjectListHandler, RemotesHandler, SearchHandler, SearchHelpHandler, ShortlogHandler,
-    SnapshotHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler, router,
+    BlameDataHandler, BlameHandler, BlameIncrementalHandler, BlobHandler, BlobPlainHandler,
+    BlobdiffHandler, BlobdiffPlainHandler, CommitHandler, CommitdiffHandler,
+    CommitdiffPlainHandler, DefaultObjectResolver, Dispatcher, FeedHandler, ForksHandler, Handler,
+    HeadsHandler, HistoryHandler, LogHandler, ObjectHandler, ObjectKindResolver, OpmlHandler,
+    PatchHandler, PatchesHandler, ProjectIndexHandler, ProjectListHandler, RemotesHandler,
+    SearchHandler, SearchHelpHandler, ShortlogHandler, SnapshotHandler, SummaryHandler, TagHandler,
+    TagsHandler, TreeHandler, router,
 };
 use tower_http::services::ServeDir;
 
@@ -143,6 +144,22 @@ fn build_dispatcher(
     let blob: Arc<dyn Handler> =
         Arc::new(BlobHandler::new(Arc::clone(&store), Arc::clone(&settings)));
     dispatcher.register(Action::Blob, blob);
+
+    let blame: Arc<dyn Handler> =
+        Arc::new(BlameHandler::new(Arc::clone(&store), Arc::clone(&settings)));
+    dispatcher.register(Action::Blame, blame);
+
+    let blame_incremental: Arc<dyn Handler> = Arc::new(BlameIncrementalHandler::new(
+        Arc::clone(&store),
+        Arc::clone(&settings),
+    ));
+    dispatcher.register(Action::BlameIncremental, blame_incremental);
+
+    let blame_data: Arc<dyn Handler> = Arc::new(BlameDataHandler::new(
+        Arc::clone(&store),
+        Arc::clone(&settings),
+    ));
+    dispatcher.register(Action::BlameData, blame_data);
 
     let commit: Arc<dyn Handler> = Arc::new(CommitHandler::new(
         Arc::clone(&store),

@@ -15,7 +15,7 @@ use cucumber::{World, given, then, when};
 
 use gitweb_domain::error::DomainError;
 use gitweb_domain::model::action::Action;
-use gitweb_domain::model::blame::Blame;
+use gitweb_domain::model::blame::{Blame, BlameLine};
 use gitweb_domain::model::blob::{Blob, BlobDisplay};
 use gitweb_domain::model::blobdiff_plain::BlobdiffPlain;
 use gitweb_domain::model::branch_refs::get_branch_refs;
@@ -55,6 +55,7 @@ use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::{
     ArchiveFormat, ArchiveOptions, Page, RenameDetection, Repository, SearchKind, SearchQuery,
 };
+use gitweb_domain::usecase::blame::{BlameGroup, BlameRow, BlameView, assemble_blame};
 use gitweb_domain::usecase::blob::{BlobView, assemble_blob};
 use gitweb_domain::usecase::blob_plain::{BlobPlainView, assemble_blob_plain};
 use gitweb_domain::usecase::blobdiff::{BlobdiffView, assemble_blobdiff};
@@ -267,6 +268,25 @@ struct UsecaseWorld {
     search_help_grep_disabled: bool,
     search_help_pickaxe_disabled: bool,
     search_help_view: Option<SearchHelpView>,
+    /// The blamed lines a blame scenario declares, in final order; folded into a
+    /// [`Blame`] by the fake's `blame` port method.
+    blame_lines: Vec<FakeBlameLine>,
+    /// Whether the declared path is missing, so the fake's `blame` returns the
+    /// port's `NotFound` (gitweb's "Error looking up file").
+    blame_missing: bool,
+    blame_result: Option<Result<BlameView, DomainError>>,
+}
+
+/// One blamed line a scenario declares: the name of the introducing commit, its
+/// final line number, and its text. The fake derives the commit id from the name
+/// (so `find_commit` over the declared commits supplies the author and date) and
+/// uses the final line number as the original too (the use case carries both
+/// through; the grouping the use case performs is what these scenarios pin).
+#[derive(Debug, Clone)]
+struct FakeBlameLine {
+    commit: String,
+    final_lineno: usize,
+    content: String,
 }
 
 /// One directory in the fake repository's tree, listed by the `tree` use case.
@@ -385,6 +405,10 @@ struct FakeTag {
 struct FakeCommit {
     id: ObjectId,
     epoch: i64,
+    /// The author's timezone token (gitweb's author-tz). Defaults to `+0000`; the
+    /// blame scenarios set it to observe the local civil date and the
+    /// `author-tz` the incremental stream emits.
+    zone: String,
     author: String,
     title: String,
     touches: Vec<String>,
@@ -436,8 +460,8 @@ fn fake_oid(seed: &str) -> ObjectId {
 /// `search` (the result list) so both render rows from the same shape.
 fn commit_from_fake(commit: &FakeCommit) -> Commit {
     let who: Signature = Signature::parse(&format!(
-        "{} <a@example.com> {} +0000",
-        commit.author, commit.epoch
+        "{} <a@example.com> {} {}",
+        commit.author, commit.epoch, commit.zone
     ))
     .expect("a valid fixture signature");
     Commit::new(
@@ -483,6 +507,10 @@ struct FakeRepository {
     commit_fixture: Option<FakeCommitFixture>,
     snapshot: Option<FakeSnapshot>,
     patch_series: Option<FakePatchSeries>,
+    /// The blamed lines the `blame` port folds into a [`Blame`], and whether the
+    /// path is missing (the port's `NotFound`).
+    blame_lines: Vec<FakeBlameLine>,
+    blame_missing: bool,
 }
 
 /// The object a `snapshot` request resolves and archives: the revision name it
@@ -819,6 +847,11 @@ impl Repository for FakeRepository {
             && let Some(tip) = self.patch_series.as_ref().and_then(FakePatchSeries::tip)
         {
             return Ok(tip.id.clone());
+        }
+        if rev == "HEAD"
+            && let Some(oid) = self.head_commit.as_ref()
+        {
+            return Ok(oid.clone());
         }
         if rev == "HEAD" && self.has_tree() {
             return Ok(tree_head_oid());
@@ -1190,8 +1223,28 @@ impl Repository for FakeRepository {
         unimplemented!("only the commit use case's merge fixture builds a combined diff")
     }
 
-    fn blame(&self, _at: &ObjectId, _path: &str) -> Result<Blame, DomainError> {
-        unimplemented!("the heads use case never blames")
+    fn blame(&self, _at: &ObjectId, path: &str) -> Result<Blame, DomainError> {
+        // The line-by-line attribution is the gix adapter's conformance (5o3); the
+        // fake just folds the scenario's declared lines into a Blame so the use
+        // case's own logic — grouping, the per-commit metadata cache, the view
+        // assembly — is exercised. A missing path is the port's NotFound, gitweb's
+        // "Error looking up file".
+        if self.blame_missing {
+            return Err(DomainError::NotFound(path.to_owned()));
+        }
+        let lines: Vec<BlameLine> = self
+            .blame_lines
+            .iter()
+            .map(|line: &FakeBlameLine| {
+                BlameLine::new(
+                    fake_oid(&line.commit),
+                    line.final_lineno,
+                    line.final_lineno,
+                    line.content.clone(),
+                )
+            })
+            .collect();
+        Ok(Blame::new(lines))
     }
 
     fn archive(
@@ -2113,6 +2166,33 @@ fn repo_has_commit(
     world.commits.push(FakeCommit {
         id: fake_oid(&name),
         epoch,
+        zone: "+0000".to_owned(),
+        author,
+        title,
+        touches: Vec::new(),
+        present: Vec::new(),
+    });
+}
+
+/// gitweb's author-tz: a blame scenario declares a commit's timezone so the
+/// local civil date and the `author-tz` the incremental stream emits are
+/// observable. Records the commit with the given zone (the default `+0000` form
+/// otherwise).
+#[given(
+    regex = r#"^a commit "([^"]*)" at epoch (\d+) in zone "([^"]*)" by "([^"]*)" titled "(.*)"$"#
+)]
+fn repo_has_commit_in_zone(
+    world: &mut UsecaseWorld,
+    name: String,
+    epoch: i64,
+    zone: String,
+    author: String,
+    title: String,
+) {
+    world.commits.push(FakeCommit {
+        id: fake_oid(&name),
+        epoch,
+        zone,
         author,
         title,
         touches: Vec::new(),
@@ -2266,6 +2346,7 @@ fn repo_has_search_hit(
     world.search_hits.push(FakeCommit {
         id: fake_oid(&name),
         epoch,
+        zone: "+0000".to_owned(),
         author,
         title,
         touches: Vec::new(),
@@ -2639,6 +2720,7 @@ fn repo_has_pickaxe_hit(
         commit: FakeCommit {
             id: fake_oid(&name),
             epoch,
+            zone: "+0000".to_owned(),
             author,
             title,
             touches: Vec::new(),
@@ -2914,6 +2996,8 @@ fn fake_repo(world: &UsecaseWorld) -> FakeRepository {
         commit_fixture: world.commit_fixture.clone(),
         snapshot: world.snapshot.clone(),
         patch_series: world.patch_series.clone(),
+        blame_lines: world.blame_lines.clone(),
+        blame_missing: world.blame_missing,
     }
 }
 
@@ -5384,6 +5468,151 @@ fn then_snapshot_fails_forbidden(world: &mut UsecaseWorld) {
 #[then("assembling the snapshot fails as not found")]
 fn then_snapshot_fails_not_found(world: &mut UsecaseWorld) {
     assert!(matches!(snapshot_error(world), DomainError::NotFound(_)));
+}
+
+// --- blame -------------------------------------------------------------------
+
+/// The assembled blame view, or a panic if assembly failed or never ran.
+fn blame_view(world: &UsecaseWorld) -> &BlameView {
+    world
+        .blame_result
+        .as_ref()
+        .expect("the blame was assembled")
+        .as_ref()
+        .expect("the blame succeeded")
+}
+
+/// The blame error, or a panic if assembly succeeded or never ran.
+fn blame_error(world: &UsecaseWorld) -> &DomainError {
+    world
+        .blame_result
+        .as_ref()
+        .expect("the blame was assembled")
+        .as_ref()
+        .expect_err("the blame failed")
+}
+
+/// The 1-based group, or a panic when out of range.
+fn blame_group(world: &UsecaseWorld, index: usize) -> &BlameGroup {
+    blame_view(world)
+        .groups()
+        .get(index - 1)
+        .unwrap_or_else(|| panic!("no blame group {index}"))
+}
+
+#[given(regex = r#"^blaming "([^"]*)" attributes line (\d+) to "([^"]*)" reading "(.*)"$"#)]
+fn blaming_attributes_line(
+    world: &mut UsecaseWorld,
+    _path: String,
+    line: usize,
+    commit: String,
+    content: String,
+) {
+    world.blame_lines.push(FakeBlameLine {
+        commit,
+        final_lineno: line,
+        content,
+    });
+}
+
+#[given(regex = r#"^blaming "([^"]*)" yields no lines$"#)]
+fn blaming_yields_no_lines(world: &mut UsecaseWorld, _path: String) {
+    world.blame_lines.clear();
+}
+
+#[given(regex = r#"^blaming "([^"]*)" fails to find it$"#)]
+fn blaming_fails_to_find(world: &mut UsecaseWorld, _path: String) {
+    world.blame_missing = true;
+}
+
+#[when(regex = r#"^I assemble the blame of "([^"]*)" from the default branch$"#)]
+fn assemble_default_blame(world: &mut UsecaseWorld, path: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.blame_result = Some(assemble_blame(&repo, None, &path));
+}
+
+#[when(regex = r#"^I assemble the blame of "([^"]*)" from "([^"]*)"$"#)]
+fn assemble_rev_blame(world: &mut UsecaseWorld, path: String, rev: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.blame_result = Some(assemble_blame(&repo, Some(&rev), &path));
+}
+
+#[then(regex = r#"^the blame commit title is "(.*)"$"#)]
+fn blame_commit_title_is(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(blame_view(world).commit_title(), expected);
+}
+
+#[then(regex = r#"^the blame file name is "([^"]*)"$"#)]
+fn blame_file_name_is(world: &mut UsecaseWorld, expected: String) {
+    assert_eq!(blame_view(world).file_name(), expected);
+}
+
+#[then(regex = r#"^the blame has (\d+) groups?$"#)]
+fn blame_has_groups(world: &mut UsecaseWorld, expected: usize) {
+    assert_eq!(blame_view(world).groups().len(), expected);
+}
+
+#[then(regex = r#"^the blame has (\d+) lines?$"#)]
+fn blame_has_lines(world: &mut UsecaseWorld, expected: usize) {
+    assert_eq!(blame_view(world).rows().len(), expected);
+}
+
+#[then(regex = r#"^blame group (\d+) is attributed to "([^"]*)"$"#)]
+fn blame_group_attributed_to(world: &mut UsecaseWorld, index: usize, commit: String) {
+    assert_eq!(
+        blame_group(world, index).commit(),
+        fake_oid(&commit).as_str()
+    );
+}
+
+#[then(regex = r#"^blame group (\d+) short id is "([^"]*)"$"#)]
+fn blame_group_short_id_is(world: &mut UsecaseWorld, index: usize, expected: String) {
+    assert_eq!(blame_group(world, index).short_commit(), expected);
+}
+
+#[then(regex = r#"^blame group (\d+) is by "([^"]*)"$"#)]
+fn blame_group_is_by(world: &mut UsecaseWorld, index: usize, expected: String) {
+    assert_eq!(blame_group(world, index).author(), expected);
+}
+
+#[then(regex = r#"^blame group (\d+) spans (\d+) lines?$"#)]
+fn blame_group_spans(world: &mut UsecaseWorld, index: usize, expected: usize) {
+    assert_eq!(blame_group(world, index).numlines(), expected);
+}
+
+#[then(regex = r#"^blame group (\d+) starts at final line (\d+)$"#)]
+fn blame_group_starts_at_final(world: &mut UsecaseWorld, index: usize, expected: usize) {
+    assert_eq!(blame_group(world, index).final_lineno(), expected);
+}
+
+#[then(regex = r#"^blame group (\d+) date is "([^"]*)"$"#)]
+fn blame_group_date_is(world: &mut UsecaseWorld, index: usize, expected: String) {
+    assert_eq!(blame_group(world, index).date(), expected);
+}
+
+#[then(regex = r#"^blame group (\d+) author time is (\d+)$"#)]
+fn blame_group_author_time_is(world: &mut UsecaseWorld, index: usize, expected: i64) {
+    assert_eq!(blame_group(world, index).author_time(), expected);
+}
+
+#[then(regex = r#"^blame group (\d+) author zone is "([^"]*)"$"#)]
+fn blame_group_author_zone_is(world: &mut UsecaseWorld, index: usize, expected: String) {
+    assert_eq!(blame_group(world, index).author_tz(), expected);
+}
+
+#[then(regex = r#"^blame line (\d+) reads "(.*)"$"#)]
+fn blame_line_reads(world: &mut UsecaseWorld, line: usize, expected: String) {
+    let row: &BlameRow = blame_view(world)
+        .rows()
+        .iter()
+        .find(|row: &&BlameRow| row.final_lineno() == line)
+        .unwrap_or_else(|| panic!("no blame line {line}"));
+    assert_eq!(row.content(), expected);
+}
+
+#[then("assembling the blame fails")]
+fn blame_fails(world: &mut UsecaseWorld) {
+    let _: &DomainError = blame_error(world);
 }
 
 #[tokio::main]

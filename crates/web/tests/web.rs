@@ -28,12 +28,12 @@ use gitweb_domain::port::repository::Repository;
 use gitweb_fixtures::ProjectRoot;
 use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
-    BlobHandler, BlobPlainHandler, BlobdiffHandler, BlobdiffPlainHandler, CommitHandler,
-    CommitdiffHandler, CommitdiffPlainHandler, DefaultObjectResolver, FeedHandler, ForksHandler,
-    HeadsHandler, HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, PatchHandler,
-    PatchesHandler, ProjectIndexHandler, ProjectListHandler, RemotesHandler, SearchHandler,
-    SearchHelpHandler, ShortlogHandler, SnapshotHandler, SummaryHandler, TagHandler, TagsHandler,
-    TreeHandler,
+    BlameDataHandler, BlameHandler, BlameIncrementalHandler, BlobHandler, BlobPlainHandler,
+    BlobdiffHandler, BlobdiffPlainHandler, CommitHandler, CommitdiffHandler,
+    CommitdiffPlainHandler, DefaultObjectResolver, FeedHandler, ForksHandler, HeadsHandler,
+    HistoryHandler, LogHandler, ObjectHandler, OpmlHandler, PatchHandler, PatchesHandler,
+    ProjectIndexHandler, ProjectListHandler, RemotesHandler, SearchHandler, SearchHelpHandler,
+    ShortlogHandler, SnapshotHandler, SummaryHandler, TagHandler, TagsHandler, TreeHandler,
 };
 use gitweb_web::request::{ResolvedRequest, resolve};
 use gitweb_web::response::View;
@@ -560,6 +560,71 @@ fn given_blob_served(world: &mut WebWorld) {
     let settings: Arc<Settings> = Arc::new(Settings::builtin());
     let handler: Arc<dyn Handler> = Arc::new(BlobHandler::new(store, settings));
     world.dispatcher.register(Action::Blob, handler);
+}
+
+// --- blame: the file-history repo + the three served actions -----------------
+
+#[given(regex = r#"^a project root with a file history "([^"]*)"$"#)]
+fn given_file_history_repo(world: &mut WebWorld, name: String) {
+    ensure_root(world);
+    root(world).add_file_history(&name);
+}
+
+/// Settings whose `blame` feature is on (gitweb's `$feature{blame}{default} =
+/// [1]`); the builtin default is off, so the served handlers turn it on.
+fn blame_on_settings() -> Settings {
+    let mut features: BTreeMap<FeatureName, FeatureLayer> = BTreeMap::new();
+    features.insert(
+        FeatureName::Blame,
+        FeatureLayer {
+            default: Some(vec!["1".to_owned()]),
+            overridable: None,
+        },
+    );
+    Settings::resolve(&[SettingsLayer {
+        features,
+        ..SettingsLayer::default()
+    }])
+}
+
+/// A store over the current root, for wiring a blame handler.
+fn blame_store(world: &mut WebWorld) -> Arc<dyn ProjectStore + Send + Sync> {
+    ensure_root(world);
+    Arc::new(GixProjectStore::new(root(world).path().to_path_buf()))
+}
+
+#[given("the blame action is served")]
+fn given_blame_served(world: &mut WebWorld) {
+    let store: Arc<dyn ProjectStore + Send + Sync> = blame_store(world);
+    let handler: Arc<dyn Handler> =
+        Arc::new(BlameHandler::new(store, Arc::new(blame_on_settings())));
+    world.dispatcher.register(Action::Blame, handler);
+}
+
+#[given("the blame_incremental action is served")]
+fn given_blame_incremental_served(world: &mut WebWorld) {
+    let store: Arc<dyn ProjectStore + Send + Sync> = blame_store(world);
+    let handler: Arc<dyn Handler> = Arc::new(BlameIncrementalHandler::new(
+        store,
+        Arc::new(blame_on_settings()),
+    ));
+    world.dispatcher.register(Action::BlameIncremental, handler);
+}
+
+#[given("the blame_data action is served")]
+fn given_blame_data_served(world: &mut WebWorld) {
+    let store: Arc<dyn ProjectStore + Send + Sync> = blame_store(world);
+    let handler: Arc<dyn Handler> =
+        Arc::new(BlameDataHandler::new(store, Arc::new(blame_on_settings())));
+    world.dispatcher.register(Action::BlameData, handler);
+}
+
+#[given("the blame action is served with blame disabled")]
+fn given_blame_disabled(world: &mut WebWorld) {
+    let store: Arc<dyn ProjectStore + Send + Sync> = blame_store(world);
+    let handler: Arc<dyn Handler> =
+        Arc::new(BlameHandler::new(store, Arc::new(Settings::builtin())));
+    world.dispatcher.register(Action::Blame, handler);
 }
 
 #[given(regex = r#"^a project root containing a commit repository "([^"]*)"$"#)]

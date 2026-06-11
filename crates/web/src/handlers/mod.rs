@@ -12,6 +12,7 @@
 //! [`View`]: crate::response::View
 //! [`Dispatcher`]: crate::dispatch::Dispatcher
 
+pub mod blame;
 pub mod blob;
 pub mod blob_plain;
 pub mod blobdiff;
@@ -44,6 +45,7 @@ pub mod tag;
 pub mod tags;
 pub mod tree;
 
+pub use blame::{BlameDataHandler, BlameHandler, BlameIncrementalHandler};
 pub use blob::BlobHandler;
 pub use blob_plain::BlobPlainHandler;
 pub use blobdiff::BlobdiffHandler;
