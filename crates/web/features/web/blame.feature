@@ -18,6 +18,26 @@ Feature: Serving blame (blame, blame_incremental, blame_data actions)
     And the response body contains "a=commit"
     And the response body contains "v2"
     And the response body contains "Ada Lovelace"
+    And the response body contains "<title>h.git / blame / file.txt</title>"
+    And the response body contains "a=summary"
+    And the response body contains "a=history&amp;hb=HEAD&amp;f=file.txt"
+    And the response body contains "a=blob&amp;hb=HEAD&amp;f=file.txt"
+    And the response body contains "a=blame&amp;hb=HEAD&amp;f=file.txt"
+    And the response body contains "class="linenr""
+    And the response body contains "&amp;f=file.txt#l1"
+
+  Scenario: a two-line file blamed to two commits is two groups, one row each
+    Given a project root with a two-line blame "two.git"
+    And the blame action is served
+    When I GET "/?p=two.git&a=blame&hb=HEAD&f=two.txt"
+    Then the response status is 200
+    And the response body contains "id="l1""
+    And the response body contains "id="l2""
+    And the response body contains "First Author"
+    And the response body contains "Second Author"
+    And the response body contains "one"
+    And the response body contains "two"
+    And the response body contains "rowspan="1""
 
   Scenario: the blame_incremental action serves the shell and boots the client
     Given a project root with a file history "h.git"

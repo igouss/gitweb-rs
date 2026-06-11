@@ -2700,6 +2700,14 @@ fn given_blame_data_url(world: &mut RenderWorld, url: String) {
     world.blame_data_url = Some(url);
 }
 
+#[given("the blame data url has a tab then a space")]
+fn given_blame_data_url_control(world: &mut RenderWorld) {
+    // A control character (tab, 0x09) must become a `	` escape; the space
+    // (0x20) sits just above the guard and must stay a literal space — so the
+    // bootstrap never carries a raw control byte yet does not over-escape.
+    world.blame_data_url = Some("/p/\t /x".to_owned());
+}
+
 #[given(regex = r#"^the blame project url is "([^"]*)"$"#)]
 fn given_blame_project_url(world: &mut RenderWorld, url: String) {
     world.blame_project_url = Some(url);

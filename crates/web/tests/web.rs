@@ -25,7 +25,9 @@ use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::settings::{FeatureLayer, FeatureName, Settings, SettingsLayer};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_domain::port::repository::Repository;
-use gitweb_fixtures::ProjectRoot;
+use gitweb_fixtures::{
+    CommitSpec, Identity, Mode, ObjectId as FixtureOid, ProjectRoot, RepoBuilder, TreeEntry,
+};
 use gitweb_git::GixProjectStore;
 use gitweb_web::handlers::{
     BlameDataHandler, BlameHandler, BlameIncrementalHandler, BlobHandler, BlobPlainHandler,
@@ -568,6 +570,55 @@ fn given_blob_served(world: &mut WebWorld) {
 fn given_file_history_repo(world: &mut WebWorld, name: String) {
     ensure_root(world);
     root(world).add_file_history(&name);
+}
+
+/// A repository whose `two.txt` is two lines blamed to two different commits: the
+/// first commit writes `one\n`, the second appends `two\n`. At HEAD line 1 is
+/// attributed to the first commit and line 2 to the second — two single-line
+/// blame groups, so the server table's per-group line-span boundary is exercised.
+#[given(regex = r#"^a project root with a two-line blame "([^"]*)"$"#)]
+fn given_two_line_blame_repo(world: &mut WebWorld, name: String) {
+    ensure_root(world);
+    let path: std::path::PathBuf = root(world).path().join(&name);
+    let builder: RepoBuilder = RepoBuilder::init_at(&path);
+    let first_who: Identity = Identity {
+        name: "First Author".to_owned(),
+        email: "first@example.com".to_owned(),
+        epoch_seconds: 1_700_000_000,
+        timezone_offset_seconds: 0,
+    };
+    let second_who: Identity = Identity {
+        name: "Second Author".to_owned(),
+        email: "second@example.com".to_owned(),
+        epoch_seconds: 1_700_100_000,
+        timezone_offset_seconds: 0,
+    };
+    let first_tree: FixtureOid = builder.tree(&[TreeEntry {
+        name: "two.txt".to_owned(),
+        mode: Mode::File,
+        oid: builder.blob(b"one\n"),
+    }]);
+    let first: FixtureOid = builder.commit(&CommitSpec {
+        tree: first_tree,
+        parents: Vec::new(),
+        author: first_who.clone(),
+        committer: first_who,
+        message: "write one\n".to_owned(),
+    });
+    let second_tree: FixtureOid = builder.tree(&[TreeEntry {
+        name: "two.txt".to_owned(),
+        mode: Mode::File,
+        oid: builder.blob(b"one\ntwo\n"),
+    }]);
+    let second: FixtureOid = builder.commit(&CommitSpec {
+        tree: second_tree,
+        parents: vec![first],
+        author: second_who.clone(),
+        committer: second_who,
+        message: "append two\n".to_owned(),
+    });
+    builder.branch("main", second);
+    builder.set_head("main");
 }
 
 /// Settings whose `blame` feature is on (gitweb's `$feature{blame}{default} =

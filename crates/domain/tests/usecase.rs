@@ -285,6 +285,7 @@ struct UsecaseWorld {
 #[derive(Debug, Clone)]
 struct FakeBlameLine {
     commit: String,
+    orig_lineno: usize,
     final_lineno: usize,
     content: String,
 }
@@ -1238,7 +1239,7 @@ impl Repository for FakeRepository {
             .map(|line: &FakeBlameLine| {
                 BlameLine::new(
                     fake_oid(&line.commit),
-                    line.final_lineno,
+                    line.orig_lineno,
                     line.final_lineno,
                     line.content.clone(),
                 )
@@ -5510,6 +5511,26 @@ fn blaming_attributes_line(
 ) {
     world.blame_lines.push(FakeBlameLine {
         commit,
+        orig_lineno: line,
+        final_lineno: line,
+        content,
+    });
+}
+
+#[given(
+    regex = r#"^blaming "([^"]*)" attributes line (\d+) \(originally line (\d+)\) to "([^"]*)" reading "(.*)"$"#
+)]
+fn blaming_attributes_line_with_orig(
+    world: &mut UsecaseWorld,
+    _path: String,
+    line: usize,
+    orig: usize,
+    commit: String,
+    content: String,
+) {
+    world.blame_lines.push(FakeBlameLine {
+        commit,
+        orig_lineno: orig,
         final_lineno: line,
         content,
     });
@@ -5583,6 +5604,21 @@ fn blame_group_spans(world: &mut UsecaseWorld, index: usize, expected: usize) {
 #[then(regex = r#"^blame group (\d+) starts at final line (\d+)$"#)]
 fn blame_group_starts_at_final(world: &mut UsecaseWorld, index: usize, expected: usize) {
     assert_eq!(blame_group(world, index).final_lineno(), expected);
+}
+
+#[then(regex = r#"^blame group (\d+) starts at original line (\d+)$"#)]
+fn blame_group_starts_at_orig(world: &mut UsecaseWorld, index: usize, expected: usize) {
+    assert_eq!(blame_group(world, index).orig_lineno(), expected);
+}
+
+#[then(regex = r#"^blame line (\d+) has original line number (\d+)$"#)]
+fn blame_line_orig_is(world: &mut UsecaseWorld, line: usize, expected: usize) {
+    let row: &BlameRow = blame_view(world)
+        .rows()
+        .iter()
+        .find(|row: &&BlameRow| row.final_lineno() == line)
+        .unwrap_or_else(|| panic!("no blame line {line}"));
+    assert_eq!(row.orig_lineno(), expected);
 }
 
 #[then(regex = r#"^blame group (\d+) date is "([^"]*)"$"#)]

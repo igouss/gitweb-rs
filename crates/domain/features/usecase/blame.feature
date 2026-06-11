@@ -79,6 +79,18 @@ Feature: Blame (line-by-line attribution)
     And blame group 1 author time is 1136214245
     And blame group 1 author zone is "+0900"
 
+  Scenario: a line keeps the original line number it had in its source commit
+    Given the repository HEAD is at commit "c2"
+    And a commit "c1" at epoch 1136160000 by "Alice" titled "first"
+    And a commit "c2" at epoch 1136246400 by "Bob" titled "second"
+    And blaming "f.txt" attributes line 1 (originally line 7) to "c1" reading "kept"
+    And blaming "f.txt" attributes line 2 (originally line 4) to "c2" reading "added"
+    When I assemble the blame of "f.txt" from the default branch
+    Then blame group 1 starts at original line 7
+    And blame group 2 starts at original line 4
+    And blame line 1 has original line number 7
+    And blame line 2 has original line number 4
+
   Scenario: an empty file has no groups and no lines
     Given the repository HEAD is at commit "c1"
     And a commit "c1" at epoch 1136160000 by "Alice" titled "empty"

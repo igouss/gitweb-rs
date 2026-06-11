@@ -49,6 +49,14 @@ Feature: Rendering blame (server-rendered, incremental shell, and data stream)
     And the result contains "startBlame"
     And the result contains "/p/blame_data/HEAD/f.txt"
 
+  Scenario: the bootstrap escapes control characters but leaves the space above them
+    Given an incremental blame line 1 reading "x"
+    And the blame data url has a tab then a space
+    And the blame project url is "/p/"
+    When I render the incremental blame shell
+    Then the result contains "/p/\u0009"
+    And the result does not contain "\u0020"
+
   Scenario: the data stream is the git blame --incremental format
     Given a blame data group "abcd1234ef0000000000000000000000000000aa" orig 5 final 5 span 2
     And the data group author is "Alice"
