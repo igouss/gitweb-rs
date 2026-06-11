@@ -4047,6 +4047,18 @@ fn assemble_blob_of_id(world: &mut UsecaseWorld, id: String) {
     ));
 }
 
+#[when(regex = r#"^I assemble the blob of id "([^"]*)" with base "([^"]*)"$"#)]
+fn assemble_blob_of_id_with_base(world: &mut UsecaseWorld, id: String, base: String) {
+    let repo: FakeRepository = fake_repo(world);
+    world.blob_result = Some(assemble_blob(
+        &repo,
+        Some(&base),
+        Some(&id),
+        None,
+        FallbackEncoding::Latin1,
+    ));
+}
+
 #[when("I assemble the blob with neither id nor path")]
 fn assemble_blob_neither(world: &mut UsecaseWorld) {
     let repo: FakeRepository = fake_repo(world);

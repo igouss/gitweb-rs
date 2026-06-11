@@ -61,3 +61,10 @@ Feature: Showing one file (blob)
   Scenario: a path absent from the base is not found
     When I assemble the blob at path "ghost"
     Then assembling the blob fails as not found
+
+  Scenario: a blob shown by id with an unresolvable base still renders, without a subject
+    Given the blob "readme" at "README" contains text "by id"
+    When I assemble the blob of id "readme" with base "nonesuch"
+    Then the blob displays as text
+    And blob line 1 is "by id"
+    And the blob shows no commit subject

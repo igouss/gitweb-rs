@@ -124,6 +124,8 @@ pub(crate) fn resolve_blob(
 /// named and resolves to a commit (gitweb's
 /// `if (defined $hash_base && (my %co = parse_commit($hash_base)))`); `None`
 /// otherwise, the loose-blob path where gitweb prints the blob hash instead.
+/// An unresolvable base (gitweb's `parse_commit` returning empty) yields `None`
+/// — the blob still renders, titleless.
 fn header_title(
     repo: &dyn Repository,
     base_rev: Option<&str>,
@@ -131,7 +133,11 @@ fn header_title(
     let Some(base_rev) = base_rev else {
         return Ok(None);
     };
-    let base: ObjectId = repo.resolve(base_rev)?;
+    let base: ObjectId = match repo.resolve(base_rev) {
+        Ok(oid) => oid,
+        Err(DomainError::NotFound(_)) => return Ok(None),
+        Err(other) => return Err(other),
+    };
     if repo.object_kind(&base)? == ObjectKind::Commit {
         Ok(Some(repo.find_commit(&base)?.title()))
     } else {
