@@ -20,7 +20,6 @@ use std::cmp::Ordering;
 
 use crate::error::DomainError;
 use crate::model::age::Age;
-use crate::model::commit::Commit;
 use crate::model::object_id::ObjectId;
 use crate::model::reference::Reference;
 use crate::port::repository::Repository;

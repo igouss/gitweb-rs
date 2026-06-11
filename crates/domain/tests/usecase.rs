@@ -771,7 +771,10 @@ impl Repository for FakeRepository {
             // A readable object that is not a commit (a tag-tipped branch) is
             // what the gix adapter reports: `try_into_commit` fails as Invalid,
             // not NotFound. The fake mirrors that so heads pins the real path.
-            return Err(DomainError::Invalid(format!("not a commit: {}", oid.as_str())));
+            return Err(DomainError::Invalid(format!(
+                "not a commit: {}",
+                oid.as_str()
+            )));
         }
         if let Some(snapshot) = self.snapshot.as_ref().filter(|s| &s.id == oid) {
             let committer: &Signature = snapshot
