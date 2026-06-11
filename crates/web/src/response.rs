@@ -415,6 +415,9 @@ fn error_page_response(status: HttpStatus, main: Markup) -> Response {
         stylesheet_href: STYLESHEET_PATH.to_owned(),
         favicon_href: Some(FAVICON_PATH.to_owned()),
         feeds: Vec::new(),
+        // The error path has no request/feature context, so it loads no client
+        // scripts — gitweb's die_error likewise wires none.
+        scripts: Vec::new(),
     };
     // gitweb's die_error closes with git_footer_html too; the error path has no
     // request context, so it carries the generic empty footer.

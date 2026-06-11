@@ -82,7 +82,8 @@ fn render_page(
         // The forks page's sort headers replay the forks action.
         list: project_table(view, &[("p", project), ("a", "forks")]),
     };
-    let head: DocumentHead = document_head(format!("{project} / forks"), chrome.feeds);
+    let head: DocumentHead =
+        document_head(format!("{project} / forks"), chrome.feeds, chrome.scripts);
     document(&head, &chrome.foot, forks_body(&page))
 }
 

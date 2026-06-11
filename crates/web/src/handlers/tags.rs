@@ -77,7 +77,8 @@ fn render_page(settings: &Settings, project: &str, view: &TagsView, chrome: Page
             more: None,
         },
     };
-    let head: DocumentHead = document_head(format!("{project} / tags"), chrome.feeds);
+    let head: DocumentHead =
+        document_head(format!("{project} / tags"), chrome.feeds, chrome.scripts);
     document(&head, &chrome.foot, tags_body(&page))
 }
 

@@ -98,7 +98,7 @@ fn render_page(
         path: file.map(str::to_owned),
         content: content(project, base, file, view),
     };
-    let head: DocumentHead = document_head(blob_title(project, file), chrome.feeds);
+    let head: DocumentHead = document_head(blob_title(project, file), chrome.feeds, chrome.scripts);
     document(&head, &chrome.foot, blob_body(&page))
 }
 

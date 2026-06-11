@@ -93,7 +93,11 @@ fn render_page(
             more: view.has_more().then(|| more_link(project, rev, page_num)),
         },
     };
-    let head: DocumentHead = document_head(format!("{project} / shortlog"), chrome.feeds);
+    let head: DocumentHead = document_head(
+        format!("{project} / shortlog"),
+        chrome.feeds,
+        chrome.scripts,
+    );
     document(&head, &chrome.foot, shortlog_body(&page))
 }
 

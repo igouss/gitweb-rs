@@ -135,8 +135,11 @@ fn render_page(
         diff_url: diff_url(project, hash_base, hash_parent_base, file_name),
         viewer_module_src: DIFF_VIEWER_PATH.to_owned(),
     };
-    let head: DocumentHead =
-        document_head(format!("{project} / blobdiff / {file_name}"), chrome.feeds);
+    let head: DocumentHead = document_head(
+        format!("{project} / blobdiff / {file_name}"),
+        chrome.feeds,
+        chrome.scripts,
+    );
     document(&head, &chrome.foot, diff_host_body(&page))
 }
 

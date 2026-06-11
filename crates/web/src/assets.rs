@@ -12,7 +12,9 @@
 
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
-use gitweb_render::assets::{DIFF_VIEWER_JS, FAVICON_SVG, STYLESHEET};
+use gitweb_render::assets::{
+    ACTIONS_JS, BLAME_INCREMENTAL_JS, DIFF_VIEWER_JS, FAVICON_SVG, STYLESHEET, TIMEZONE_JS,
+};
 
 /// URL the stylesheet is served at — the value document heads link to.
 pub const STYLESHEET_PATH: &str = "/static/style.css";
@@ -21,6 +23,13 @@ pub const FAVICON_PATH: &str = "/static/favicon.svg";
 /// URL the diff-viewer boot module is served at — the `src` the diff host page
 /// boots (see the render `diff_host` module).
 pub const DIFF_VIEWER_PATH: &str = "/static/diff-viewer.js";
+/// URL the timezone client module is served at (gitweb's `javascript-timezone`).
+pub const TIMEZONE_PATH: &str = "/static/gitweb-timezone.js";
+/// URL the actions client module is served at (gitweb's `javascript-actions`).
+pub const ACTIONS_PATH: &str = "/static/gitweb-actions.js";
+/// URL the incremental-blame client module is served at (gitweb's
+/// `blame_incremental.js`); wired in by the downstream `blame_data` bead.
+pub const BLAME_INCREMENTAL_PATH: &str = "/static/blame-incremental.js";
 
 /// `text/css; charset=utf-8`.
 const CSS_MIME: &str = "text/css; charset=utf-8";
@@ -43,4 +52,19 @@ pub(crate) async fn favicon() -> Response {
 /// `GET /static/diff-viewer.js` — the diff-viewer boot module.
 pub(crate) async fn diff_viewer_js() -> Response {
     ([(header::CONTENT_TYPE, JS_MIME)], DIFF_VIEWER_JS).into_response()
+}
+
+/// `GET /static/gitweb-timezone.js` — the timezone client module.
+pub(crate) async fn timezone_js() -> Response {
+    ([(header::CONTENT_TYPE, JS_MIME)], TIMEZONE_JS).into_response()
+}
+
+/// `GET /static/gitweb-actions.js` — the JavaScript-actions client module.
+pub(crate) async fn actions_js() -> Response {
+    ([(header::CONTENT_TYPE, JS_MIME)], ACTIONS_JS).into_response()
+}
+
+/// `GET /static/blame-incremental.js` — the incremental-blame client module.
+pub(crate) async fn blame_incremental_js() -> Response {
+    ([(header::CONTENT_TYPE, JS_MIME)], BLAME_INCREMENTAL_JS).into_response()
 }

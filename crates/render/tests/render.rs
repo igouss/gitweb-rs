@@ -18,9 +18,9 @@ use gitweb_render::age::age_class_name;
 use gitweb_render::blob::{BlobContent, BlobLine, BlobPage, blob_body, blob_content};
 use gitweb_render::chrome::{
     Crumb, DocumentHead, FeedHrefs, FeedLink, FooterFeedHrefs, FooterLink, FormatLink, HiddenField,
-    Logo, MoreLink, NavItem, PageFooter, SearchForm, SearchOption, breadcrumbs, document, footer,
-    page_header, page_nav, project_feed_links, project_footer_links, project_list_feed_links,
-    project_list_footer_links, search_form,
+    Logo, MoreLink, NavItem, PageFooter, ScriptLink, SearchForm, SearchOption, breadcrumbs,
+    document, footer, page_header, page_nav, project_feed_links, project_footer_links,
+    project_list_feed_links, project_list_footer_links, search_form,
 };
 use gitweb_render::commit::{
     AuthorRow, ChangeNoteView, ChangedRow, CommitPage, LinkedId, ParentNav, ParentNavLink,
@@ -72,6 +72,7 @@ struct RenderWorld {
     nav_items: Vec<NavItem>,
     footer_links: Vec<FooterLink>,
     feed_links: Vec<FeedLink>,
+    scripts: Vec<ScriptLink>,
     project_rows: Vec<ProjectRow>,
     forks_enabled: bool,
     project_index_entries: Vec<ProjectIndexEntry>,
@@ -262,6 +263,11 @@ fn when_esc_then_untrusted(world: &mut RenderWorld) {
 
 // ---- Chrome: document skeleton ----------------------------------------------
 
+#[given(regex = r#"^a client script at "([^"]*)"$"#)]
+fn given_client_script(world: &mut RenderWorld, src: String) {
+    world.scripts.push(ScriptLink { src });
+}
+
 #[when(regex = r#"^I render a document titled "(.*)" with stylesheet "(.*)" and body "(.*)"$"#)]
 fn when_render_document(world: &mut RenderWorld, title: String, stylesheet: String, body: String) {
     let head: DocumentHead = DocumentHead {
@@ -269,6 +275,7 @@ fn when_render_document(world: &mut RenderWorld, title: String, stylesheet: Stri
         stylesheet_href: stylesheet,
         favicon_href: None,
         feeds: Vec::new(),
+        scripts: std::mem::take(&mut world.scripts),
     };
     let foot: PageFooter = PageFooter {
         description: None,
@@ -284,6 +291,7 @@ fn when_render_document_favicon(world: &mut RenderWorld, favicon: String) {
         stylesheet_href: "/s".to_owned(),
         favicon_href: Some(favicon),
         feeds: Vec::new(),
+        scripts: Vec::new(),
     };
     let foot: PageFooter = PageFooter {
         description: None,
@@ -304,6 +312,7 @@ fn when_render_document_feed(world: &mut RenderWorld, href: String, title: Strin
         stylesheet_href: "/s".to_owned(),
         favicon_href: None,
         feeds: vec![feed],
+        scripts: Vec::new(),
     };
     let foot: PageFooter = PageFooter {
         description: None,

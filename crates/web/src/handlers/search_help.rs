@@ -83,7 +83,11 @@ fn render_page(
         nav: nav(project, rev),
         topics: view.topics().to_vec(),
     };
-    let head: DocumentHead = document_head(format!("{project} / search help"), chrome.feeds);
+    let head: DocumentHead = document_head(
+        format!("{project} / search help"),
+        chrome.feeds,
+        chrome.scripts,
+    );
     document(&head, &chrome.foot, search_help_body(&page))
 }
 

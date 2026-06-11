@@ -1160,6 +1160,34 @@ fn given_summary_served(world: &mut WebWorld) {
     world.dispatcher.register(Action::Summary, handler);
 }
 
+#[given("the summary action is served with javascript-actions on")]
+fn given_summary_served_js_actions(world: &mut WebWorld) {
+    ensure_root(world);
+    let store: Arc<dyn ProjectStore + Send + Sync> =
+        Arc::new(GixProjectStore::new(root(world).path().to_path_buf()));
+    let settings: Arc<Settings> = Arc::new(javascript_actions_on_settings());
+    let handler: Arc<dyn Handler> = Arc::new(SummaryHandler::new(store, settings));
+    world.dispatcher.register(Action::Summary, handler);
+}
+
+/// Settings that turn the `javascript-actions` feature on (gitweb ships it off);
+/// the gate the boundary's client-script wiring reads.
+fn javascript_actions_on_settings() -> Settings {
+    let mut features: BTreeMap<FeatureName, FeatureLayer> = BTreeMap::new();
+    features.insert(
+        FeatureName::JavascriptActions,
+        FeatureLayer {
+            default: Some(vec!["1".to_owned()]),
+            overridable: None,
+        },
+    );
+    let layer: SettingsLayer = SettingsLayer {
+        features,
+        ..SettingsLayer::default()
+    };
+    Settings::resolve(&[layer])
+}
+
 #[given("the summary action is served with XSS prevention")]
 fn given_summary_served_xss(world: &mut WebWorld) {
     ensure_root(world);

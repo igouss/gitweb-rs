@@ -94,7 +94,7 @@ fn render_page(
                 .collect(),
         },
     };
-    let head: DocumentHead = document_head(tree_title(project, path), chrome.feeds);
+    let head: DocumentHead = document_head(tree_title(project, path), chrome.feeds, chrome.scripts);
     document(&head, &chrome.foot, tree_body(&page))
 }
 

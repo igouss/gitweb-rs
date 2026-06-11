@@ -249,7 +249,8 @@ fn render_page(
             .collect(),
         no_match: page_num == 0 && view.rows().is_empty(),
     };
-    let head: DocumentHead = document_head(format!("{project} / search"), chrome.feeds);
+    let head: DocumentHead =
+        document_head(format!("{project} / search"), chrome.feeds, chrome.scripts);
     document(&head, &chrome.foot, search_body(&page))
 }
 
@@ -385,7 +386,8 @@ fn render_grep_page(
         no_match: view.files().is_empty(),
         trimmed: view.trimmed(),
     };
-    let head: DocumentHead = document_head(format!("{project} / search"), chrome.feeds);
+    let head: DocumentHead =
+        document_head(format!("{project} / search"), chrome.feeds, chrome.scripts);
     document(&head, &chrome.foot, grep_body(&page))
 }
 
@@ -455,7 +457,8 @@ fn render_pickaxe_page(
             .map(|row: &PickaxeRow| pickaxe_entry(project, row))
             .collect(),
     };
-    let head: DocumentHead = document_head(format!("{project} / search"), chrome.feeds);
+    let head: DocumentHead =
+        document_head(format!("{project} / search"), chrome.feeds, chrome.scripts);
     document(&head, &chrome.foot, pickaxe_body(&page))
 }
 

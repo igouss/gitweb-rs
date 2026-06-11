@@ -22,11 +22,11 @@ use gitweb_domain::model::safety::{SafePath, SafeRef};
 use gitweb_domain::model::settings::{FeatureName, Settings};
 use gitweb_domain::port::project_store::ProjectStore;
 use gitweb_render::chrome::{
-    DocumentHead, FeedHrefs, FeedLink, FooterFeedHrefs, PageFooter, project_feed_links,
+    DocumentHead, FeedHrefs, FeedLink, FooterFeedHrefs, PageFooter, ScriptLink, project_feed_links,
     project_footer_links, project_list_feed_links, project_list_footer_links,
 };
 
-use crate::assets::{FAVICON_PATH, STYLESHEET_PATH};
+use crate::assets::{ACTIONS_PATH, FAVICON_PATH, STYLESHEET_PATH, TIMEZONE_PATH};
 use crate::url::href;
 
 /// A page's document chrome built from the request: the head's syndication
@@ -39,6 +39,10 @@ use crate::url::href;
 pub struct PageChrome {
     /// The head's feed auto-discovery links (gitweb's `print_feed_meta`).
     pub feeds: Vec<FeedLink>,
+    /// The client-side script modules the page loads, gated by the
+    /// `javascript-timezone` / `javascript-actions` features (gitweb's per-feature
+    /// `<script>` tags). Empty when neither feature is enabled.
+    pub scripts: Vec<ScriptLink>,
     /// The footer (gitweb's `git_footer_html`).
     pub foot: PageFooter,
 }
@@ -63,20 +67,49 @@ pub fn page_chrome(
 ) -> Result<PageChrome, DomainError> {
     Ok(PageChrome {
         feeds: page_feeds(settings, request)?,
+        scripts: page_scripts(settings),
         foot: page_footer(store, settings, request)?,
     })
 }
 
+/// The client-side script modules a page loads, mirroring gitweb's per-feature
+/// `<script>` wiring: the timezone module when `javascript-timezone` is on (its
+/// `local` default makes it on by default), the actions module when
+/// `javascript-actions` is on (off by default), in gitweb's order. Each gate is
+/// read as a boolean the way gitweb's `gitweb_check_feature` reads it
+/// ([`Feature::enabled`]).
+fn page_scripts(settings: &Settings) -> Vec<ScriptLink> {
+    let mut scripts: Vec<ScriptLink> = Vec::new();
+    if settings.feature(FeatureName::JavascriptTimezone).enabled() {
+        scripts.push(ScriptLink {
+            src: TIMEZONE_PATH.to_owned(),
+        });
+    }
+    if settings.feature(FeatureName::JavascriptActions).enabled() {
+        scripts.push(ScriptLink {
+            src: ACTIONS_PATH.to_owned(),
+        });
+    }
+    scripts
+}
+
 /// Builds a page's document `<head>` view-model: its title, the shared
-/// stylesheet and favicon, and the feed auto-discovery links. Every HTML
-/// handler funnels through here so the chrome boilerplate lives in one place.
+/// stylesheet and favicon, the feed auto-discovery links, and the feature-gated
+/// client script modules. Every HTML handler funnels through here so the chrome
+/// boilerplate lives in one place; the feeds and scripts come straight off the
+/// page's [`PageChrome`].
 #[must_use]
-pub fn document_head(title: String, feeds: Vec<FeedLink>) -> DocumentHead {
+pub fn document_head(
+    title: String,
+    feeds: Vec<FeedLink>,
+    scripts: Vec<ScriptLink>,
+) -> DocumentHead {
     DocumentHead {
         title,
         stylesheet_href: STYLESHEET_PATH.to_owned(),
         favicon_href: Some(FAVICON_PATH.to_owned()),
         feeds,
+        scripts,
     }
 }
 

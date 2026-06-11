@@ -22,6 +22,19 @@ pub struct FeedLink {
     pub mime: String,
 }
 
+/// One client-side script the page loads (gitweb's per-feature `<script>` tags:
+/// the `javascript-timezone`, `javascript-actions`, and `blame_incremental`
+/// behaviours). gitweb emits these at the end of `<body>`; we modernize them to
+/// ES modules in the `<head>` — `type="module"` defers execution until the
+/// document is parsed, so the DOM the module manipulates already exists. The
+/// boundary decides *which* scripts a page carries (the feature gates); this is
+/// just the finished URL to load.
+#[derive(Debug, Clone)]
+pub struct ScriptLink {
+    /// URL of the script module to load (a static asset served by the boundary).
+    pub src: String,
+}
+
 /// Everything the document `<head>` needs. Strings are already-decoded text;
 /// escaping happens at render time.
 #[derive(Debug, Clone)]
@@ -34,6 +47,10 @@ pub struct DocumentHead {
     pub favicon_href: Option<String>,
     /// Optional syndication feeds advertised via `<link rel="alternate">`.
     pub feeds: Vec<FeedLink>,
+    /// Client-side script modules the page loads, in order (gitweb's per-feature
+    /// `<script>` tags, gated at the boundary). Empty when no client behaviour is
+    /// enabled for the page.
+    pub scripts: Vec<ScriptLink>,
 }
 
 /// Wraps a rendered page `body` in the full HTML5 document: `head`'s title,
@@ -58,6 +75,9 @@ pub fn document(head: &DocumentHead, foot: &PageFooter, body: Markup) -> Markup 
                 }
                 @for feed in &head.feeds {
                     link rel="alternate" type=(feed.mime) title=(feed.title) href=(feed.href);
+                }
+                @for script in &head.scripts {
+                    script type="module" src=(script.src) defer {}
                 }
             }
             body { (body) (footer(foot)) }

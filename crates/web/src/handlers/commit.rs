@@ -111,6 +111,7 @@ fn render_page(
     let head: DocumentHead = document_head(
         format!("{project} / commit / {}", view.title()),
         chrome.feeds,
+        chrome.scripts,
     );
     document(&head, &chrome.foot, commit_body(&page))
 }

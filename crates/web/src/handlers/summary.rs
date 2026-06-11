@@ -95,7 +95,7 @@ fn render_page(
         tags: tags_section(project, view),
         heads: heads_section(project, view),
     };
-    let head: DocumentHead = document_head(project.to_owned(), chrome.feeds);
+    let head: DocumentHead = document_head(project.to_owned(), chrome.feeds, chrome.scripts);
     document(&head, &chrome.foot, summary_body(&page))
 }
 

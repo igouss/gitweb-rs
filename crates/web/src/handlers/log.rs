@@ -92,7 +92,8 @@ fn render_page(
             .collect(),
         more: view.has_more().then(|| more_link(project, rev, page_num)),
     };
-    let head: DocumentHead = document_head(format!("{project} / log"), chrome.feeds);
+    let head: DocumentHead =
+        document_head(format!("{project} / log"), chrome.feeds, chrome.scripts);
     document(&head, &chrome.foot, log_body(&page))
 }
 

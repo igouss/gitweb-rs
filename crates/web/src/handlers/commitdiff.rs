@@ -116,6 +116,7 @@ fn render_page(
     let head: DocumentHead = document_head(
         format!("{project} / commitdiff / {}", view.title()),
         chrome.feeds,
+        chrome.scripts,
     );
     document(&head, &chrome.foot, commitdiff_body(&page))
 }

@@ -30,6 +30,26 @@ Feature: Site chrome
     When I render a document with an RSS feed "/?p=r;a=rss" titled "r - log - RSS feed"
     Then the result contains "<link rel="alternate" type="application/rss+xml" title="r - log - RSS feed" href="/?p=r;a=rss">"
 
+  # ---- client-side script wiring (gitweb's javascript-* features) -----------
+  # gitweb appends its <script> tags at the end of <body>; we modernize: each is
+  # an ES module loaded in the <head> (type="module" defers until the document
+  # parses, so the DOM exists when it runs). The behaviour preserved is *which*
+  # scripts a page carries — gated by the javascript-timezone / javascript-actions
+  # features at the boundary — not where in the document they sit. The in-browser
+  # effect of each module (timezone conversion, action-link rewiring, progressive
+  # blame fill) is a documented manual check, not a headless assertion.
+
+  Scenario: a document with no client scripts emits no module script tags
+    When I render a document titled "x" with stylesheet "/s" and body "y"
+    Then the result does not contain "<script"
+
+  Scenario: a document wires each client script as a deferred ES module in the head
+    Given a client script at "/static/gitweb-timezone.js"
+    And a client script at "/static/gitweb-actions.js"
+    When I render a document titled "x" with stylesheet "/s" and body "y"
+    Then the result contains "<script type="module" src="/static/gitweb-timezone.js" defer></script>"
+    And the result contains "<script type="module" src="/static/gitweb-actions.js" defer></script>"
+
   Scenario: the document closes the body with the footer chrome below the content
     Given a footer link "RSS" to "/?p=r;a=rss" titled "log RSS feed"
     When I render a document titled "x" with stylesheet "/s.css" and body "<main>hi</main>"

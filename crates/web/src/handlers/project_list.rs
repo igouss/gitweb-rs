@@ -70,7 +70,11 @@ fn render_page(settings: &Settings, view: &ProjectListView, chrome: PageChrome) 
         // their re-sort base is empty: `?o=<key>`.
         list: project_table(view, &[]),
     };
-    let head: DocumentHead = document_head(settings.site_name().to_owned(), chrome.feeds);
+    let head: DocumentHead = document_head(
+        settings.site_name().to_owned(),
+        chrome.feeds,
+        chrome.scripts,
+    );
     document(&head, &chrome.foot, project_list_body(&page))
 }
 

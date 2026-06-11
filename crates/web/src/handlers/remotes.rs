@@ -95,7 +95,8 @@ fn render_page(
             .map(|block: &RemoteBlock| block_view(project, block, view.is_single()))
             .collect(),
     };
-    let head: DocumentHead = document_head(format!("{project} / remotes"), chrome.feeds);
+    let head: DocumentHead =
+        document_head(format!("{project} / remotes"), chrome.feeds, chrome.scripts);
     document(&head, &chrome.foot, remotes_body(&page))
 }
 

@@ -111,7 +111,11 @@ fn render_page(
                 .then(|| more_link(project, rev, path, page_num)),
         },
     };
-    let head: DocumentHead = document_head(format!("{project} / history / {path}"), chrome.feeds);
+    let head: DocumentHead = document_head(
+        format!("{project} / history / {path}"),
+        chrome.feeds,
+        chrome.scripts,
+    );
     document(&head, &chrome.foot, history_body(&page))
 }
 

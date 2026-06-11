@@ -86,7 +86,8 @@ fn render_page(settings: &Settings, project: &str, view: &HeadsView, chrome: Pag
             more: None,
         },
     };
-    let head: DocumentHead = document_head(format!("{project} / heads"), chrome.feeds);
+    let head: DocumentHead =
+        document_head(format!("{project} / heads"), chrome.feeds, chrome.scripts);
     document(&head, &chrome.foot, heads_body(&page))
 }
 

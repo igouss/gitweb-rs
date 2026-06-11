@@ -44,6 +44,12 @@ pub fn router(store: Arc<dyn ProjectStore + Send + Sync>, dispatcher: Arc<Dispat
         .route(assets::STYLESHEET_PATH, get(assets::stylesheet))
         .route(assets::FAVICON_PATH, get(assets::favicon))
         .route(assets::DIFF_VIEWER_PATH, get(assets::diff_viewer_js))
+        .route(assets::TIMEZONE_PATH, get(assets::timezone_js))
+        .route(assets::ACTIONS_PATH, get(assets::actions_js))
+        .route(
+            assets::BLAME_INCREMENTAL_PATH,
+            get(assets::blame_incremental_js),
+        )
         .route(diff_text::DIFF_TEXT_PATH, get(handle_diff_text))
         .fallback(handle)
         .with_state(state)

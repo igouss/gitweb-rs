@@ -14,7 +14,7 @@ pub mod header;
 pub mod nav;
 pub mod search;
 
-pub use document::{DocumentHead, FeedLink, document};
+pub use document::{DocumentHead, FeedLink, ScriptLink, document};
 pub use feed_meta::{FeedHrefs, project_feed_links, project_list_feed_links};
 pub use footer::{
     FooterFeedHrefs, FooterLink, PageFooter, footer, project_footer_links,

@@ -69,8 +69,11 @@ fn render_page(settings: &Settings, project: &str, view: &TagView, chrome: PageC
         tagger: view.tagger().map(author_view),
         message_lines: view.message().lines().map(str::to_owned).collect(),
     };
-    let head: DocumentHead =
-        document_head(format!("{project} / tag / {}", view.name()), chrome.feeds);
+    let head: DocumentHead = document_head(
+        format!("{project} / tag / {}", view.name()),
+        chrome.feeds,
+        chrome.scripts,
+    );
     document(&head, &chrome.foot, tag_body(&page))
 }
 
