@@ -67,3 +67,8 @@ Feature: Listing a directory (tree)
   Scenario: a path absent from the tree is not found
     When I assemble the tree of "ghost"
     Then assembling the tree fails as not found
+
+  Scenario: a path that is a gitlink, not a directory, is not found
+    Given the tree has submodule "vendor"
+    When I assemble the tree of "vendor"
+    Then assembling the tree fails as "No such tree"

@@ -3965,6 +3965,14 @@ fn tree_fails_not_found(world: &mut UsecaseWorld) {
     assert!(matches!(tree_error(world), DomainError::NotFound(_)));
 }
 
+#[then(regex = r#"^assembling the tree fails as "([^"]*)"$"#)]
+fn tree_fails_with_message(world: &mut UsecaseWorld, expected: String) {
+    match tree_error(world) {
+        DomainError::NotFound(message) => assert_eq!(message, &expected),
+        other => panic!("expected NotFound, got {other:?}"),
+    }
+}
+
 // --- blob: accessors ---------------------------------------------------------
 
 /// The assembled blob view, or a panic if the scenario produced an error.

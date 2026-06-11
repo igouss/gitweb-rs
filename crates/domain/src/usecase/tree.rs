@@ -210,6 +210,12 @@ pub fn assemble_tree(
 /// `path` names within it (gitweb's `git_get_hash_by_path($hash_base, $path,
 /// "tree")`). A path that names nothing, or names something that is not a tree,
 /// is `die_error(404, "No such tree")`.
+///
+/// The type check is on the entry's mode — the column `git ls-tree` derives from
+/// the mode, which is exactly what `git_get_hash_by_path` compares against its
+/// `"tree"` filter (gitweb.perl:2899). A gitlink reads as a commit straight from
+/// its mode, so the listing 404s without ever reaching for the submodule's commit
+/// object (which does not live in this repository).
 fn descend(
     repo: &dyn Repository,
     base: &ObjectId,
@@ -220,13 +226,13 @@ fn descend(
         Some(path) if !path.is_empty() => path,
         _ => return Ok(root_tree),
     };
-    let at: ObjectId = repo
-        .path_id(base, path)?
+    let entry: TreeEntry = repo
+        .path_entry(base, path)?
         .ok_or_else(|| DomainError::NotFound("No such tree".to_owned()))?;
-    if repo.object_kind(&at)? != ObjectKind::Tree {
+    if entry.mode().object_kind() != ObjectKind::Tree {
         return Err(DomainError::NotFound("No such tree".to_owned()));
     }
-    Ok(at)
+    Ok(entry.oid().clone())
 }
 
 /// Maps one tree entry to a row: its mode, name, and object id, plus the size and
