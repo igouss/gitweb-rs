@@ -172,6 +172,7 @@ impl FeatureName {
             | Self::RemoteHeads => Some(OverrideRule::Bool),
             Self::Snapshot => Some(OverrideRule::SnapshotList),
             Self::Patches => Some(OverrideRule::Int),
+            Self::Avatar => Some(OverrideRule::Value),
             _ => None,
         }
     }
@@ -506,6 +507,9 @@ enum OverrideRule {
     /// gitweb's `feature_patches` over `config_to_int`: an integer with optional
     /// git k/m/g unit; an absent key keeps the site default (`gitweb.patches`).
     Int,
+    /// gitweb's `feature_avatar`: the value taken verbatim as a single option; an
+    /// absent key keeps the site default (`gitweb.avatar`).
+    Value,
 }
 
 /// Re-reads one overridable feature's options from the repository's raw
@@ -527,6 +531,12 @@ fn apply_override(feature: &Feature, rule: OverrideRule, raw: Option<&str>) -> F
             // gitweb's `if (@val)` gate: a present key is read as an int; an
             // absent (or valueless) key falls through to the default.
             Some(value) => vec![config_to_int(value)],
+            None => feature.default_options().to_vec(),
+        },
+        OverrideRule::Value => match raw {
+            // gitweb's `@val ? @val : @_`: a present key is taken verbatim; an
+            // absent (or valueless) key falls through to the default.
+            Some(value) => vec![value.to_owned()],
             None => feature.default_options().to_vec(),
         },
     };

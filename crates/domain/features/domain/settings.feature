@@ -278,3 +278,21 @@ Feature: Global gitweb settings value precedence
     And the repository sets gitweb."patches" to "2k"
     When I resolve the settings for the project
     Then the project "patches" feature default is "2048"
+
+  # avatar is a single-value feature (gitweb feature_avatar): the repository value
+  # is the avatar provider, taken verbatim. Site default is empty (no avatars).
+
+  Scenario: An overridable avatar takes the repository's provider
+    Given a config source
+    And it makes the "avatar" feature overridable
+    And the repository sets gitweb."avatar" to "gravatar"
+    When I resolve the settings for the project
+    Then the project "avatar" feature default is "gravatar"
+
+  Scenario: An overridable avatar overrides the site provider
+    Given a config source
+    And it sets the "avatar" feature default to "gravatar"
+    And it makes the "avatar" feature overridable
+    And the repository sets gitweb."avatar" to "picon"
+    When I resolve the settings for the project
+    Then the project "avatar" feature default is "picon"
