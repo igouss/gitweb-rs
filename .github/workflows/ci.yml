@@ -1,0 +1,102 @@
+name: CI
+
+# Gate every push and PR on green. Merges into the protected branch require
+# this workflow to pass (configure branch protection to require the jobs below).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A second push to the same branch/PR cancels the in-flight run — no point
+# burning runners on a commit that's already superseded.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: CI only reads the tree.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Fail the build on any warning from rustc itself (clippy is gated separately
+  # with -D warnings below). Keeps the tree warning-clean, not just clippy-clean.
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Formatting. Cheapest gate, its own job so a fmt nit fails in seconds without
+  # waiting on a full compile. Pinned to the repo's toolchain (edition 2024,
+  # rust-version 1.93 per the workspace manifest).
+  # ---------------------------------------------------------------------------
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (with rustfmt)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+
+  # ---------------------------------------------------------------------------
+  # Clippy with warnings denied, across the whole workspace and all targets
+  # (lib, bins, tests, examples) so lints in test code are caught too.
+  # ---------------------------------------------------------------------------
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (with clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Cache cargo + target
+        uses: Swatinem/rust-cache@v2
+      - name: cargo clippy -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  # ---------------------------------------------------------------------------
+  # The full test suite. MUST use `cargo test`, NOT cargo nextest: every crate
+  # carries at least one cucumber `harness = false` target and nextest hard-errors
+  # trying to list a custom-harness binary, producing a FALSE GREEN that never
+  # runs the conformance/feature suites. See CLAUDE.md, "Running tests".
+  #
+  # --no-fail-fast is mandatory: without it cargo stops after the first failing
+  # test binary and silently skips every later crate's suite. With it, every
+  # binary runs and CI reports all failures in one pass. cargo's exit code is the
+  # source of truth — non-zero on any libtest assertion or cucumber step failure.
+  # ---------------------------------------------------------------------------
+  test:
+    name: test (workspace, all harnesses)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo + target
+        uses: Swatinem/rust-cache@v2
+      - name: cargo test --workspace --no-fail-fast
+        # NOT --all-targets: that flag silently drops doctests (--all-targets =
+        # lib+bins+tests+benches+examples, no doctests). Match CLAUDE.md's
+        # canonical command exactly so CI == local and doctests are covered.
+        run: cargo test --workspace --no-fail-fast
+
+  # ---------------------------------------------------------------------------
+  # No-unsafe guard. The compiler already enforces `unsafe_code = "forbid"` for
+  # every crate that declares it; this guard catches the one gap rustc can't —
+  # a new workspace member added WITHOUT the forbid lint. See the script header.
+  # ---------------------------------------------------------------------------
+  no-unsafe:
+    name: no-unsafe guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (needed for cargo metadata)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Assert every workspace crate forbids unsafe
+        run: ./scripts/ci-no-unsafe-guard.sh
