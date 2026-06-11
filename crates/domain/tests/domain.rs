@@ -68,7 +68,7 @@ use gitweb_domain::model::search_help::{SearchHelpTopic, help_topics};
 use gitweb_domain::model::search_pattern::SearchPattern;
 use gitweb_domain::model::search_snippet::{MatchSnippet, highlight_full, highlight_line};
 use gitweb_domain::model::section::Section;
-use gitweb_domain::model::settings::{FeatureName, Settings, SettingsLayer};
+use gitweb_domain::model::settings::{FeatureName, ProjectOverrides, Settings, SettingsLayer};
 use gitweb_domain::model::signature::Signature;
 use gitweb_domain::model::snapshot::{
     ArchiveFormat, enabled_formats, select_format, snapshot_name,
@@ -209,6 +209,8 @@ struct DomainWorld {
     cfg_load_order: Option<Vec<String>>,
     settings_layers: Vec<SettingsLayer>,
     resolved_settings: Option<Settings>,
+    project_overrides: ProjectOverrides,
+    project_settings: Option<Settings>,
     routed: Option<Result<Dispatch, DomainError>>,
     timestamp: Option<Timestamp>,
     timestamp_text: Option<String>,
@@ -3639,6 +3641,50 @@ fn feature_is_enabled(world: &mut DomainWorld, name: String) {
 fn feature_is_disabled(world: &mut DomainWorld, name: String) {
     let feature: FeatureName = named_feature(&name);
     assert!(!resolved(world).feature(feature).enabled());
+}
+
+// --- per-project feature override (gitweb.<key> in the repository) ------------
+
+fn project_resolved(world: &DomainWorld) -> &Settings {
+    world
+        .project_settings
+        .as_ref()
+        .expect("resolve the settings for the project first")
+}
+
+#[given(regex = r#"^the repository sets gitweb\."(.*)" to "(.*)"$"#)]
+fn repo_sets_gitweb(world: &mut DomainWorld, name: String, value: String) {
+    let feature: FeatureName = named_feature(&name);
+    world.project_overrides.set(feature, Some(value));
+}
+
+#[given(regex = r#"^the repository sets a valueless gitweb\."(.*)"$"#)]
+fn repo_sets_valueless_gitweb(world: &mut DomainWorld, name: String) {
+    let feature: FeatureName = named_feature(&name);
+    world.project_overrides.set(feature, None);
+}
+
+#[given("the repository sets no gitweb config")]
+fn repo_sets_no_gitweb(world: &mut DomainWorld) {
+    world.project_overrides = ProjectOverrides::new();
+}
+
+#[when("I resolve the settings for the project")]
+fn resolve_settings_for_project(world: &mut DomainWorld) {
+    let global: Settings = Settings::resolve(&world.settings_layers);
+    world.project_settings = Some(global.for_project(&world.project_overrides));
+}
+
+#[then(regex = r#"^the project "(.*)" feature default is "(.*)"$"#)]
+fn project_feature_default_is(world: &mut DomainWorld, name: String, expected: String) {
+    let feature: FeatureName = named_feature(&name);
+    assert_eq!(
+        project_resolved(world)
+            .feature(feature)
+            .default_options()
+            .join(", "),
+        expected
+    );
 }
 
 // --- dispatch routing ---------------------------------------------------------

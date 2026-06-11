@@ -157,6 +157,18 @@ impl FeatureName {
             .find(|name: &Self| name.as_key() == key)
     }
 
+    /// gitweb's per-feature override rule — which `feature_*` sub reads the
+    /// repository's `gitweb.<key>` value when the feature is overridable. `None`
+    /// is a feature gitweb does not make per-project overridable (it has no
+    /// `sub`): search, pathinfo, forks, actions, ctags, timed, javascript-*.
+    #[must_use]
+    fn override_rule(self) -> Option<OverrideRule> {
+        match self {
+            Self::Blame => Some(OverrideRule::Bool),
+            _ => None,
+        }
+    }
+
     /// gitweb's built-in default for this feature (its `%feature` entry).
     #[must_use]
     fn builtin(self) -> Feature {
@@ -215,6 +227,40 @@ pub struct SettingsLayer {
 pub struct FeatureLayer {
     pub default: Option<Vec<String>>,
     pub overridable: Option<bool>,
+}
+
+/// One repository's `gitweb.<key>` config values for the overridable features —
+/// the reads gitweb's `git_get_project_config` makes per project, collected once
+/// by the adapter. A feature present here is one the repository set; the inner
+/// `Option<String>` is its raw value, `None` for a valueless key (`[gitweb]
+/// blame`), which a boolean feature reads as on. The domain owns the value rules;
+/// the adapter hands over the raw strings only.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProjectOverrides {
+    values: BTreeMap<FeatureName, Option<String>>,
+}
+
+impl ProjectOverrides {
+    /// An empty set — the repository sets no `gitweb.*` config.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Records the repository's value for `feature`'s key (`None` = a valueless
+    /// key, e.g. `[gitweb] blame` with no `=`).
+    pub fn set(&mut self, feature: FeatureName, value: Option<String>) {
+        self.values.insert(feature, value);
+    }
+
+    /// The repository's value for `feature`: outer `None` means the key is absent
+    /// (keep the site default); inner `None` means a valueless key.
+    #[must_use]
+    fn get(&self, feature: FeatureName) -> Option<Option<&str>> {
+        self.values
+            .get(&feature)
+            .map(|value: &Option<String>| value.as_deref())
+    }
 }
 
 /// The resolved, effective global configuration the rest of the app reads.
@@ -392,6 +438,33 @@ impl Settings {
             .get(&name)
             .expect("builtin populates every feature")
     }
+
+    /// Re-resolves the feature toggles against one repository's `gitweb.<key>`
+    /// config — gitweb's per-project `gitweb_get_feature`. An overridable feature
+    /// (the site enabled its `override`) whose key the repository sets takes the
+    /// repository's value, read by the feature's rule; a non-overridable feature,
+    /// a key the repository never sets, and every scalar are left untouched. The
+    /// per-project layer is the strongest of all, applied after global resolution.
+    #[must_use]
+    pub fn for_project(&self, overrides: &ProjectOverrides) -> Settings {
+        let mut resolved: Settings = self.clone();
+        for &name in &FeatureName::ALL {
+            let feature: &Feature = &self.features[&name];
+            if !feature.is_overridable() {
+                continue; // gitweb: `!$override` returns @defaults, repo unread
+            }
+            let Some(rule) = name.override_rule() else {
+                continue; // no `feature_*` sub: not overridable upstream
+            };
+            let Some(raw) = overrides.get(name) else {
+                continue; // `git_get_project_config` found nothing: keep default
+            };
+            resolved
+                .features
+                .insert(name, apply_override(feature, rule, raw));
+        }
+        resolved
+    }
 }
 
 impl Default for Settings {
@@ -412,4 +485,40 @@ fn replace<T: Clone>(target: &mut T, source: Option<&T>) {
 /// Builds an owned option list from string slices (e.g. a feature's default).
 fn opts(items: &[&str]) -> Vec<String> {
     items.iter().map(|item: &&str| (*item).to_owned()).collect()
+}
+
+/// gitweb's per-feature override rule: which `feature_*` sub interprets the
+/// repository's raw `gitweb.<key>` value into the effective options.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OverrideRule {
+    /// gitweb's `feature_bool` over `config_to_bool` (`gitweb.blame` &c.).
+    Bool,
+}
+
+/// Re-reads one overridable feature's options from the repository's raw
+/// `gitweb.<key>` value (`raw`), per its [`OverrideRule`]. The overridability
+/// flag is carried through unchanged — only the default options are recomputed.
+fn apply_override(feature: &Feature, rule: OverrideRule, raw: Option<&str>) -> Feature {
+    let default: Vec<String> = match rule {
+        OverrideRule::Bool => {
+            let on: &str = if config_to_bool(raw) { "1" } else { "0" };
+            vec![on.to_owned()]
+        }
+    };
+    Feature::new(default, feature.is_overridable())
+}
+
+/// gitweb's `config_to_bool`: how a `--bool` config value reads. A valueless key
+/// (`None`, e.g. `[gitweb] blame`) is on; otherwise, after trimming whitespace, a
+/// run of digits that is not just zero, or `true`/`yes` (any case), is on, and
+/// everything else — `0`, `false`/`no`/`off`, the empty string, any other word —
+/// is off.
+fn config_to_bool(value: Option<&str>) -> bool {
+    let Some(value) = value else {
+        return true;
+    };
+    let value: &str = value.trim();
+    let is_truthy_number: bool =
+        !value.is_empty() && value.bytes().all(|byte: u8| byte.is_ascii_digit()) && value != "0";
+    is_truthy_number || value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("yes")
 }

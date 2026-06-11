@@ -129,3 +129,50 @@ Feature: Global gitweb settings value precedence
     Given no config sources
     When I resolve the settings
     Then the "actions" feature is disabled
+
+  # --- per-project override: the repository's gitweb.<key> (strongest of all) --
+  # gitweb_get_feature consults the repository's own gitweb.<key> config ONLY when
+  # the site has made the feature overridable AND we are inside a project. A
+  # boolean feature reads it through gitweb's config_to_bool: a non-zero number,
+  # "true"/"yes" (any case), or a valueless key is on; "0", "false"/"no"/"off",
+  # the empty string, or anything else is off. A key the repository never sets
+  # leaves the site default standing.
+
+  Scenario: A non-overridable feature ignores the repository's gitweb config
+    Given a config source
+    And it sets the "blame" feature default to "0"
+    And the repository sets gitweb."blame" to "true"
+    When I resolve the settings for the project
+    Then the project "blame" feature default is "0"
+
+  Scenario: An overridable boolean feature reads the repository to turn on
+    Given a config source
+    And it sets the "blame" feature default to "0"
+    And it makes the "blame" feature overridable
+    And the repository sets gitweb."blame" to "true"
+    When I resolve the settings for the project
+    Then the project "blame" feature default is "1"
+
+  Scenario: An overridable boolean feature reads the repository to turn off
+    Given a config source
+    And it sets the "blame" feature default to "1"
+    And it makes the "blame" feature overridable
+    And the repository sets gitweb."blame" to "0"
+    When I resolve the settings for the project
+    Then the project "blame" feature default is "0"
+
+  Scenario: An overridable feature the repository never sets keeps the site default
+    Given a config source
+    And it sets the "blame" feature default to "1"
+    And it makes the "blame" feature overridable
+    And the repository sets no gitweb config
+    When I resolve the settings for the project
+    Then the project "blame" feature default is "1"
+
+  Scenario: An overridable boolean feature reads a valueless key as on
+    Given a config source
+    And it sets the "blame" feature default to "0"
+    And it makes the "blame" feature overridable
+    And the repository sets a valueless gitweb."blame"
+    When I resolve the settings for the project
+    Then the project "blame" feature default is "1"
