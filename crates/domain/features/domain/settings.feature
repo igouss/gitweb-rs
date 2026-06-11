@@ -296,3 +296,21 @@ Feature: Global gitweb settings value precedence
     And the repository sets gitweb."avatar" to "picon"
     When I resolve the settings for the project
     Then the project "avatar" feature default is "picon"
+
+  # extra-branch-refs is a whitespace-list feature (gitweb
+  # feature_extra_branch_refs): the repository value splits on runs of whitespace
+  # into ref namespaces. Site default is empty.
+
+  Scenario: An overridable extra-branch-refs takes a single repository namespace
+    Given a config source
+    And it makes the "extra-branch-refs" feature overridable
+    And the repository sets gitweb."extra-branch-refs" to "sandbox"
+    When I resolve the settings for the project
+    Then the project "extra-branch-refs" feature default is "sandbox"
+
+  Scenario: An overridable extra-branch-refs splits on whitespace
+    Given a config source
+    And it makes the "extra-branch-refs" feature overridable
+    And the repository sets gitweb."extra-branch-refs" to "wip   review"
+    When I resolve the settings for the project
+    Then the project "extra-branch-refs" feature default is "wip, review"

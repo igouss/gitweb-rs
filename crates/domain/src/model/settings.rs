@@ -173,6 +173,7 @@ impl FeatureName {
             Self::Snapshot => Some(OverrideRule::SnapshotList),
             Self::Patches => Some(OverrideRule::Int),
             Self::Avatar => Some(OverrideRule::Value),
+            Self::ExtraBranchRefs => Some(OverrideRule::WsList),
             _ => None,
         }
     }
@@ -510,6 +511,9 @@ enum OverrideRule {
     /// gitweb's `feature_avatar`: the value taken verbatim as a single option; an
     /// absent key keeps the site default (`gitweb.avatar`).
     Value,
+    /// gitweb's `feature_extra_branch_refs`: the value split on runs of
+    /// whitespace; a falsy value keeps the site default (`gitweb.extrabranchrefs`).
+    WsList,
 }
 
 /// Re-reads one overridable feature's options from the repository's raw
@@ -538,6 +542,14 @@ fn apply_override(feature: &Feature, rule: OverrideRule, raw: Option<&str>) -> F
             // absent (or valueless) key falls through to the default.
             Some(value) => vec![value.to_owned()],
             None => feature.default_options().to_vec(),
+        },
+        OverrideRule::WsList => match raw {
+            // gitweb's `if ($values)` gate: a truthy value splits on whitespace;
+            // a falsy value falls through to the default.
+            Some(value) if perl_truthy(value) => {
+                value.split_whitespace().map(str::to_owned).collect()
+            }
+            _ => feature.default_options().to_vec(),
         },
     };
     Feature::new(default, feature.is_overridable())
