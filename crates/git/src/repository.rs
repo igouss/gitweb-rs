@@ -363,41 +363,67 @@ impl GixRepository {
         let Some(short) = full.strip_prefix("refs/tags/") else {
             return Ok(None);
         };
-        let short: String = short.to_owned();
         let Some(direct) = reference.try_id().map(|id: gix::Id<'_>| id.detach()) else {
             return Ok(None);
         };
-        let mut object: gix::Object<'_> = self.repo.find_object(direct).map_err(backend)?;
-        let mut deref: bool = false;
-        let mut taggerdate: Option<i64> = None;
-        while object.kind == gix::object::Kind::Tag {
-            let tag: gix::Tag<'_> =
-                object
-                    .try_into_tag()
-                    .map_err(|_error: gix::object::try_into::Error| {
-                        backend(format!("not a tag: {short}"))
-                    })?;
-            deref = true;
-            if let Some(sig) = tag.tagger().map_err(backend)? {
-                taggerdate = Some(to_signature(sig)?.epoch());
-            }
-            let target: gix::ObjectId = tag.target_id().map_err(backend)?.detach();
-            object = self.repo.find_object(target).map_err(backend)?;
-        }
-        let commit: gix::Commit<'_> = match object.try_into_commit() {
-            Ok(commit) => commit,
-            Err(_) => return Ok(None),
+        let Some((commit, deref, tagger_epoch)) = self.peel_to_commit(direct)? else {
+            return Ok(None);
         };
-        let taggerdate: i64 = match taggerdate {
+        // git's `name_ref`: an annotated tag carries the (innermost) tag's date;
+        // a lightweight one falls back to the commit's own committer date.
+        let taggerdate: i64 = match tagger_epoch {
             Some(epoch) => epoch,
             None => to_signature(commit.committer().map_err(backend)?)?.epoch(),
         };
         Ok(Some(TagTip::new(
             to_domain_oid(commit.id),
-            short,
+            short.to_owned(),
             taggerdate,
             deref,
         )))
+    }
+
+    /// Peels a tag ref's direct target through any tag objects to the commit it
+    /// ultimately names — git's `name_ref` `while (o->type == OBJ_TAG)` loop —
+    /// reporting whether it dereferenced a tag (the `^0` marker) and the
+    /// innermost tag's date. `None` when it peels to a non-commit (a tag of a
+    /// tree or blob, which name-rev cannot name).
+    fn peel_to_commit(
+        &self,
+        direct: gix::ObjectId,
+    ) -> Result<Option<(gix::Commit<'_>, bool, Option<i64>)>, DomainError> {
+        let mut object: gix::Object<'_> = self.repo.find_object(direct).map_err(backend)?;
+        let mut deref: bool = false;
+        let mut tagger_epoch: Option<i64> = None;
+        while object.kind == gix::object::Kind::Tag {
+            let (epoch, target): (Option<i64>, gix::Object<'_>) = self.peel_one_tag(object)?;
+            deref = true;
+            // The innermost dated tag wins, matching git's `taggerdate = t->date`.
+            tagger_epoch = epoch.or(tagger_epoch);
+            object = target;
+        }
+        Ok(object
+            .try_into_commit()
+            .ok()
+            .map(|commit: gix::Commit<'_>| (commit, deref, tagger_epoch)))
+    }
+
+    /// One peel step: this tag object's own date (its `tagger`, or `None` for a
+    /// dateless tag) and the object it points at. `object` is a tag (the caller
+    /// checked its kind), so the `try_into_tag` is infallible in practice.
+    fn peel_one_tag(
+        &self,
+        object: gix::Object<'_>,
+    ) -> Result<(Option<i64>, gix::Object<'_>), DomainError> {
+        let tag: gix::Tag<'_> = object
+            .try_into_tag()
+            .map_err(|_error: gix::object::try_into::Error| backend("tag object is not a tag"))?;
+        let epoch: Option<i64> = match tag.tagger().map_err(backend)? {
+            Some(sig) => Some(to_signature(sig)?.epoch()),
+            None => None,
+        };
+        let target: gix::ObjectId = tag.target_id().map_err(backend)?.detach();
+        Ok((epoch, self.repo.find_object(target).map_err(backend)?))
     }
 
     /// Collects every commit reachable from the tag tips into a graph of
@@ -412,27 +438,19 @@ impl GixRepository {
         for tip in tips {
             stack.push(to_gix_oid(tip.oid())?);
         }
+        // Dedup at pop, not push, so the loop body stays branch-light; a commit
+        // pushed twice is simply skipped the second time it is popped.
         while let Some(id) = stack.pop() {
             if !seen.insert(id) {
                 continue;
             }
-            let commit: gix::Commit<'_> = match self
-                .repo
-                .find_object(id)
-                .map_err(backend)?
-                .try_into_commit()
-            {
-                Ok(commit) => commit,
-                Err(_) => continue,
-            };
+            let commit: gix::Commit<'_> = self.commit_at(id)?;
             let parents: Vec<gix::ObjectId> = commit
                 .parent_ids()
                 .map(|parent: gix::Id<'_>| parent.detach())
                 .collect();
-            for parent in &parents {
-                if !seen.contains(parent) {
-                    stack.push(*parent);
-                }
+            for &parent in &parents {
+                stack.push(parent);
             }
             let domain_parents: Vec<ObjectId> = parents
                 .iter()

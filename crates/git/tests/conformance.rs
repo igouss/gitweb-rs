@@ -180,7 +180,10 @@ fn build_unborn(world: &mut AdapterWorld) {
 ///     "rel~2" (the annotated `^0` stripped before the generation suffix);
 ///   * `t0` with two children `t1`, `t2` carrying annotated tags "older" and
 ///     "newer" dated apart — `t0` is equidistant, so the older tag wins:
-///     "older~1" (the adapter must read each tag's own tagger date).
+///     "older~1" (the adapter must read each tag's own tagger date);
+///   * a `lone` commit reached by no tag, plus an annotated tag pointing at a
+///     *tree* — name-rev peels it to a non-commit and discards it, so `lone`
+///     stays unnamed (the tip resolver's "peels to a non-commit" branch).
 fn build_tagged_history(world: &mut AdapterWorld) {
     let builder: RepoBuilder = RepoBuilder::init();
     let who: Identity = ada();
@@ -225,6 +228,18 @@ fn build_tagged_history(world: &mut AdapterWorld) {
         message: "newer\n".to_owned(),
     });
 
+    // A commit no tag reaches, and an annotated tag of a TREE (not a commit):
+    // name-rev peels the tag, finds a non-commit, and discards it, so it never
+    // contributes a name and `lone` stays unnamed.
+    let lone: FixtureOid = commit(Vec::new(), "lone");
+    let _treetag: FixtureOid = builder.annotated_tag(&TagSpec {
+        name: "treetag".to_owned(),
+        target: empty,
+        target_kind: TargetKind::Tree,
+        tagger: who.clone(),
+        message: "treetag\n".to_owned(),
+    });
+
     builder.branch("main", p2);
     builder.set_head("main");
 
@@ -236,6 +251,7 @@ fn build_tagged_history(world: &mut AdapterWorld) {
     named.insert("p1".to_owned(), to_domain(p1));
     named.insert("p2".to_owned(), to_domain(p2));
     named.insert("t0".to_owned(), to_domain(t0));
+    named.insert("lone".to_owned(), to_domain(lone));
 
     world.named = named;
     world.builder = Some(builder);

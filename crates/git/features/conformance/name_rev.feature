@@ -29,3 +29,9 @@ Feature: name-rev --tags ancestor naming through the gix adapter
   Scenario: equidistant tags break the tie in favour of the older tag
     When I read the rev-name tag of "t0"
     Then the rev-name tag is "older~1"
+
+  # --- a tag of a non-commit names nothing ---
+
+  Scenario: a tag pointing at a tree is discarded, leaving a lone commit unnamed
+    When I read the rev-name tag of "lone"
+    Then there is no rev-name tag

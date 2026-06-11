@@ -70,6 +70,22 @@ Feature: name-rev --tags ancestor naming (git_get_rev_name_tags)
     When I name "base" by tags
     Then the rev-name is "mtag~3"
 
+  # The mirror of the above, and git's genuinely surprising rule: a single merge
+  # hop (`^N`) is preferred over a LONGER first-parent path to the same commit,
+  # because a merge traversal costs one whole MERGE_TRAVERSAL_WEIGHT block while a
+  # generation costs one — so `x`, reachable both as the merge's 2nd parent
+  # (`mtag^2`, distance 65535) and three first-parent generations down
+  # (`mtag~3`, distance 65538), is named `mtag^2`. (Confirmed against real
+  # `git name-rev` over a commit-tree-forced redundant-parent merge.)
+  Scenario: a single merge hop beats a longer first-parent path to the same commit
+    Given a root commit "x"
+    And a commit "a1" with parent "x"
+    And a commit "a" with parent "a1"
+    And a commit "m" with parents "a" and "x"
+    And an annotated tag "mtag" at "m" with tagger date 100
+    When I name "x" by tags
+    Then the rev-name is "mtag^2"
+
   # --- tie-break between two tags ---
 
   Scenario: the nearer of two tags wins, even when the farther one is older
