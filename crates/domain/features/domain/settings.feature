@@ -214,3 +214,42 @@ Feature: Global gitweb settings value precedence
     And the repository sets gitweb."remote_heads" to "yes"
     When I resolve the settings for the project
     Then the project "remote_heads" feature default is "1"
+
+  # snapshot is a list feature (gitweb feature_snapshot): the repository value is
+  # a comma- or whitespace-separated format list, "none" means none, and a falsy
+  # value (empty, "0", absent) leaves the site default. Site default is "tgz".
+
+  Scenario: An overridable snapshot takes a single repository format
+    Given a config source
+    And it makes the "snapshot" feature overridable
+    And the repository sets gitweb."snapshot" to "zip"
+    When I resolve the settings for the project
+    Then the project "snapshot" feature default is "zip"
+
+  Scenario: An overridable snapshot splits a comma-separated repository list
+    Given a config source
+    And it makes the "snapshot" feature overridable
+    And the repository sets gitweb."snapshot" to "tgz,zip"
+    When I resolve the settings for the project
+    Then the project "snapshot" feature default is "tgz, zip"
+
+  Scenario: An overridable snapshot splits a whitespace-separated repository list
+    Given a config source
+    And it makes the "snapshot" feature overridable
+    And the repository sets gitweb."snapshot" to "tgz zip tbz2"
+    When I resolve the settings for the project
+    Then the project "snapshot" feature default is "tgz, zip, tbz2"
+
+  Scenario: An overridable snapshot set to "none" offers no formats
+    Given a config source
+    And it makes the "snapshot" feature overridable
+    And the repository sets gitweb."snapshot" to "none"
+    When I resolve the settings for the project
+    Then the project "snapshot" feature default is ""
+
+  Scenario: An overridable snapshot set to the empty string keeps the site default
+    Given a config source
+    And it makes the "snapshot" feature overridable
+    And the repository sets gitweb."snapshot" to ""
+    When I resolve the settings for the project
+    Then the project "snapshot" feature default is "tgz"

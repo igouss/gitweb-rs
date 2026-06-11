@@ -170,6 +170,7 @@ impl FeatureName {
             | Self::ShowSizes
             | Self::Highlight
             | Self::RemoteHeads => Some(OverrideRule::Bool),
+            Self::Snapshot => Some(OverrideRule::SnapshotList),
             _ => None,
         }
     }
@@ -498,6 +499,9 @@ fn opts(items: &[&str]) -> Vec<String> {
 enum OverrideRule {
     /// gitweb's `feature_bool` over `config_to_bool` (`gitweb.blame` &c.).
     Bool,
+    /// gitweb's `feature_snapshot`: a `,`/whitespace list of formats, `none` for
+    /// none; a falsy value keeps the site default (`gitweb.snapshot`).
+    SnapshotList,
 }
 
 /// Re-reads one overridable feature's options from the repository's raw
@@ -509,8 +513,36 @@ fn apply_override(feature: &Feature, rule: OverrideRule, raw: Option<&str>) -> F
             let on: &str = if config_to_bool(raw) { "1" } else { "0" };
             vec![on.to_owned()]
         }
+        OverrideRule::SnapshotList => match raw {
+            // gitweb's `if ($val)` gate: a truthy value is read, "none" clears,
+            // anything else splits; a falsy value falls through to the default.
+            Some(value) if perl_truthy(value) => snapshot_formats(value),
+            _ => feature.default_options().to_vec(),
+        },
     };
     Feature::new(default, feature.is_overridable())
+}
+
+/// gitweb's `feature_snapshot` value rule: `none` yields no formats; otherwise
+/// the value splits on commas and runs of whitespace (gitweb's
+/// `split /\s*[,\s]\s*/`). Empty fields are dropped — an empty format name is
+/// meaningless, the lone divergence from Perl's leading-empty-field on
+/// pathological input like `,tgz`.
+fn snapshot_formats(value: &str) -> Vec<String> {
+    if value == "none" {
+        return Vec::new();
+    }
+    value
+        .split(|ch: char| ch == ',' || ch.is_whitespace())
+        .filter(|field: &&str| !field.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Perl string truthiness: every string is true except the empty string and the
+/// single character `0` (gitweb's bare `if ($val)` over a config scalar).
+fn perl_truthy(value: &str) -> bool {
+    !value.is_empty() && value != "0"
 }
 
 /// gitweb's `config_to_bool`: how a `--bool` config value reads. A valueless key
