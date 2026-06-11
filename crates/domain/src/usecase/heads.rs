@@ -204,8 +204,10 @@ pub(crate) fn read_head(
 ///
 /// A tip that cannot be read as a commit (gitweb's for-each-ref
 /// `%(committer)` returning empty) degrades to epoch 0 — gitweb renders this
-/// as age "unknown" and still lists the branch. Only unexpected errors
-/// propagate.
+/// as age "unknown" and still lists the branch. Both a dangling tip
+/// ([`DomainError::NotFound`]) and a readable non-commit object such as a
+/// tag-tipped branch ([`DomainError::Invalid`], the adapter's `try_into_commit`
+/// failure) degrade this way; only an unexpected backend error propagates.
 fn entry_for(
     repo: &dyn Repository,
     reference: &Reference,
@@ -215,7 +217,7 @@ fn entry_for(
 ) -> Result<HeadEntry, DomainError> {
     let epoch: i64 = match repo.find_commit(reference.target()) {
         Ok(commit) => commit.committer().epoch(),
-        Err(DomainError::NotFound(_)) => 0,
+        Err(DomainError::NotFound(_) | DomainError::Invalid(_)) => 0,
         Err(other) => return Err(other),
     };
     let full_name: String = reference.name().full().to_owned();
