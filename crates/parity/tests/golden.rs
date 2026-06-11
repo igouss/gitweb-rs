@@ -29,6 +29,7 @@ use gitweb_domain::usecase::feed::assemble_feed;
 use gitweb_domain::usecase::opml::{Opml, assemble_opml};
 use gitweb_domain::usecase::patch::{assemble_patch, assemble_patches};
 use gitweb_domain::usecase::project_index::{ProjectIndex, assemble_project_index};
+use gitweb_domain::usecase::snapshot::{SnapshotView, assemble_snapshot};
 use gitweb_fixtures::ObjectId as FixtureOid;
 use gitweb_git::{GixProjectStore, GixRepository};
 use gitweb_parity::corpus::{self, Corpus};
@@ -89,6 +90,12 @@ struct GoldenWorld {
     /// body the port now reproduces byte-for-byte (af6).
     binary_patch_body: Option<String>,
     binary_golden: Option<Golden>,
+    /// The assembled snapshot view over the corpus HEAD — the media type,
+    /// download disposition, and commit-dated Last-Modified our endpoint emits,
+    /// compared against gitweb's captured headers. The archive body is NOT
+    /// asserted: gix-archive cannot reproduce `git archive`'s bytes (see
+    /// snapshot.feature).
+    snapshot_view: Option<SnapshotView>,
     golden: Option<Golden>,
 }
 
@@ -456,6 +463,48 @@ fn binary_golden(world: &GoldenWorld) -> &Golden {
         .expect("serve the binary patch first")
 }
 
+/// The snapshot formats configured at capture time (the runtime config's
+/// `$feature{snapshot}{default}`), so the use case selects the same format and
+/// names the archive the same way gitweb did.
+const SNAPSHOT_FORMATS: [&str; 2] = ["tgz", "zip"];
+
+#[when(regex = r#"^I serve the "(tgz|zip)" snapshot of the corpus HEAD commit$"#)]
+fn serve_snapshot(world: &mut GoldenWorld, format: String) {
+    // Exactly what the handler emits over the by-hash request gitweb was captured
+    // with: the use case over the adapter for the corpus HEAD oid, the same two
+    // enabled formats the capture config declared, the requested format, and
+    // gitweb's default branch refs (`heads` only). The view carries the headers
+    // the boundary serves; the body is not asserted (gix-archive bytes cannot
+    // equal `git archive` — see snapshot.feature).
+    let head: ObjectId = repo(world)
+        .resolve("HEAD")
+        .expect("resolve the corpus HEAD");
+    let configured: Vec<String> = SNAPSHOT_FORMATS
+        .iter()
+        .map(|s: &&str| s.to_string())
+        .collect();
+    let branch_refs: [&str; 1] = ["heads"];
+    let view: SnapshotView = assemble_snapshot(
+        repo(world),
+        Corpus::PROJECT,
+        &configured,
+        Some(&format),
+        Some(head.as_str()),
+        &branch_refs,
+    )
+    .expect("assemble the corpus snapshot");
+    world.snapshot_view = Some(view);
+    world.golden = Some(Golden::load(&format!("snapshot/{format}")));
+}
+
+/// The assembled snapshot view, or a panic if none was served.
+fn snapshot_view(world: &GoldenWorld) -> &SnapshotView {
+    world
+        .snapshot_view
+        .as_ref()
+        .expect("serve a snapshot first")
+}
+
 // --- Then --------------------------------------------------------------------
 
 #[then("its body matches gitweb's reference output")]
@@ -665,6 +714,37 @@ fn binary_patch_matches(world: &mut GoldenWorld) {
         binary_patch_body(world).as_bytes(),
         binary_golden(world).body()
     );
+}
+
+#[then("the snapshot media type matches gitweb's")]
+fn snapshot_media_type_matches(world: &mut GoldenWorld) {
+    let full: &str = golden(world)
+        .header("Content-Type")
+        .expect("gitweb declares a Content-Type");
+    // gitweb's CGI.pm bolts a `; charset=ISO-8859-1` onto the archive type; the
+    // media type is the part before it, which is what gitweb itself chose.
+    let base: &str = full
+        .split_once(';')
+        .map_or(full, |(media, _): (&str, &str)| media)
+        .trim();
+    assert_eq!(snapshot_view(world).content_type(), base);
+}
+
+#[then("the snapshot content disposition matches gitweb's")]
+fn snapshot_disposition_matches(world: &mut GoldenWorld) {
+    let theirs: &str = golden(world)
+        .header("Content-Disposition")
+        .expect("gitweb declares a Content-Disposition");
+    assert_eq!(snapshot_view(world).content_disposition(), theirs);
+}
+
+#[then("the snapshot last-modified matches gitweb's")]
+fn snapshot_last_modified_matches(world: &mut GoldenWorld) {
+    let theirs: &str = golden(world)
+        .header("Last-Modified")
+        .expect("gitweb declares a Last-Modified");
+    let ours: Option<String> = snapshot_view(world).last_modified().map(Timestamp::rfc2822);
+    assert_eq!(ours.as_deref(), Some(theirs));
 }
 
 #[tokio::main]

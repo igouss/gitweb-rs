@@ -9,6 +9,24 @@ that parity with golden differential conformance.
 - `project_index`, `opml`
 - `rss`, `atom`
 - `blame_data`
+- `snapshot` — **headers only** (see below)
+
+### snapshot: headers match, the archive body cannot
+
+`snapshot` is the one endpoint whose **body** is not byte-reproducible. gitweb
+streams `git archive` (tar piped through `gzip -n`); our endpoint produces the
+archive through gix's worktree-stream + gix-archive writer, which is a different
+(equally valid) writer. The captured `snapshot/{tgz,zip}` goldens lock the
+HEADERS gitweb resolves before streaming — the format media type, the
+`inline; filename="<name><suffix>"` disposition from `snapshot_name`, and the
+commit-dated `Last-Modified` — and record gitweb's real bytes for the divergence
+on the record; there is **no body assertion**. The body diverges because
+`git archive` emits a `pax_global_header` carrying the commit id, an explicit
+directory entry, files mode 0664 with `root` owner, and 20-block padding (tar);
+`gzip -n` zeros the gzip header MTIME/OS while gix bakes them (tgz); and the
+commit id rides in the end-of-central-directory comment with no per-entry `UT`
+field (zip). `features/golden/snapshot.feature` carries the full list. Making
+these bytes match would mean reimplementing `git archive`'s writers.
 
 ## How it works
 

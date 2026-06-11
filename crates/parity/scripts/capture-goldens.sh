@@ -87,10 +87,13 @@ EOF
 echo "GIT_VERSION=gitweb-parity-corpus" >"$work/VERSION-FILE"
 sh "$generate" "$work/BUILD-OPTIONS" "$work/VERSION-FILE" "$gitweb_perl" "$work/gitweb.cgi"
 
-# Runtime config: point gitweb at the throwaway corpus.
+# Runtime config: point gitweb at the throwaway corpus. The snapshot feature is
+# off by default; enable tgz + zip so the snapshot goldens can be captured (the
+# two formats gix-archive produces natively; tbz2/txz wrap the same tar).
 cat >"$work/gitweb.conf" <<EOF
 our \$projectroot = "$project_root";
 our \$projects_list = "";
+\$feature{'snapshot'}{'default'} = ['tgz', 'zip'];
 1;
 EOF
 
@@ -212,5 +215,21 @@ printf '%s' "gitweb-parity-corpus/$git_version" >"$crate_dir/goldens/feed/genera
 # value on its signature and the rest of the mail is compared to the byte.
 mkdir -p "$crate_dir/goldens/patch"
 printf '%s' "$git_version" >"$crate_dir/goldens/patch/version"
+
+# snapshot streams `git archive --prefix=<name>/ <hash>` (tar piped through
+# `gzip -n`) as a downloadable archive. It is captured over HEAD for the two
+# formats gix-archive produces natively, tgz and zip. ONLY the headers are
+# byte-reproducible — the archive BODY cannot be byte-identical to `git archive`
+# (gix-archive emits no pax global header / no directory entries / mode 0644 /
+# different padding for tar, bakes the mtime into the gzip header and uses a
+# different deflate for tgz, and omits the EOCD commit-id comment while adding a
+# per-entry UT field for zip). So the snapshot golden test asserts the headers
+# only, not the body; these goldens record gitweb's real bytes for the divergence
+# on the record. snapshot adds no volatile cache headers, so the captured
+# Content-Type / Content-Disposition / Last-Modified are all stable.
+echo ">> capturing snapshot goldens" >&2
+snap_hash=$("$GIT" --git-dir="$project_root/repo.git" rev-parse HEAD)
+capture "snapshot/tgz" "p=repo.git;a=snapshot;h=$snap_hash;sf=tgz"
+capture "snapshot/zip" "p=repo.git;a=snapshot;h=$snap_hash;sf=zip"
 
 echo ">> done. goldens under $crate_dir/goldens" >&2
