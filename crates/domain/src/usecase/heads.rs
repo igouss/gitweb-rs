@@ -201,6 +201,11 @@ pub(crate) fn read_head(
 
 /// Enriches one branch ref with its tip's committer epoch and its HEAD relation,
 /// under the already-resolved display `name`.
+///
+/// A tip that cannot be read as a commit (gitweb's for-each-ref
+/// `%(committer)` returning empty) degrades to epoch 0 — gitweb renders this
+/// as age "unknown" and still lists the branch. Only unexpected errors
+/// propagate.
 fn entry_for(
     repo: &dyn Repository,
     reference: &Reference,
@@ -208,14 +213,18 @@ fn entry_for(
     head_commit: Option<&ObjectId>,
     name: String,
 ) -> Result<HeadEntry, DomainError> {
-    let commit: Commit = repo.find_commit(reference.target())?;
+    let epoch: i64 = match repo.find_commit(reference.target()) {
+        Ok(commit) => commit.committer().epoch(),
+        Err(DomainError::NotFound(_)) => 0,
+        Err(other) => return Err(other),
+    };
     let full_name: String = reference.name().full().to_owned();
     Ok(HeadEntry {
         name,
         is_head_branch: head_branch == Some(full_name.as_str()),
         current: head_commit == Some(reference.target()),
         full_name,
-        epoch: commit.committer().epoch(),
+        epoch,
     })
 }
 

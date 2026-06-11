@@ -205,6 +205,9 @@ struct UsecaseWorld {
     opml_result: Option<Result<Opml, DomainError>>,
     head: Option<String>,
     branches: Vec<FakeBranch>,
+    /// Tips registered here cause `find_commit` to return `NotFound`, modelling a
+    /// branch whose tip is a blob or tree rather than a commit.
+    non_commit_tips: Vec<ObjectId>,
     extra_branch_refs: Vec<String>,
     heads_result: Option<Result<HeadsView, DomainError>>,
     tags: Vec<FakeTag>,
@@ -484,6 +487,10 @@ struct FakeRepository {
     head: Option<String>,
     head_commit: Option<ObjectId>,
     branches: Vec<FakeBranch>,
+    /// Tips registered here cause `find_commit` to return `NotFound`, modelling a
+    /// branch whose tip is a blob or tree — a non-commit object gitweb silently
+    /// skips (it shows epoch 0 → age "unknown") rather than erroring the page.
+    non_commit_tips: Vec<ObjectId>,
     tags: Vec<FakeTag>,
     commits: Vec<FakeCommit>,
     /// The commits `search` returns (windowed by the page it is asked for). Kept
@@ -760,6 +767,9 @@ impl Repository for FakeRepository {
     }
 
     fn find_commit(&self, oid: &ObjectId) -> Result<Commit, DomainError> {
+        if self.non_commit_tips.contains(oid) {
+            return Err(DomainError::NotFound(oid.as_str().to_owned()));
+        }
         if let Some(snapshot) = self.snapshot.as_ref().filter(|s| &s.id == oid) {
             let committer: &Signature = snapshot
                 .committer
@@ -1799,6 +1809,18 @@ fn repo_has_ref_under_dir(world: &mut UsecaseWorld, name: String, dir: String, e
     });
 }
 
+#[given(regex = r#"^the repository has branch "([^"]*)" pointing at a non-commit$"#)]
+fn repo_has_non_commit_branch(world: &mut UsecaseWorld, name: String) {
+    let tip: ObjectId = fake_oid(&format!("non-commit-{name}"));
+    world.non_commit_tips.push(tip.clone());
+    world.branches.push(FakeBranch {
+        dir: "heads".to_owned(),
+        name,
+        tip,
+        epoch: 0,
+    });
+}
+
 // --- heads: When -------------------------------------------------------------
 
 #[when("I assemble the heads")]
@@ -1848,6 +1870,16 @@ fn head_shows_age(world: &mut UsecaseWorld, name: String, expected: String) {
 
 #[then(regex = r#"^the head "([^"]*)" has no age$"#)]
 fn head_has_no_age(world: &mut UsecaseWorld, name: String) {
+    assert_eq!(head_row(world, &name).age(), None);
+}
+
+#[then(regex = r#"^(\d+) branches are listed$"#)]
+fn n_branches_are_listed(world: &mut UsecaseWorld, count: usize) {
+    assert_eq!(heads_view(world).rows().len(), count);
+}
+
+#[then(regex = r#"^the branch "([^"]*)" has unknown age$"#)]
+fn branch_has_unknown_age(world: &mut UsecaseWorld, name: String) {
     assert_eq!(head_row(world, &name).age(), None);
 }
 
@@ -2982,6 +3014,7 @@ fn fake_repo(world: &UsecaseWorld) -> FakeRepository {
         head: world.head.clone(),
         head_commit: world.head_commit.clone(),
         branches: world.branches.clone(),
+        non_commit_tips: world.non_commit_tips.clone(),
         tags: world.tags.clone(),
         commits: world.commits.clone(),
         search_hits: world.search_hits.clone(),

@@ -101,3 +101,11 @@ Feature: Listing a project's branches (heads action)
     And the repository has a ref "wip" under "sandbox" committed at 200
     When I assemble the heads
     Then the listed heads are "main"
+
+  Scenario: a branch whose tip is not a commit is still listed alongside the rest
+    Given the repository HEAD is branch "main"
+    And the repository has branch "main" committed at 1700000000
+    And the repository has branch "weird" pointing at a non-commit
+    When I assemble the heads
+    Then 2 branches are listed
+    And the branch "weird" has unknown age
