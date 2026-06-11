@@ -31,12 +31,13 @@
 ;;
 ;; Requires: babashka, and a cargo-mutants outcomes.json:
 ;;   export TMPDIR="$HOME/.cache/cargo-mutants"; mkdir -p "$TMPDIR"  # NEVER /tmp
-;;   cargo mutants -p <crate>                 # writes mutants.out/outcomes.json
+;;   cargo mutants -p <crate> --profile mutants   # writes mutants.out/outcomes.json
+;;                                                # (--profile mutants = debuginfo-off build, faster, same score)
 ;;
 ;; PROJECT-WIDE score (the 50% target spans all crates, but no single run is
 ;; tractable): snapshot each crate's outcomes into an archive dir, then
 ;; aggregate them:
-;;   cargo mutants -p gitweb-domain && cp mutants.out/outcomes.json \
+;;   cargo mutants -p gitweb-domain --profile mutants && cp mutants.out/outcomes.json \
 ;;     target/metrics/mutation/domain.json
 ;;   ...repeat per crate...
 ;;   mutation-report.bb --archive target/metrics/mutation --gate 50
@@ -114,13 +115,13 @@ example: mutation-report.bb --archive target/metrics/mutation --gate 50")
       (when-not (seq ds)
         (die-usage! (str "no *.json under " archive-dir " — snapshot per-crate runs first:\n"
                          "  export TMPDIR=\"$HOME/.cache/cargo-mutants\"; mkdir -p \"$TMPDIR\"\n"
-                         "  cargo mutants -p <crate> && cp mutants.out/outcomes.json "
+                         "  cargo mutants -p <crate> --profile mutants && cp mutants.out/outcomes.json "
                          archive-dir "/<crate>.json")))
       (mapv str ds))
     (do (when-not (fs/exists? outcomes-path)
           (die-usage! (str "no outcomes at " outcomes-path " — produce it with:\n"
                            "  export TMPDIR=\"$HOME/.cache/cargo-mutants\"; mkdir -p \"$TMPDIR\"\n"
-                           "  cargo mutants -p <crate>   # NEVER the default /tmp tmpfs\n"
+                           "  cargo mutants -p <crate> --profile mutants   # NEVER the default /tmp tmpfs\n"
                            "(verification-ratchet skill, Layer 3).")))
         [outcomes-path])))
 

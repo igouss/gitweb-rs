@@ -64,13 +64,18 @@ into a feature or fix commit.
    - GREEN: minimum code to pass; all tests green.
    - REFACTOR: mandatory every cycle, on green only, tests untouched.
      Commit on green.
-4. `cargo mutants` scoped to your diff via `--in-diff` (e.g.
-   `cargo mutants --in-diff <(git diff)`). Triage every surviving mutant
-   (skill: verification-ratchet). Surviving mutants are reported, never hidden.
-   Diff scoping is an approximation — full runs in CI remain the proof. ALWAYS run cargo-mutants
-   with `TMPDIR=$HOME/.cache/cargo-mutants` (the default `/tmp` is a 16 GB
-   tmpfs; cargo-mutants copies the whole `target/` per mutant and overflows it,
-   reporting every mutant "unviable" — a false green). See verification-ratchet.
+4. `cargo mutants` scoped to your diff — fast and false-survivor-free:
+   `cargo mutants --in-diff <(git diff) --test-workspace=true --profile mutants`.
+   `--in-diff` scopes the MUTANTS to your change; `--test-workspace=true` runs
+   the whole suite so a fn covered only by a downstream crate still gets killed
+   (scope the mutants, never the tests); `--profile mutants` (debuginfo off) +
+   mold build each mutant cheaply. Triage every surviving mutant (skill:
+   verification-ratchet). Surviving mutants are reported, never hidden. Diff
+   scoping is an approximation — full runs in CI remain the proof. ALWAYS run
+   cargo-mutants with `TMPDIR=$HOME/.cache/cargo-mutants` (the default `/tmp` is
+   a 16 GB tmpfs; cargo-mutants copies the whole `target/` per mutant and
+   overflows it, reporting every mutant "unviable" — a false green). See
+   verification-ratchet.
 5. Quality gate: hex-lint clean (role matrix), no changed function over
    CRAP 30. Over-threshold functions are refactored or reported — never
    accepted silently and never gamed via coverage padding

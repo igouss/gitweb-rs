@@ -11,13 +11,23 @@
 ;; ALWAYS off the /tmp tmpfs (set here): cargo-mutants copies the whole target/
 ;; per mutant and a 16 GB tmpfs overflows -> every mutant falsely "unviable".
 ;;
+;; SPEED (verdict-preserving): builds with the `mutants` cargo profile (debuginfo
+;; off — Cargo.toml [profile.mutants]) and links with mold (.cargo/config.toml).
+;; Both cut per-mutant build/link time only; the test outcome — and therefore the
+;; score — is byte-for-byte identical, so this is NOT a check-change. -j stays
+;; OPT-IN (see --jobs): parallelism is fast but can trip the timeout under load.
+;;
 ;; Usage:
-;;   mutation-run.bb [--shard k/n] [--gate N] [--archive DIR] [CRATE ...]
+;;   mutation-run.bb [--shard k/n] [--gate N] [--archive DIR] [--jobs N] [CRATE ...]
 ;;     CRATE       cargo package(s) (default: gitweb-domain gitweb-render)
 ;;     --shard k/n run only shard k of n (round-robin) — a tractable sample of
 ;;                 a huge crate; omit for a full run
 ;;     --gate N    fail (exit 1) if the final score is below N percent
 ;;     --archive   per-crate snapshot dir (default: target/metrics/mutation)
+;;     --jobs N    run N mutants in parallel (default: serial). FASTER, but a
+;;                 mutant slowed by CPU contention can hit the baseline-derived
+;;                 timeout, and a timeout scores as KILLED — inflating the score.
+;;                 Leave off for an authoritative gate; use it for quick local runs.
 ;; Each crate streams live, writes an isolated mutants.out under target/mutants/
 ;; <crate>, snapshots outcomes.json into the archive, and the aggregate is
 ;; scored + screamed at the end.
@@ -27,10 +37,12 @@
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
-(def usage "usage: mutation-run.bb [--shard k/n] [--gate N] [--archive DIR] [CRATE ...]
+(def usage "usage: mutation-run.bb [--shard k/n] [--gate N] [--archive DIR] [--jobs N] [CRATE ...]
 
 Run cargo-mutants on the crates where mutation testing makes sense, streaming
-live output, then score + scream via mutation-report.bb.
+live output, then score + scream via mutation-report.bb. Builds with the
+`mutants` profile (debuginfo off) + mold linker for speed; the score is
+unchanged by either.
 
 args:
   CRATE        cargo package(s) (default: gitweb-domain gitweb-render)
@@ -38,6 +50,9 @@ flags:
   --shard k/n  run only shard k of n (round-robin) — sample a huge crate
   --gate N     exit 1 if the aggregate score is below N percent
   --archive D  per-crate snapshot dir (default: target/metrics/mutation)
+  --jobs N     run N mutants in parallel (default: serial; faster but a
+               contention-slowed mutant can time out, and timeout=killed
+               inflates the score — leave off for an authoritative gate)
   -h, --help   this help
 
 exit codes: 0 success | 1 gate not met | 2 usage/environment error
@@ -50,7 +65,7 @@ example: mutation-run.bb --shard 1/12 --gate 70 gitweb-domain")
 (when (some #{"-h" "--help"} *command-line-args*)
   (println usage) (System/exit 0))
 
-(def value-flags #{"--shard" "--gate" "--archive"})
+(def value-flags #{"--shard" "--gate" "--archive" "--jobs"})
 (def parsed
   (loop [m {:crates []} [a & more] *command-line-args*]
     (cond
@@ -66,6 +81,7 @@ example: mutation-run.bb --shard 1/12 --gate 70 gitweb-domain")
 (def shard (get parsed "--shard"))
 (def gate (get parsed "--gate"))
 (def archive (get parsed "--archive" "target/metrics/mutation"))
+(def jobs (get parsed "--jobs"))
 
 (when-not (fs/which "cargo-mutants")
   (die-usage! (str "cargo-mutants not installed. Install:\n"
@@ -111,7 +127,12 @@ example: mutation-run.bb --shard 1/12 --gate 70 gitweb-domain")
 (doseq [crate crates]
   (let [short (str/replace crate #"^gitweb-" "")
         out-dir (str "target/mutants/" short)
-        argv (vec (concat ["cargo" "mutants" "-p" crate "-o" out-dir]
+        ;; --profile mutants: debuginfo-off build (Cargo.toml [profile.mutants])
+        ;; + mold link (.cargo/config.toml) — build-speed only, identical test
+        ;; outcome, so the gate verdict is unchanged. --jobs is opt-in (see usage).
+        argv (vec (concat ["cargo" "mutants" "-p" crate "-o" out-dir
+                           "--profile" "mutants"]
+                          (when jobs ["-j" jobs])
                           (when shard ["--shard" shard])))]
     (println (str "\n==> mutants: " crate (when shard (str "  (shard " shard ")"))
                   "  — streaming live; survivors screamed inline"))

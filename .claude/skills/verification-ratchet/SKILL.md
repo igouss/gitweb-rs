@@ -109,10 +109,28 @@ After implementation is green:
 # "unviable" — a false all-green that proves nothing. /home has the space.
 export TMPDIR="$HOME/.cache/cargo-mutants"; mkdir -p "$TMPDIR"
 
-# incremental scoping — only mutants in code your diff touches (fast feedback):
-cargo mutants --in-diff <(git diff)            # uncommitted work
-cargo mutants --in-diff <(git diff main...)    # whole branch vs its merge-base
-cargo mutants            # full run: CI on the dev branch / before merge
+# FAST inner-loop feedback. There are TWO independent scopes — get them right:
+#   --in-diff             scopes WHICH MUTANTS run (only code your diff touches).
+#   --test-workspace=true scopes the TESTS to the WHOLE workspace, so a function
+#                         covered only by a DOWNSTREAM crate's test still gets
+#                         killed instead of falsely surviving.
+# Rule: scope the MUTANTS, never the TESTS. Narrowing the test set is exactly
+# what produces a cross-crate FALSE survivor — a render fn pinned only by a web
+# e2e reads MISSED under per-crate scoping though a real test would catch it.
+# Verified on cargo-mutants 27.1.0 (see memory cargo-mutants-tmpfs-trap). Speed:
+# --profile mutants (debuginfo off, Cargo.toml) + mold (.cargo/config.toml) make
+# each rebuild cheap; the test outcome is unchanged by either.
+cargo mutants --in-diff <(git diff)         --test-workspace=true --profile mutants  # uncommitted
+cargo mutants --in-diff <(git diff main...) --test-workspace=true --profile mutants  # whole branch
+# add -j<N> to parallelise once you trust the timeout headroom (faster, but a
+# contention-slowed mutant can time out, and a timeout scores as killed).
+
+# Per-capability GATE (the authority — scripts/mutation-run.bb): each crate runs
+# with PER-CRATE test scoping ON PURPOSE. A survivor there means the crate is not
+# self-covering — a real signal (file a bead to make it cover its own behavior),
+# NOT noise to paper over with --test-workspace. Different question from the loop
+# above: the gate measures a crate's OWN test strength, per capability.
+scripts/mutation-run.bb --gate 50     # full per-crate run, scored + screamed; --jobs N to speed
 ```
 
 If a mutants run ends with "No mutants were viable" or every mutant is
