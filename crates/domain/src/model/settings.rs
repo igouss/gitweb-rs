@@ -164,7 +164,12 @@ impl FeatureName {
     #[must_use]
     fn override_rule(self) -> Option<OverrideRule> {
         match self {
-            Self::Blame => Some(OverrideRule::Bool),
+            Self::Blame
+            | Self::Grep
+            | Self::Pickaxe
+            | Self::ShowSizes
+            | Self::Highlight
+            | Self::RemoteHeads => Some(OverrideRule::Bool),
             _ => None,
         }
     }

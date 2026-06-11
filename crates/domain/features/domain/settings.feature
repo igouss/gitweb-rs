@@ -176,3 +176,41 @@ Feature: Global gitweb settings value precedence
     And the repository sets a valueless gitweb."blame"
     When I resolve the settings for the project
     Then the project "blame" feature default is "1"
+
+  # Every boolean feature gitweb exposes a feature_bool sub for reads its key the
+  # same way; one scenario each pins the wiring (and a different truthy spelling).
+
+  Scenario: An overridable grep is turned off by the repository
+    Given a config source
+    And it makes the "grep" feature overridable
+    And the repository sets gitweb."grep" to "0"
+    When I resolve the settings for the project
+    Then the project "grep" feature default is "0"
+
+  Scenario: An overridable pickaxe is turned off by "false"
+    Given a config source
+    And it makes the "pickaxe" feature overridable
+    And the repository sets gitweb."pickaxe" to "false"
+    When I resolve the settings for the project
+    Then the project "pickaxe" feature default is "0"
+
+  Scenario: An overridable show-sizes is turned off by the repository
+    Given a config source
+    And it makes the "show-sizes" feature overridable
+    And the repository sets gitweb."show-sizes" to "0"
+    When I resolve the settings for the project
+    Then the project "show-sizes" feature default is "0"
+
+  Scenario: An overridable highlight is turned on by "true"
+    Given a config source
+    And it makes the "highlight" feature overridable
+    And the repository sets gitweb."highlight" to "true"
+    When I resolve the settings for the project
+    Then the project "highlight" feature default is "1"
+
+  Scenario: An overridable remote_heads is turned on by "yes"
+    Given a config source
+    And it makes the "remote_heads" feature overridable
+    And the repository sets gitweb."remote_heads" to "yes"
+    When I resolve the settings for the project
+    Then the project "remote_heads" feature default is "1"
