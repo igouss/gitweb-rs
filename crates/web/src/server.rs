@@ -119,9 +119,17 @@ fn decode_path(raw: &str) -> String {
 
 /// Splits and decodes the query string into gitweb's short-name parameter pairs
 /// (`application/x-www-form-urlencoded`), preserving order and repeats.
+///
+/// CGI.pm splits the query string on `;` as well as `&` (its
+/// `USE_PARAM_SEMICOLONS`, on by default), and gitweb's own `href()` emits
+/// `;`-joined URLs — so a request for one of those links must decompose into
+/// separate parameters, not a single `p=proj;a=atom` project. `esc_param`
+/// percent-encodes any literal `;`/`&` inside a value, so an unencoded `;` is
+/// always a separator: normalising it to `&` before parsing is exact.
 fn decode_query(raw: Option<&str>) -> Vec<(String, String)> {
     raw.map(|query: &str| {
-        form_urlencoded::parse(query.as_bytes())
+        let normalized: String = query.replace(';', "&");
+        form_urlencoded::parse(normalized.as_bytes())
             .map(|(key, value): (Cow<'_, str>, Cow<'_, str>)| {
                 (key.into_owned(), value.into_owned())
             })

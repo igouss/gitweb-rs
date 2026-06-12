@@ -55,6 +55,18 @@ Feature: The composition root serves a wired gitweb-rs over a real project root
     And the response body contains "Shortlog"
     And the response body contains "init"
 
+  Scenario: a semicolon separates query parameters as gitweb's CGI splits them
+    # CGI.pm splits the query string on ';' as well as '&' (USE_PARAM_SEMICOLONS),
+    # and gitweb's own href() emits ';'-joined URLs — so this must resolve exactly
+    # like the '&'-joined form above, not as a single "alpha.git;a=shortlog" project.
+    Given a project root
+    And the root contains repository "alpha.git"
+    When I GET "/?p=alpha.git;a=shortlog"
+    Then the response status is 200
+    And the response content type is "text/html; charset=utf-8"
+    And the response body contains "Shortlog"
+    And the response body contains "init"
+
   Scenario: the composition root serves a project's verbose log
     Given a project root
     And the root contains repository "alpha.git"
