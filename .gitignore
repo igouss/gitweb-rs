@@ -9,9 +9,19 @@
 /static/vendor/pierre/
 
 # cargo-mutants run output (mutants.out.old is the prior run, rotated by
-# cargo-mutants; isolated per-crate runs live under target/, already ignored)
+# cargo-mutants; isolated per-crate runs live under target/, already ignored).
+# Mutation is run manually here, so its full-run logs are local scratch too.
 mutants.out/
 mutants.out.old/
+mutants*.log
+
+# Local-only perf scratch: machine-specific benchmarks (hardcoded paths + OIDs
+# against a local repo), not portable source.
+/perf/
+
+# On-demand skill workflow artifacts (e.g. deep-research) — generic, not project
+# code.
+.claude/workflows/
 
 # Per-session handoff scratch — rewritten every session, not version-controlled
 HANDOFF.md
