@@ -31,6 +31,13 @@ model shape (the money/percent newtype decision), dependency adoption or
 rejection, error-handling strategy, anything a future session might plausibly
 "helpfully" undo.
 
+The sharpest case of "would be helpfully undone" is the **core-innovation
+decision** — the one choice that is the project's reason for existing. That
+gets an ADR *and* a mechanical tripwire gate that fails the build if the value
+flips (quality-gates): the ADR records why, the gate stops the silent revert an
+amnesiac would otherwise ship. ADR and tripwire are two halves of the same
+protection — argument and enforcement.
+
 No: naming of one function, formatting, anything cargo fmt/clippy already
 enforces, decisions fully expressed by a requirement in `specs/` (link the
 spec instead).

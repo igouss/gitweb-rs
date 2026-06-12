@@ -80,6 +80,18 @@ patterns, in order of usefulness:
 4. **Oracle**: compare against a slow-but-obviously-correct implementation
    for small inputs.
 
+These four are greenfield's answer to *how do you know it's right with no
+reference to check against?* — you manufacture the oracle. Ranked by how much
+external truth each needs: invariant, metamorphic, and round-trip need NONE —
+they assert a relationship, never a known answer, so they hold even when
+nobody can say what `f(x)` should be. Reach for these first. Pattern 4 is the
+fallback when a requirement pins an exact answer: write the
+slow-obviously-correct model (the naive O(n²), the brute-force enumerator) as
+your OWN reference and differential-test the clever code against it. A real
+*external* reference (port, rewrite, legacy capture) is the golden-parity
+skill's job instead; greenfield has nothing to capture, so the oracle is built
+here, out of properties.
+
 Rules:
 - Strategy ranges come from the spec ("0–100 inclusive" → `0u8..=100`),
   never from what makes the test pass.
@@ -99,13 +111,6 @@ Rules:
 
 ## Layer 3 — Mutation testing (verifies the verification)
 
-> **SUSPENDED as of 2026-06-10 (human-authorized) — see CLAUDE.md "Order of
-> work" step 4.** Do not run `cargo mutants` / `scripts/mutation-run.bb` and do
-> not block work on a mutation pass for now. Layers 1, 2, and 4 still apply.
-> The commands below are kept for when the suspension is lifted; until then,
-> skip this layer. Do NOT instead lower a threshold, exclude a file, or edit
-> `mutants.toml` — that is a separate check-change, not what "suspended" means.
-
 After implementation is green:
 
 ```bash
@@ -116,28 +121,10 @@ After implementation is green:
 # "unviable" — a false all-green that proves nothing. /home has the space.
 export TMPDIR="$HOME/.cache/cargo-mutants"; mkdir -p "$TMPDIR"
 
-# FAST inner-loop feedback. There are TWO independent scopes — get them right:
-#   --in-diff             scopes WHICH MUTANTS run (only code your diff touches).
-#   --test-workspace=true scopes the TESTS to the WHOLE workspace, so a function
-#                         covered only by a DOWNSTREAM crate's test still gets
-#                         killed instead of falsely surviving.
-# Rule: scope the MUTANTS, never the TESTS. Narrowing the test set is exactly
-# what produces a cross-crate FALSE survivor — a render fn pinned only by a web
-# e2e reads MISSED under per-crate scoping though a real test would catch it.
-# Verified on cargo-mutants 27.1.0 (see memory cargo-mutants-tmpfs-trap). Speed:
-# --profile mutants (debuginfo off, Cargo.toml) + mold (.cargo/config.toml) make
-# each rebuild cheap; the test outcome is unchanged by either.
-cargo mutants --in-diff <(git diff)         --test-workspace=true --profile mutants  # uncommitted
-cargo mutants --in-diff <(git diff main...) --test-workspace=true --profile mutants  # whole branch
-# add -j<N> to parallelise once you trust the timeout headroom (faster, but a
-# contention-slowed mutant can time out, and a timeout scores as killed).
-
-# Per-capability GATE (the authority — scripts/mutation-run.bb): each crate runs
-# with PER-CRATE test scoping ON PURPOSE. A survivor there means the crate is not
-# self-covering — a real signal (file a bead to make it cover its own behavior),
-# NOT noise to paper over with --test-workspace. Different question from the loop
-# above: the gate measures a crate's OWN test strength, per capability.
-scripts/mutation-run.bb --gate 50     # full per-crate run, scored + screamed; --jobs N to speed
+# function-granular incremental scoping via fn-hash (preferred):
+fn-hash --changed-only | sed 's/ :: .*//' | sort -u \
+  | xargs -I{} cargo mutants --file {}
+cargo mutants            # full run: CI on the dev branch / before merge
 ```
 
 If a mutants run ends with "No mutants were viable" or every mutant is
@@ -145,17 +132,19 @@ If a mutants run ends with "No mutants were viable" or every mutant is
 overflow above (check `mutants.out/log/*` for "Disk quota exceeded"). Re-run
 with `TMPDIR` on `/home` before trusting any result.
 
-`--in-diff` reads a unified diff and restricts mutation to the lines it
-touches — finer than per-file and nothing to maintain. One caveat: it sees a
-raw diff, so a pure `cargo fmt` reflow reads as "changed" and re-mutates
-untouched logic; format, commit, then diff to avoid it.
+fn-hash hashes every function over its normalized token stream (so `cargo
+fmt` is not a "change") against the committed `.fn-hashes.jsonl` snapshot,
+and prints only the units that moved. The snapshot advances via the
+pre-commit hook running `fn-hash` — it is NEVER hand-edited (protected
+check infrastructure; faking "unchanged" skips re-mutation of the code you
+just wrote, the canonical evasion).
 
 Two blind spots you must respect, neither excusable as evidence:
-- Diff scoping is an approximation: a change in function A can alter
+- Hash-gated scoping is an approximation: a change in function A can alter
   which mutants in UNCHANGED function B are caught (callers shift which
   paths tests exercise; generics/inlining couple units). Full runs in CI
   remain the proof; scoped runs are fast feedback only.
-- `--in-diff` runs match changes against PRODUCTION code only — a
+- Scoped/`--in-diff` runs match changes against PRODUCTION code only — a
   test-only change triggers zero mutants, so scoped mutation testing cannot
   detect test-weakening. That detection is check-guard.bb's job. Never cite
   a scoped mutants pass as evidence about a test-only change.
@@ -190,7 +179,7 @@ coverage — past that point the only fix is refactoring, by design.
 
 Run it after the mutation pass (see `scripts/quality-gate.bb`).
 
-**Implementation — the kit ships the join** (`templates/crap-report.bb`,
+**Implementation — the kit ships the join** (`scripts/crap-report.bb`,
 field-proven; no dependency on a young third-party scorer). CRAP needs
 per-function coverage × per-function complexity, and no single Rust tool
 emits both:

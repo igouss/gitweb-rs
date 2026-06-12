@@ -80,7 +80,11 @@ placement into a bead:
 
 - **The READ-FIRST conventions bead** — priority 0, deliberately never
   closed. Carries the non-negotiables (architecture, test layers,
-  red→green discipline, banned dependencies). Every other bead links it
+  red→green discipline, banned dependencies) and the **core-innovation
+  tripwires** — the exact `file:field`s that encode the project's
+  reason-for-existing and must never flip, each cross-linked to the gate
+  that enforces it (quality-gates). An amnesiac reads this bead before it
+  can regress the one thing that matters; every other bead links it
   instead of repeating it.
 - **The definition-of-done bead** — defines what "done/parity/accepted"
   *means*: the edge-case matrix, the verification oracle, the tiers.
@@ -158,7 +162,7 @@ Three field-proven mechanisms:
 
 ## Mechanical audit
 
-`templates/tracker-audit.bb [issues.jsonl]` checks the JSONL mirror
+`scripts/tracker-audit.bb [issues.jsonl]` checks the JSONL mirror
 directly (no tracker CLI needed): open epics whose children are all
 closed, closed deferrals whose close-reason cites no bead id (accepts
 short id suffixes — that's how close reasons actually cite), dangling

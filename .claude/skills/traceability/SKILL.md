@@ -22,7 +22,7 @@ else must change — instead of archaeology.
 
 ## The audit
 
-Run `templates/trace-audit.bb` (copy it to `scripts/` in the project).
+Run `scripts/trace-audit.bb` (copy it to `scripts/` in the project).
 It checks both directions:
 
 - **Orphan requirement**: a `specs/REQ-*.md` whose ID appears in no test.

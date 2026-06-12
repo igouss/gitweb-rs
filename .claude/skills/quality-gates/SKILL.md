@@ -41,6 +41,13 @@ red.** Consequences:
   trail: "bypass with --no-verify *and file a bead explaining why*."
 - When silently-accumulated debt is discovered: a dedicated Step 0 cleanup
   commit *before* the real work, never mixed into it.
+- **A gate that has never failed is untested — prove it can go red.** A
+  verify script self-tests by injecting a known regression and asserting
+  the gate catches it (frankensqlite ships exactly this as step 2 of
+  `verify_backlog_quality_gate.sh`, across ~122 `verify_<bead>.sh` scripts).
+  "Fired" and "can fail" are *different* vacuities: a gate can run on every
+  commit and still be toothless if no input makes it red. Both must be
+  shown — that it ran, and that it bites.
 
 ## The three-tier latency topology
 
@@ -94,6 +101,28 @@ be an orchestrator. Two responses, use both:
   metadata label turns it into a passing lint. "The role tag is
   decoration unless CI enforces it" — and even enforced, it only proves
   the consequence.
+
+## The core-innovation tripwire — gate the one invariant that is the point
+
+Every project has one decision that is its reason for existing — the line
+that, quietly reverted, deletes the point of the work. An amnesiac session
+cannot be trusted to know which line that is, so name it mechanically: the
+exact `file:field` (or symbol), the forbidden value, and a top-priority
+gate that fails the build the moment it flips. Field incident: an agent
+flipped `concurrent_mode_default = false` and reimplemented the serialized
+locking the project existed to *replace* — an emergency session to revert
+(frankensqlite `AGENTS.md:263-285`, since pinned as invariant `INV-C1`).
+Cheapest insurance against the most expensive regression:
+
+- One gate, highest priority, asserting the load-bearing value has NOT
+  changed (`concurrent_mode_default == true`; the domain crate stays
+  `#![forbid(unsafe_code)]`; whatever the actual point is).
+- It fails LOUDLY with the why (gate-failure UX, below): "this is the
+  project's reason for existing — changing it is an ADR and a human
+  decision, not a default flip," never a bare exit 1.
+- It is *also* recorded where the amnesiac reads first — the READ-FIRST
+  conventions bead (tracker-discipline) — so the constraint is seen before
+  the gate is hit, not only after.
 
 ## Exception files (grandfathered debt) — self-emptying or lying
 

@@ -46,9 +46,7 @@ simplest first.
 3. **REFACTOR** — mandatory, on green only, every cycle (it may legitimately
    conclude "nothing to do", but you must look). See below.
 4. Next test. When the scenario list and candidate laws are exhausted,
-   proceed to mutation testing (verification-ratchet, Layer 3) — **SUSPENDED
-   as of 2026-06-10 per CLAUDE.md "Order of work" step 4; skip it for now and
-   go straight to the quality gate (Layer 4).**
+   proceed to mutation testing (verification-ratchet, Layer 3).
 
 ## RED in a compiled language — stub wrong-but-valid, never todo!()
 

@@ -160,6 +160,31 @@ panic, never skip.
   they prove parity, not internal design; zones 1–4 still carry the
   unit/property/contract load.
 
+## No reference? Manufacture the oracle (greenfield)
+
+The golden-master pattern above needs an external reference to capture.
+Most greenfield work has none — there is no "original," and your own
+golden files are only as correct as the run that produced them, so a
+captured golden cannot be the source of truth the way a port's can. The
+oracle is *manufactured*, not captured:
+
+- **Behavioral correctness comes from Zone-1 properties**
+  (verification-ratchet Layer 2): metamorphic relations and round-trips
+  need no known answer, and a self-written slow-obviously-correct model is
+  your reference when a requirement pins an exact one — the substitute for
+  the reference implementation a port would diff against.
+- **The agent's *structural* reference is the walking-skeleton template
+  slice + the type system** (slice-workflow, session-lifecycle), not an
+  external truth. A new slice is pattern-matched against the worked example
+  and constrained by the types; "what does correct look like" is answered
+  by the canonical slice, not a reference binary.
+
+Reach for golden-parity only when a real external reference exists;
+otherwise correctness is carried by types, properties, and the template
+slice. A golden captured from your own first run is a regression pin
+(it catches *change*), never a correctness oracle (it cannot catch a
+first-run bug) — do not confuse the two.
+
 ## Vacuous green — tests that pass without running
 
 A suite can be green because nothing ran. Field incident: 11 smoke tests
