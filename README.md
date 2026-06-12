@@ -92,7 +92,7 @@ curl -s 'http://127.0.0.1:8080/?p=linux.git&a=atom'
 curl -sL 'http://127.0.0.1:8080/?p=linux.git&a=snapshot&h=HEAD&sf=tgz' -o linux-HEAD.tar.gz
 ```
 
-URLs follow gitweb's `?p=<repo>&a=<action>&h=<ref>` query form (plus the `PATH_INFO` form when enabled). One deliberate divergence: parameters are separated by `&` only — gitweb's `CGI.pm` also accepts `;`, gitweb-rs does not. Bookmarks using `&` keep working; rewrite any that use `;`.
+URLs follow gitweb's `?p=<repo>&a=<action>&h=<ref>` query form (plus the `PATH_INFO` form when enabled). Parameters may be separated by `&` or `;`, exactly as gitweb's `CGI.pm` accepts both.
 
 ---
 
