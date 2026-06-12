@@ -1,9 +1,22 @@
 # Spec & Verification Policy (merge into project CLAUDE.md)
 
-**Mode B project:** the `.feature` files ARE the spec. No `specs/REQ-*.md`, no
-REQ IDs, no `// REQ-` comments. Read "requirement"/"REQ ID"/"spec" below as the
-`.feature` scenario. `trace-audit`'s REQ checks are off by default
-(`REQ_ID_CHECKS=1` re-enables).
+**Mode B project (port/parity).** The `.feature` files ARE the spec. There are
+no `specs/REQ-*.md`, no REQ IDs, no `// REQ-` comments. Wherever this file or any
+skill says "requirement", "REQ ID", or "spec", read it as **the `.feature`
+scenario** (feature + scenario name IS the requirement). `trace-audit`'s REQ-ID
+checks are OFF by default (`REQ_ID_CHECKS=1` re-enables Mode A); the Stop hook
+omits trace-audit for the same reason. This is a gitweb→Rust **port**, so the
+real EXTERNAL reference (`gitweb.perl`) exists and `golden-parity` is a primary
+mode here — not the rare exception the generic kit assumes.
+
+**Mutation testing is MANUAL here (human-authorized).** Agents do NOT run
+`cargo mutants` and do NOT block work on a mutation pass; the human runs it out
+of band (`scripts/mutation-run.bb`). The test suite is the agent's source of
+truth. Wherever a skill or a step below says "run cargo-mutants", that is the
+human's job — the mutant-triage rules apply only when the human surfaces a
+surviving mutant. Do not lower a threshold, exclude a file, or edit
+`mutants.toml`/`.fn-hashes.jsonl` on your own authority: making mutation manual
+was a human decision, and changing it is another one.
 
 ## The check-modification boundary (non-negotiable)
 
@@ -15,7 +28,8 @@ You may NEVER make a check pass by changing the check.
 - Adding `#[ignore]`, `#[cfg(never)]`, or skipping a test in any way —
   with exactly ONE sanctioned exception: a slice's acceptance test marked
   `#[ignore = "WIP(REQ-<AREA>-<NNN>)"]` per the slice-workflow skill (the token
-  is just a slice label in Mode B; check-guard requires this exact form)
+  is just a slice label in Mode B — there are no REQ IDs; check-guard requires
+  this exact literal form and the audits fail it if stale)
 - Loosening an assertion (`assert_eq!` → `assert!`, exact value → range, etc.)
 - Narrowing a property test's input strategy to dodge a failing case
 - Adding a failing input to a "known exceptions" list
@@ -28,9 +42,10 @@ You may NEVER make a check pass by changing the check.
 - Replacing the unit under test with a mock/stub of itself
 - Deleting or editing entries in `proptest-regressions/` (these are
   append-only archives of known counterexamples)
-- Adding entries to `hex-lint-exceptions.toml` (the architectural-debt
-  ledger) to dodge a role-matrix violation — every entry is a check-change,
-  and stale entries fail the lint on their own
+- Hand-editing `.fn-hashes.jsonl` (the mutation-scoping snapshot) or adding
+  entries to `hex-lint-exceptions.toml` — the snapshot is regenerated only
+  by running `fn-hash`; faking a function as "unchanged" skips its
+  re-mutation, which is precisely the evasion this list exists to name
 - Regenerating or editing golden/conformance files to make a failing parity
   test pass — re-blessing output redefines "correct" and is always a
   check-change (testing-strategy: golden-master rules)
@@ -44,18 +59,58 @@ human: which check, why you believe it is wrong, what you propose instead.
 A check change is always a separate, human-approved commit — never bundled
 into a feature or fix commit.
 
+## Skills — load the right one for the situation
+
+These rules are the summary; each skill is the depth. The moment you hit a
+skill's situation, LOAD it — do not work from this snippet's paraphrase when
+the skill itself applies. `session-lifecycle` loads FIRST, every session and
+after every compaction, before anything below.
+
+This is a **port** of `gitweb.perl`, so unlike the generic greenfield kit a real
+EXTERNAL reference DOES exist: correctness here is largely *captured* by diffing
+against gitweb, and `golden-parity` is a primary, everyday skill — not the rare
+exception. Where gitweb leaves behavior unspecified or where we deliberately
+diverge, correctness is *manufactured* instead — types, properties, determinism,
+fail-closed boundaries — and `rust-fail-closed-hardening` +
+`rust-determinism-engineering` + `verification-ratchet` carry it.
+
+| When you are… | Load |
+|---|---|
+| starting or ending a session, or just got compacted | `session-lifecycle` |
+| writing or changing a requirement; implementing behavior that has no spec | `spec-authoring` |
+| deciding WHAT kind of test code needs (example vs property vs contract vs integration) | `testing-strategy` |
+| implementing a requirement (red/green/refactor); stuck and tempted to rewrite | `tdd-cycle` |
+| one requirement spans domain→port→adapter→use-case→web in a single slice | `slice-workflow` |
+| writing tests, deriving properties from candidate laws, running `cargo-mutants`, or at the CRAP gate | `verification-ratchet` |
+| constructing a type with invariants, validating untrusted/numeric input, building subprocess argv, sharing state behind a lock, or writing a predicate that gates a release/admission decision | `rust-fail-closed-hardening` |
+| writing golden/snapshot tests, making output byte-stable across runs/machines, or chasing a flaky test | `rust-determinism-engineering` |
+| building a differential harness against a real EXTERNAL reference (port / rewrite / legacy) | `golden-parity` |
+| auditing requirement↔test links, or before changing/deleting a requirement | `traceability` |
+| before or after an architectural, modelling, or dependency decision | `adr-discipline` |
+| creating/decomposing/closing/blocking a bead, or about to say "deferred / out of scope / follow-up" | `tracker-discipline` |
+| designing or debugging gate infrastructure (hooks, lint matrix, exception files, complexity/Stop gates) | `quality-gates` |
+| doing systematic structural repair across files/crates (audit→epic→slices) — not a one-function refactor | `refactoring-campaign` |
+| deciding whether to persist a lesson, or writing/correcting agent memory | `memory-discipline` |
+
 ## Traceability (every test has a reason to exist)
 
 - Every behavior is pinned by a `.feature` scenario; the feature + scenario name
-  IS the requirement.
+  IS the requirement. No `specs/REQ-*.md`, no REQ IDs, no `// REQ-` comments.
 - No test for behavior no scenario describes: write the scenario first (skill:
   spec-authoring), watch it fail, then the code.
-- No scenario nothing executes. Plain `#[test]` helpers trace via their module.
+- No scenario that nothing executes. Plain `#[test]` helpers trace via their
+  module's `.feature` suite.
+- Before changing a behavior: change its `.feature` scenario and the code
+  together, in the same commit.
 
 ## Order of work for any new behavior
 
 1. Spec the behavior as a `.feature` scenario (skill: spec-authoring).
-2. Types first: make illegal states unrepresentable before writing logic.
+2. Types first: make illegal states unrepresentable before writing logic
+   (skill: verification-ratchet Layer 0). With no oracle to catch a
+   wrong-but-non-crashing value, also close the value-level traps types miss —
+   pub-field bypass, NaN-poison, clamp-after-overflow, fail-open
+   (skill: rust-fail-closed-hardening).
 3. Implement via red/green/refactor (skill: tdd-cycle), under the Three Laws:
    - No production code except to pass a failing test; at most ONE failing
      test in existence at a time; no more code than the test forces.
@@ -64,23 +119,15 @@ into a feature or fix commit.
    - GREEN: minimum code to pass; all tests green.
    - REFACTOR: mandatory every cycle, on green only, tests untouched.
      Commit on green.
-4. **Mutation testing — SUSPENDED as of 2026-06-10 (human-authorized).**
-   Do not run `cargo mutants` and do not block work on a mutation pass for
-   now. Steps 1–3 (spec → types → red/green/refactor) and steps 5–6 (quality
-   gate, ADR) remain in force; the test suite is still the source of truth.
-   When the suspension is lifted, restore the obligation below verbatim:
-   > `cargo mutants` scoped to your diff — fast and false-survivor-free:
-   > `cargo mutants --in-diff <(git diff) --test-workspace=true --profile mutants`.
-   > `--in-diff` scopes the MUTANTS to your change; `--test-workspace=true` runs
-   > the whole suite so a fn covered only by a downstream crate still gets killed
-   > (scope the mutants, never the tests); `--profile mutants` (debuginfo off) +
-   > mold build each mutant cheaply. Triage every surviving mutant (skill:
-   > verification-ratchet). Surviving mutants are reported, never hidden. Diff
-   > scoping is an approximation — full runs in CI remain the proof. ALWAYS run
-   > cargo-mutants with `TMPDIR=$HOME/.cache/cargo-mutants` (the default `/tmp` is
-   > a 16 GB tmpfs; cargo-mutants copies the whole `target/` per mutant and
-   > overflows it, reporting every mutant "unviable" — a false green). See
-   > verification-ratchet.
+4. **Mutation testing — MANUAL (human-authorized).** Do NOT run `cargo mutants`
+   and do NOT block work on a mutation pass; the human runs it out of band
+   (`scripts/mutation-run.bb`, scoped via `fn-hash --changed-only`). Steps 1–3
+   and steps 5–6 remain in force; the test suite is the agent's source of truth.
+   When the human surfaces a surviving mutant, triage it per the rules below and
+   in verification-ratchet. (For reference, the human's invocation needs
+   `TMPDIR=$HOME/.cache/cargo-mutants` — the default `/tmp` is a 16 GB tmpfs and
+   cargo-mutants copies the whole `target/` per mutant, overflowing it and
+   reporting every mutant "unviable", a false green.)
 5. Quality gate: hex-lint clean (role matrix), no changed function over
    CRAP 30. Over-threshold functions are refactored or reported — never
    accepted silently and never gamed via coverage padding
@@ -119,6 +166,113 @@ build on red, or your failures and the previous session's become
 indistinguishable. Never run interactive/TUI commands or watch modes; use
 non-interactive flags (`--json`, `--no-pager`) or report the tool as
 unusable.
+
+## Evidence discipline (claims require receipts)
+
+- Never state that tests pass, a mutant is killed, a gate is green, or a
+  build succeeds unless you ran the command IN THIS SESSION and saw the
+  output. "Should pass" is not "passes".
+- When declaring a step done, show the evidence: the command and the
+  relevant tail of its output (test count, mutant summary, gate result).
+- A RED step requires showing the failure output and confirming it failed
+  for the expected reason — a test you never saw fail is not evidence.
+- If a command was not run (timeout, environment problem), say exactly that.
+  An honest "could not verify" is acceptable; a fabricated "verified" is the
+  single worst thing you can do in this codebase.
+
+## Scope discipline
+
+- Touch only files the current requirement forces you to touch. No drive-by
+  refactors, renames, dependency bumps, or "while I'm here" cleanups outside
+  the REFACTOR step of the code you are working on — file them instead
+  (see: Structural improvements, below). Discovery is encouraged; silent
+  scope creep is not.
+- If implementing REQ-X reveals a bug or gap elsewhere: report it, propose a
+  requirement, do not silently fix it in the same change.
+- Diff size is a review burden you impose on the human. Prefer several small
+  green commits over one large one; the commit history should replay the
+  red/green/refactor sequence.
+
+## Session lifecycle (first and last steps are mandatory)
+
+- START of session and after any compaction: run the orientation protocol
+  (skill: session-lifecycle). Read this file, check git state, read
+  HANDOFF.md and the assigned bead, state which `.feature` you're working on.
+  Do not rely on a summary's paraphrase of these rules.
+- END of session: handoff protocol (skill: session-lifecycle). Never end
+  mid-red; gates green; bead updated; HANDOFF.md rewritten with the exact
+  next test. Anything not committed to the repo does not exist tomorrow.
+- Beads specify WHAT, never HOW. A bead references the `.feature` it delivers
+  and gives context; implementation decisions belong to the session doing the
+  work, inside the constraints of the feature specs and ADRs.
+
+## Project conventions (mechanically enforced where possible)
+
+- Hexagonal architecture, ECB flavor: Entities hold business logic,
+  Controls implement use cases via ports, Boundaries are adapters
+  (API, CLI, DB). All dependencies point inward. No framework types in
+  the domain. This is MECHANICALLY enforced by hex-lint: every workspace
+  member carries `[package.metadata.hex-arch] role = "..."` (domain,
+  usecase, port-and-adapter, driven-adapter, driving-adapter, infra,
+  composition-root) and the gate fails on any forbidden cross-role edge.
+  A missing role tag is a hard error. Adding an entry to
+  `hex-lint-exceptions.toml` is a check-change: standalone commit, human
+  approval — and stale exceptions fail the lint on their own, so debt
+  cannot be papered over and forgotten.
+- Screaming architecture: organize modules by business capability, not by
+  technical layer. The capability, the bounded context, and the module
+  directory share a name — a `pricing` capability's `.feature` files and code
+  live under a `pricing` module. If you can't tell what the system does from
+  `ls`, the structure is wrong.
+- `#![forbid(unsafe_code)]` in every domain and application crate. If a
+  boundary crate genuinely needs `unsafe` (embedded HAL, FFI), that is an
+  ADR with human approval — never a quiet `#[allow]`.
+- Tests have cyclomatic complexity 1: straight-line bodies, no loops, no
+  branches. Case coverage follows zero/one/many — and two counts as many.
+  A loop over a table in a test is either separate test functions, rstest
+  cases, or a property. A branch in a test means you don't know what the
+  test asserts.
+- Explicit type annotations on variables and closure parameters. The type
+  system is a spec; make it visible at the point of use.
+- Commits: scoped style, `<scope>: <description>` — scope is the
+  capability/module touched, not a generic type. When a tracker is in use, the
+  message ends with the bead/work-item id — commit ↔ bead ↔ `.feature` is the
+  traceability triangle. `check-change:` is the reserved scope for
+  human-approved check modifications (check-guard enforces it).
+
+## Structural improvements (the senior-dev override, bounded)
+
+When you find flawed architecture, duplicated state, or inconsistent
+patterns, you do not ignore it and you do not silently fix it. The rule:
+
+- Inside the code you are already changing for the current REQ: fix it in
+  the REFACTOR step, as its own scoped commit. That's what the step is for.
+- Outside the current REQ's blast radius: file it — a bead (and a spec
+  revision or ADR proposal if it's structural). Filing aggressively is
+  mandatory; fixing opportunistically is forbidden. A "senior dev" who
+  bundles an unrelated restructuring into a feature diff gets the whole
+  diff rejected, and so do you.
+- Step 0 rule: before any structural refactor of a file >300 LOC, first
+  strip dead code — unused imports/exports, dead props, debug logs — as a
+  separate commit. Dead code poisons context compaction and inflates every
+  diff; clean the lens before grinding it.
+
+## Mutation testing outcomes (the only allowed responses)
+
+Mutation is MANUAL here (see the header): the human runs it. When the human
+surfaces a surviving mutant, for each one exactly one of:
+- **Strengthen**: add/extend a test (pinned by a `.feature` scenario) that
+  kills it.
+- **Report**: tell the human "this mutant survives because the spec does not
+  constrain this behavior — should it?" and wait.
+Never: exclude the file, lower the threshold, or declare it unimportant
+on your own authority.
+
+## ADRs are settled law
+
+Before proposing any architectural or modelling change, search `docs/adr/`.
+If an accepted ADR already covers it, do not relitigate — surface the ADR to
+the human and proceed within it unless the human supersedes it.
 
 ## Running tests (how to read the result)
 
@@ -186,118 +340,6 @@ failure, `/tmp/cargo-test.log` holds the unfiltered output to drill into.
 Cucumber suites load their `.feature` files by a path relative to the crate root
 (`SomeWorld::run("features/<x>")`); `cargo test` sets CWD to the package dir, so
 always invoke them through cargo — never the bare binary from another directory.
-
-## Evidence discipline (claims require receipts)
-
-- Never state that tests pass, a mutant is killed, a gate is green, or a
-  build succeeds unless you ran the command IN THIS SESSION and saw the
-  output. "Should pass" is not "passes".
-- When declaring a step done, show the evidence: the command and the
-  relevant tail of its output (test count, mutant summary, gate result).
-- A RED step requires showing the failure output and confirming it failed
-  for the expected reason — a test you never saw fail is not evidence.
-- If a command was not run (timeout, environment problem), say exactly that.
-  An honest "could not verify" is acceptable; a fabricated "verified" is the
-  single worst thing you can do in this codebase.
-
-## Scope discipline
-
-- Touch only files the current requirement forces you to touch. No drive-by
-  refactors, renames, dependency bumps, or "while I'm here" cleanups outside
-  the REFACTOR step of the code you are working on — file them instead
-  (see: Structural improvements, below). Discovery is encouraged; silent
-  scope creep is not.
-- If implementing REQ-X reveals a bug or gap elsewhere: report it, propose a
-  requirement, do not silently fix it in the same change.
-- Diff size is a review burden you impose on the human. Prefer several small
-  green commits over one large one; the commit history should replay the
-  red/green/refactor sequence.
-
-## Session lifecycle (first and last steps are mandatory)
-
-- START of session and after any compaction: run the orientation protocol
-  (skill: session-lifecycle). Read this file, check git state, read
-  HANDOFF.md and the assigned bead, state which `.feature` you're working on.
-  Do not rely on a summary's paraphrase of these rules.
-- END of session: handoff protocol (skill: session-lifecycle). Never end
-  mid-red; gates green; bead updated; HANDOFF.md rewritten with the exact
-  next test. Anything not committed to the repo does not exist tomorrow.
-- Beads specify WHAT, never HOW. A bead references the `.feature` it delivers
-  and gives context; implementation decisions belong to the session doing the
-  work, inside the constraints of the feature specs and ADRs.
-
-## Project conventions (mechanically enforced where possible)
-
-- Hexagonal architecture, ECB flavor: Entities hold business logic,
-  Controls implement use cases via ports, Boundaries are adapters
-  (API, CLI, DB). All dependencies point inward. No framework types in
-  the domain. This is MECHANICALLY enforced by hex-lint: every workspace
-  member carries `[package.metadata.hex-arch] role = "..."` (domain,
-  usecase, port-and-adapter, driven-adapter, driving-adapter, infra,
-  composition-root) and the gate fails on any forbidden cross-role edge.
-  A missing role tag is a hard error. Adding an entry to
-  `hex-lint-exceptions.toml` is a check-change: standalone commit, human
-  approval — and stale exceptions fail the lint on their own, so debt
-  cannot be papered over and forgotten.
-- Screaming architecture: organize modules by business capability, not by
-  technical layer. The capability, bounded context, and module directory share
-  a name — `pricing` features and code live under a `pricing` module. If you
-  can't tell what the system does from `ls`, the structure is wrong.
-- `#![forbid(unsafe_code)]` in every domain and application crate. If a
-  boundary crate genuinely needs `unsafe` (embedded HAL, FFI), that is an
-  ADR with human approval — never a quiet `#[allow]`.
-- Tests have cyclomatic complexity 1: straight-line bodies, no loops, no
-  branches. Case coverage follows zero/one/many — and two counts as many.
-  A loop over a table in a test is either separate test functions, rstest
-  cases, or a property. A branch in a test means you don't know what the
-  test asserts.
-- Explicit type annotations on variables and closure parameters. The type
-  system is a spec; make it visible at the point of use.
-- Commits: scoped style, `<scope>: <description>` — scope is the
-  capability/module touched, not a generic type. When a tracker is in use, the
-  message ends with the bead/work-item id — commit ↔ bead ↔ `.feature` is the
-  traceability triangle. `check-change:` is the reserved scope for
-  human-approved check modifications (check-guard enforces it).
-
-## Structural improvements (the senior-dev override, bounded)
-
-When you find flawed architecture, duplicated state, or inconsistent
-patterns, you do not ignore it and you do not silently fix it. The rule:
-
-- Inside the code you are already changing for the current REQ: fix it in
-  the REFACTOR step, as its own scoped commit. That's what the step is for.
-- Outside the current REQ's blast radius: file it — a bead (and a spec
-  revision or ADR proposal if it's structural). Filing aggressively is
-  mandatory; fixing opportunistically is forbidden. A "senior dev" who
-  bundles an unrelated restructuring into a feature diff gets the whole
-  diff rejected, and so do you.
-- Step 0 rule: before any structural refactor of a file >300 LOC, first
-  strip dead code — unused imports/exports, dead props, debug logs — as a
-  separate commit. Dead code poisons context compaction and inflates every
-  diff; clean the lens before grinding it.
-
-## Mutation testing outcomes (the only allowed responses)
-
-> **SUSPENDED as of 2026-06-10 (human-authorized).** Mutation testing is
-> turned off for now — do not run `cargo mutants`, so there are no surviving
-> mutants to triage. The rules below apply unchanged once the suspension in
-> "Order of work" step 4 is lifted. The check-modification boundary still
-> stands: do NOT lower a threshold, exclude a file, or edit `mutants.toml` on
-> your own authority — suspending mutation testing was a human decision, and
-> re-enabling or further weakening it is another one.
-
-For each surviving mutant, exactly one of:
-- **Strengthen**: add/extend a test that kills it.
-- **Report**: tell the human "this mutant survives because the spec does not
-  constrain this behavior — should it?" and wait.
-Never: exclude the file, lower the threshold, or declare it unimportant
-on your own authority.
-
-## ADRs are settled law
-
-Before proposing any architectural or modelling change, search `docs/adr/`.
-If an accepted ADR already covers it, do not relitigate — surface the ADR to
-the human and proceed within it unless the human supersedes it.
 
 <!-- bv-agent-instructions-v2 -->
 
